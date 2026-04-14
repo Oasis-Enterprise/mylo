@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mylo.conversation.manager import ConversationManager
-from mylo.llm.provider import Provider, ProviderMessage, ToolCall
+from mylo.llm.provider import Provider, ProviderMessage
 from mylo.logging_setup import get_logger
 from mylo.tools.context import ToolContext
 from mylo.tools.executor import execute
@@ -114,9 +114,14 @@ async def run_turn(
         if not response.tool_calls:
             break
 
-        tool_results = await _execute_tools(response.tool_calls, ctx)
-        for call, envelope in zip(response.tool_calls, tool_results, strict=True):
+        # Emit each ToolCallEvent *before* executing, so the user sees what
+        # the agent is reaching for during slow tool runs. Emit the
+        # ToolResultEvent immediately after each call completes.
+        tool_results: list[dict[str, Any]] = []
+        for call in response.tool_calls:
             yield ToolCallEvent(name=call.name, input=call.input, id=call.id)
+            envelope = (await execute(call.name, call.input, ctx)).to_dict()
+            tool_results.append(envelope)
             yield ToolResultEvent(
                 name=call.name,
                 id=call.id,
@@ -139,15 +144,3 @@ async def run_turn(
         log.warning("llm.tool_loop.max_iterations_hit", iterations=max_iterations)
 
     yield DoneEvent(stop_reason=stop_reason, usage=usage_total)
-
-
-async def _execute_tools(calls: list[ToolCall], ctx: ToolContext) -> list[dict[str, Any]]:
-    """Run each tool call in order through the executor and return the
-    list of ToolResult.to_dict() envelopes. Serial on purpose — concurrent
-    mutation would complicate audit ordering and the model doesn't benefit.
-    """
-    out: list[dict[str, Any]] = []
-    for call in calls:
-        result = await execute(call.name, call.input, ctx)
-        out.append(result.to_dict())
-    return out
