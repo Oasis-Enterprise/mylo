@@ -28,6 +28,6 @@ RUN pip install --no-cache-dir . \
     && apk del .build-deps
 
 # s6-overlay service wiring (base image provides s6).
-COPY addon/rootfs /
+COPY rootfs /
 
 CMD ["/init"]

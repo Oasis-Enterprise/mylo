@@ -17,19 +17,19 @@ mylo/
 ├── IMPLEMENTATION_PLAN.md           # this file
 ├── MYLO_SPEC.md                     # the spec
 │
-├── addon/                           # HA add-on packaging (what HACS ships)
-│   ├── config.yaml                  # add-on manifest: options schema, ports, panel
-│   ├── Dockerfile                   # multi-stage: build UI, install python, runtime
-│   ├── build.yaml                   # HA Supervisor build metadata (arch map)
-│   ├── rootfs/                      # s6-overlay scripts, nginx config
-│   │   ├── etc/services.d/mylo/run
-│   │   ├── etc/services.d/mylo/finish
-│   │   └── etc/nginx/nginx.conf     # serves UI + proxies to python app
-│   ├── icon.png
-│   ├── logo.png
-│   └── translations/en.yaml
-│
-├── repository.yaml                  # HACS repository manifest (at repo root)
+# Single-add-on layout: HA Supervisor treats the repo root as the add-on
+# directory and uses it as the Docker build context. Manifest + Dockerfile
+# live at root so the Dockerfile can reach src/ and pyproject.toml directly.
+├── config.yaml                      # add-on manifest: options schema, ingress, panel
+├── Dockerfile                       # multi-stage: build UI, install python, runtime
+├── build.yaml                       # HA Supervisor build metadata (arch map)
+├── rootfs/                          # s6-overlay scripts
+│   └── etc/services.d/mylo/
+│       ├── run
+│       └── finish
+├── translations/en.yaml
+├── icon.png                         # (add later)
+├── logo.png                         # (add later)
 │
 ├── src/mylo/                        # python package (installed in container)
 │   ├── __init__.py
