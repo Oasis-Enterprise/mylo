@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 4a — LLM loop + CLI chat.**
+  - `llm.provider` — minimal Provider protocol (one `message()` call
+    returning a `ProviderResponse` with text + tool_calls + stop_reason +
+    usage). Anthropic-shaped content blocks throughout.
+  - `llm.anthropic_provider` — Claude SDK integration using
+    `messages.create` (non-streaming; streaming lands with the UI in M5).
+  - `llm.tool_loop.run_turn` — async iterator yielding `TextEvent` /
+    `ToolCallEvent` / `ToolResultEvent` / `DoneEvent`. Handles the
+    "call tools, feed results back, repeat" dance with a safety bound
+    on iterations.
+  - `conversation.storage` — SQLite-backed conversation log with monthly
+    rollover, `user_id` and `prompt_version` columns from day one.
+  - `conversation.manager` — thin in-memory wrapper that hydrates from
+    storage and flushes each turn immediately.
+  - `data/system_prompt.txt` (v0.1.0) and `data/PROMPT_CHANGELOG.md` —
+    versioned prompt artifact per the plan's versioning fix.
+  - `python -m mylo.scripts.chat` — interactive REPL. Slash commands for
+    `/clear`, `/history`, `/usage`, `/quit`. Per-turn token usage
+    surfaces so cost is visible.
+  - Six new unit tests covering the tool loop with a scripted fake
+    provider — text-only turns, tool-use turns, error-passthrough,
+    max_iterations safety bound, storage hydration, usage aggregation.
+
 - **Milestone 3 — Safety & audit.**
   - `safety.sanitizer` — prompt-injection defense with 15+ regex patterns
     and per-field length limits. Suspicious values are replaced with

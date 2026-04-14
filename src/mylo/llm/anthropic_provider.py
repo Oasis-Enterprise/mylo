@@ -1,0 +1,69 @@
+"""Anthropic Provider implementation.
+
+Uses the async SDK's non-streaming ``messages.create``. Streaming is a
+polish concern for the UI (M5); the CLI doesn't need it yet, and avoiding
+streaming keeps the tool loop a straightforward sequence of turns.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from anthropic import AsyncAnthropic
+
+from mylo.llm.provider import ProviderMessage, ProviderResponse, ToolCall
+
+
+class AnthropicProvider:
+    def __init__(self, api_key: str) -> None:
+        self._client = AsyncAnthropic(api_key=api_key)
+
+    async def message(
+        self,
+        *,
+        system: str,
+        messages: list[ProviderMessage],
+        tools: list[dict[str, Any]],
+        model: str,
+        max_tokens: int = 4096,
+    ) -> ProviderResponse:
+        # The SDK accepts plain dicts for messages/tools at runtime; the
+        # TypedDicts above describe the same shape. mypy isn't thrilled
+        # about the structural equivalence, so we pass through raw.
+        response = await self._client.messages.create(
+            model=model,
+            system=system,
+            messages=messages,  # type: ignore[arg-type]
+            tools=tools,  # type: ignore[arg-type]
+            max_tokens=max_tokens,
+        )
+
+        content_blocks: list[dict[str, Any]] = []
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+
+        for block in response.content:
+            as_dict = block.model_dump()
+            content_blocks.append(as_dict)
+            if block.type == "text":
+                text_parts.append(block.text)
+            elif block.type == "tool_use":
+                raw_input = block.input if isinstance(block.input, dict) else {}
+                tool_calls.append(
+                    ToolCall(id=block.id, name=block.name, input=raw_input)
+                )
+
+        usage: dict[str, int] = {}
+        if response.usage is not None:
+            usage = {
+                "input_tokens": response.usage.input_tokens,
+                "output_tokens": response.usage.output_tokens,
+            }
+
+        return ProviderResponse(
+            content_blocks=content_blocks,
+            text="\n".join(text_parts),
+            tool_calls=tool_calls,
+            stop_reason=response.stop_reason or "",
+            usage=usage,
+        )
