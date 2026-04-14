@@ -1,0 +1,55 @@
+# Home Assistant add-on manifest.
+# Docs: https://developers.home-assistant.io/docs/add-ons/configuration
+name: Mylo
+version: "0.1.0"
+slug: mylo
+description: AI agent that lives inside Home Assistant — deep context, memory, and safe config editing.
+url: https://github.com/maxwelloasis/mylo
+arch:
+  - aarch64
+  - amd64
+  - armv7
+startup: services
+boot: auto
+init: false
+hassio_api: true
+homeassistant_api: true
+hassio_role: manager
+host_network: false
+
+# The add-on speaks to HA core via the Supervisor proxy using this token.
+# No ports are exposed — the UI is reached via Ingress only.
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:brain
+panel_title: Mylo
+
+map:
+  - config:rw
+  - share:rw
+
+options:
+  api_key: ""
+  llm_provider: anthropic
+  model: claude-sonnet-4-6
+  reconciliation_model: claude-haiku-4-5-20251001
+  sync_frequency: nightly
+  memory_token_limit: 8000
+  proactive_notifications: true
+  max_daily_notifications: 3
+  quiet_hours_start: "22:00"
+  quiet_hours_end: "07:00"
+  log_level: INFO
+
+schema:
+  api_key: password
+  llm_provider: list(anthropic|openai|ollama)
+  model: str
+  reconciliation_model: str
+  sync_frequency: list(nightly|weekly|manual)
+  memory_token_limit: int(1000,64000)
+  proactive_notifications: bool
+  max_daily_notifications: int(0,20)
+  quiet_hours_start: match(^([01]\d|2[0-3]):[0-5]\d$)
+  quiet_hours_end: match(^([01]\d|2[0-3]):[0-5]\d$)
+  log_level: list(DEBUG|INFO|WARNING|ERROR)

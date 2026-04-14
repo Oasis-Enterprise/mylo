@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python — lint, typecheck, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff (lint)
+        run: ruff check src tests
+
+      - name: Ruff (format check)
+        run: ruff format --check src tests
+
+      - name: Mypy
+        run: mypy
+
+      - name: Pytest (unit)
+        run: pytest tests/unit
+
+      - name: Smoke run
+        env:
+          MYLO_OPTIONS_FILE: /tmp/nonexistent.json
+          MYLO_CONFIG_DIR: /tmp/mylo-ci
+        run: python -m mylo
+
+  addon-lint:
+    name: Add-on manifest lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint add-on config
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: ./addon

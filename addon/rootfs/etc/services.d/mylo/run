@@ -1,0 +1,11 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# Start Mylo
+# ==============================================================================
+set -eu
+
+export MYLO_LOG_LEVEL="$(bashio::config 'log_level' 'INFO')"
+
+bashio::log.info "Starting Mylo..."
+
+exec python -m mylo

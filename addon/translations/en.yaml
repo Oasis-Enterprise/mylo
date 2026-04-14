@@ -1,0 +1,38 @@
+configuration:
+  api_key:
+    name: Anthropic API Key
+    description: >-
+      Your Anthropic API key. BYOK — Mylo uses your key directly, nothing is
+      proxied through Oasis Enterprise servers.
+  llm_provider:
+    name: LLM Provider
+    description: Which model provider to use. Only `anthropic` is supported in v1.
+  model:
+    name: Conversation Model
+    description: Model used for conversations. Default is Claude Sonnet 4.6.
+  reconciliation_model:
+    name: Reconciliation Model
+    description: >-
+      Model used for nightly memory reconciliation. Default is Claude Haiku —
+      faster and cheaper since this is structured YAML merging.
+  sync_frequency:
+    name: Memory Sync Frequency
+    description: How often Mylo reconciles conversation notes into its memory file.
+  memory_token_limit:
+    name: Memory Token Limit
+    description: Soft cap on the context file size. Mylo prompts to prune above 80%.
+  proactive_notifications:
+    name: Proactive Notifications
+    description: Allow Mylo to send persistent notifications when it notices something.
+  max_daily_notifications:
+    name: Max Daily Notifications
+    description: Cap on proactive notifications per day.
+  quiet_hours_start:
+    name: Quiet Hours Start
+    description: HH:MM — no non-critical notifications after this time.
+  quiet_hours_end:
+    name: Quiet Hours End
+    description: HH:MM — non-critical notifications resume at this time.
+  log_level:
+    name: Log Level
+    description: Python log level for the Mylo process.

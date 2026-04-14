@@ -1,0 +1,5 @@
+#!/command/execlineb -S0
+# ==============================================================================
+# Take down the s6 supervisor if mylo exits unexpectedly
+# ==============================================================================
+s6-svscanctl -t /var/run/s6/services
