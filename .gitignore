@@ -63,6 +63,7 @@ src/mylo/server/static/
 .env.local
 local/
 scratch/
+dev-config/
 
 # Docker / dev HA
 tests/integration/.ha-data/
