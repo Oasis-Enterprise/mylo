@@ -11,7 +11,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from mylo.conversation.manager import ConversationManager, _repair_orphaned_tool_uses
+from mylo.conversation.manager import (
+    ConversationManager,
+    _repair_orphaned_tool_uses,
+    _trim_to_clean_start,
+)
 from mylo.conversation.storage import ConversationStorage
 
 
@@ -88,6 +92,43 @@ def test_repair_handles_partial_answer() -> None:
     assert len(inserted) == 1
     blocks = inserted[0]["content"]
     assert [b["tool_use_id"] for b in blocks] == ["t2"]
+
+
+def test_trim_drops_leading_orphan_tool_result() -> None:
+    # Limit=2 cut mid-pair: history starts with a user tool_result whose
+    # assistant tool_use got dropped from the window.
+    history = [
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}],
+        },
+        {"role": "assistant", "content": [{"type": "text", "text": "done"}]},
+    ]
+
+    trimmed = _trim_to_clean_start(history)
+
+    # Both leading messages dropped; the assistant turn can't lead a window
+    # either (must start with user).
+    assert trimmed == []
+
+
+def test_trim_drops_leading_assistant_but_keeps_user_after() -> None:
+    history = [
+        {"role": "assistant", "content": [{"type": "text", "text": "stray"}]},
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+    ]
+
+    trimmed = _trim_to_clean_start(history)
+    assert [m["role"] for m in trimmed] == ["user", "assistant"]
+
+
+def test_trim_keeps_plain_user_start() -> None:
+    history = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": [{"type": "text", "text": "hello"}]},
+    ]
+    assert _trim_to_clean_start(history) == history
 
 
 async def test_manager_load_persists_repairs(tmp_path: Path) -> None:

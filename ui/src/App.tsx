@@ -19,40 +19,70 @@ export default function App() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [items]);
 
-  const handleSubmit = useCallback(async (message: string) => {
-    setError(null);
-    const userId = randomId();
-    const assistantId = randomId();
-
-    setItems((prev) => [
-      ...prev,
-      { id: userId, role: "user", fragments: [{ kind: "text", text: message }], pending: false },
-      { id: assistantId, role: "assistant", fragments: [], pending: true },
-    ]);
-    setSending(true);
-
-    const toolCallsById = new Map<string, ToolCallRecord>();
-
-    try {
-      for await (const event of streamChat(message)) {
-        applyEvent(event, assistantId, toolCallsById, setItems, setLastUsage, setError);
-      }
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : String(exc));
-    } finally {
-      setItems((prev) =>
-        prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),
-      );
-      setSending(false);
-    }
-  }, []);
-
   const handleClear = useCallback(async () => {
     await clearConversation();
     setItems([]);
     setLastUsage(null);
     setError(null);
   }, []);
+
+  const handleSubmit = useCallback(
+    async (message: string) => {
+      // Slash commands run locally against the server's REST endpoints
+      // instead of being sent to the LLM.
+      if (message === "/clear") {
+        await handleClear();
+        return;
+      }
+      if (message === "/help") {
+        setItems((prev) => [
+          ...prev,
+          {
+            id: randomId(),
+            role: "assistant",
+            fragments: [
+              {
+                kind: "text",
+                text:
+                  "**Slash commands**\n\n" +
+                  "- `/clear` — wipe the conversation\n" +
+                  "- `/help` — show this help",
+              },
+            ],
+            pending: false,
+          },
+        ]);
+        return;
+      }
+
+      setError(null);
+      const userId = randomId();
+      const assistantId = randomId();
+
+      setItems((prev) => [
+        ...prev,
+        { id: userId, role: "user", fragments: [{ kind: "text", text: message }], pending: false },
+        { id: assistantId, role: "assistant", fragments: [], pending: true },
+      ]);
+      setSending(true);
+
+      const toolCallsById = new Map<string, ToolCallRecord>();
+
+      try {
+        for await (const event of streamChat(message)) {
+          applyEvent(event, assistantId, toolCallsById, setItems, setLastUsage, setError);
+        }
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : String(exc));
+      } finally {
+        setItems((prev) =>
+          prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),
+        );
+        setSending(false);
+      }
+    },
+    [handleClear],
+  );
 
   return (
     <div className="flex h-full flex-col">

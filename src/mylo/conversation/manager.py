@@ -27,7 +27,18 @@ class ConversationManager:
 
     async def load(self, limit: int | None = None) -> None:
         raw = await self.storage.load(self.conversation_id, limit=limit)
-        self.history, repairs = _repair_orphaned_tool_uses(raw)
+        # Truncating to a limit can cut mid tool_use/tool_result pair. Drop
+        # leading fragments so the window always starts on a clean user
+        # turn — otherwise the first message may be an orphaned tool_result
+        # which Anthropic rejects.
+        trimmed = _trim_to_clean_start(raw)
+        if len(trimmed) != len(raw):
+            log.info(
+                "conversation.trimmed_leading_fragments",
+                conversation_id=self.conversation_id,
+                dropped=len(raw) - len(trimmed),
+            )
+        self.history, repairs = _repair_orphaned_tool_uses(trimmed)
         for repair in repairs:
             # Persist repair turns so future loads see a clean history.
             await self.storage.append(
@@ -66,6 +77,41 @@ class ConversationManager:
     async def clear(self) -> None:
         self.history = []
         await self.storage.clear(self.conversation_id)
+
+
+def _trim_to_clean_start(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Skip leading messages until we find a clean conversation start.
+
+    Anthropic requires messages[0] to be a user turn whose content is a
+    string (or at least doesn't contain ``tool_result`` blocks — those
+    need a preceding assistant ``tool_use``). When history is limited, we
+    can land inside a tool cycle; drop leading messages until we're on a
+    valid boundary.
+    """
+    i = 0
+    while i < len(history):
+        msg = history[i]
+        role = msg.get("role")
+        content = msg.get("content")
+
+        if role == "user":
+            # Plain text user message is always a valid start.
+            if isinstance(content, str):
+                return history[i:]
+            # A user message whose content is a list must not contain
+            # tool_result blocks at the conversation boundary.
+            if isinstance(content, list) and not any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+            ):
+                return history[i:]
+            i += 1
+            continue
+
+        # Leading assistant messages aren't valid either (must start with
+        # user). Skip.
+        i += 1
+
+    return []
 
 
 def _repair_orphaned_tool_uses(
