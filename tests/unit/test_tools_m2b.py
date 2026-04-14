@@ -13,11 +13,11 @@ from typing import Any
 
 import pytest
 
-from mylo.config import AppConfig
 from mylo.ha.registries import AreaEntry, DeviceEntry, EntityEntry, Registries
 from mylo.tools import registry as tool_registry
 from mylo.tools.context import ToolContext
 from mylo.tools.executor import execute
+from tests.unit._helpers import make_ctx
 
 # ─── Fake client that can answer every M2b command ───────────────────────────
 
@@ -255,22 +255,7 @@ def _ctx(tmp_path: Path) -> ToolContext:
 
     client = _FakeClient(responses)
 
-    config = AppConfig(
-        api_key="",
-        llm_provider="anthropic",
-        model="x",
-        reconciliation_model="y",
-        sync_frequency="nightly",
-        memory_token_limit=8000,
-        proactive_notifications=False,
-        max_daily_notifications=3,
-        quiet_hours_start="22:00",
-        quiet_hours_end="07:00",
-        supervisor_token=None,
-        ha_config_dir=tmp_path,
-        mylo_data_dir=tmp_path / ".mylo",
-    )
-    return ToolContext(ws_client=client, registries=reg, config=config)  # type: ignore[arg-type]
+    return make_ctx(ws_client=client, registries=reg, tmp_path=tmp_path)
 
 
 @pytest.fixture(autouse=True)

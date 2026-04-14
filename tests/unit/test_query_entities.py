@@ -8,11 +8,11 @@ from typing import Any
 
 import pytest
 
-from mylo.config import AppConfig
 from mylo.ha.registries import AreaEntry, DeviceEntry, EntityEntry, Registries
 from mylo.tools import registry as tool_registry
 from mylo.tools.context import ToolContext
 from mylo.tools.executor import execute
+from tests.unit._helpers import make_ctx
 
 
 class _FakeClient:
@@ -87,22 +87,7 @@ def _ctx() -> ToolContext:
     ]
     client = _FakeClient(states)
 
-    config = AppConfig(
-        api_key="",
-        llm_provider="anthropic",
-        model="x",
-        reconciliation_model="y",
-        sync_frequency="nightly",
-        memory_token_limit=8000,
-        proactive_notifications=False,
-        max_daily_notifications=3,
-        quiet_hours_start="22:00",
-        quiet_hours_end="07:00",
-        supervisor_token=None,
-        ha_config_dir=__import__("pathlib").Path("/tmp"),
-        mylo_data_dir=__import__("pathlib").Path("/tmp/.mylo"),
-    )
-    return ToolContext(ws_client=client, registries=reg, config=config)  # type: ignore[arg-type]
+    return make_ctx(ws_client=client, registries=reg, tmp_path=__import__("pathlib").Path("/tmp"))
 
 
 @pytest.fixture(autouse=True)

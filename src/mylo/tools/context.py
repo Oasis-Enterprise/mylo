@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from mylo.config import AppConfig
 from mylo.ha.registries import Registries
 from mylo.ha.ws_client import HaWsClient
+from mylo.safety.audit import AuditLogger
+from mylo.safety.permissions import Permissions
 
 
 @dataclass(slots=True)
@@ -19,5 +21,13 @@ class ToolContext:
     ws_client: HaWsClient
     registries: Registries
     config: AppConfig
-    # Conversation id is relevant for audit logging (M3) and memory scope (M8).
+    permissions: Permissions
+    audit: AuditLogger
+    # Conversation id is relevant for audit logging, rate limits, and memory scope.
     conversation_id: str = "cli"
+    # Set by the caller when the user has approved a tier-2/3 action (e.g.
+    # after seeing a dry-run preview). Tier-1 tools ignore it.
+    user_approved: bool = False
+    # Whether this invocation is a dry-run. Tier-2 tools branch on this;
+    # tier-1 tools ignore it.
+    dry_run: bool = False

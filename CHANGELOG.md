@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 3 — Safety & audit.**
+  - `safety.sanitizer` — prompt-injection defense with 15+ regex patterns
+    and per-field length limits. Suspicious values are replaced with
+    `[sanitized: injection-suspected]` markers (the LLM still knows a
+    value existed) and logged for review. Structural fields like
+    `entity_id` skip content scanning to avoid false positives.
+  - `safety.audit` — append-only JSON Lines log at
+    `{mylo_data_dir}/audit/YYYY-MM.log`. Monthly rotation, tolerant read
+    (malformed lines skipped, missing files return empty), async writes
+    serialized by an instance lock.
+  - `safety.rate_limits` — daily and per-conversation counters. Daily
+    resets on UTC midnight, per-conversation resets per `conversation_id`.
+    Default caps match spec §5.5 (20 file writes / 100 service calls / 50
+    renames per day; 50 tier-3 calls per conversation).
+  - `safety.permissions` — tier gate enforcing:
+    - tier 1 (read) always allowed;
+    - tier 2 (modify) requires `user_approved`;
+    - tier 3 (action) requires `user_approved` + consumes a rate-limit token.
+  - `tools.executor` now runs: lookup → param validation → permission
+    check → handler → audit write. Denied calls are still audited.
+    Approval + dry-run signals flow through `ToolContext`.
+  - New `--approve` and `--dry-run` flags on `python -m mylo.scripts.call`.
+  - 49 new unit tests (125 total) — sanitizer (15 injection + 10 benign
+    payloads), audit log round-trip, rate-limit matrix, permission gate
+    coverage for every (tier, approval) combination.
+
 - **Milestone 2b — Remaining tier-1 tools.**
   - `query_devices`: filter by area/manufacturer/model/integration/regex,
     optional entity listing per device, manufacturer roll-up.

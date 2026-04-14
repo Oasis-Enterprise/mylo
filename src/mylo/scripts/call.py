@@ -29,6 +29,8 @@ from mylo.config import load_config
 from mylo.ha.registries import Registries
 from mylo.ha.ws_client import AuthFailed, HaWsClient
 from mylo.logging_setup import configure_logging, get_logger
+from mylo.safety.audit import AuditLogger
+from mylo.safety.permissions import default_permissions
 from mylo.tools import registry as tool_registry
 from mylo.tools.context import ToolContext
 from mylo.tools.executor import execute
@@ -53,6 +55,16 @@ def _parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
         default=True,
         action=argparse.BooleanOptionalAction,
         help="Pretty-print result (default on).",
+    )
+    parser.add_argument(
+        "--approve",
+        action="store_true",
+        help="Mark this invocation as user-approved (required for tier-2/3 tools).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Request a dry-run; honored by tier-2 write tools.",
     )
     return parser.parse_known_args(argv)
 
@@ -133,7 +145,15 @@ async def _run(ns: argparse.Namespace, params: dict[str, Any]) -> int:
         registries = await Registries.attach(client)
         await registries.wait_loaded(timeout=15.0)
 
-        ctx = ToolContext(ws_client=client, registries=registries, config=config)
+        ctx = ToolContext(
+            ws_client=client,
+            registries=registries,
+            config=config,
+            permissions=default_permissions(),
+            audit=AuditLogger(config.mylo_data_dir),
+            user_approved=ns.approve,
+            dry_run=ns.dry_run,
+        )
         result = await execute(ns.tool, params, ctx)
         payload = result.to_dict()
         if ns.pretty:
