@@ -57,6 +57,15 @@ class CommandError(HaError):
         self.message = message
 
 
+class CommandTimeout(HaError):
+    """Raised when HA doesn't respond to a command within the timeout."""
+
+    def __init__(self, type_: str, timeout: float) -> None:
+        super().__init__(f"command {type_!r} timed out after {timeout}s")
+        self.type = type_
+        self.timeout = timeout
+
+
 class State(enum.Enum):
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
@@ -197,15 +206,28 @@ class HaWsClient:
 
     # ─── Commands ────────────────────────────────────────────────────────────
 
-    async def send_command(self, type_: str, **payload: Any) -> Any:
+    async def send_command(
+        self,
+        type_: str,
+        *,
+        timeout: float = 60.0,  # noqa: ASYNC109 - public API maps to asyncio.wait_for
+        **payload: Any,
+    ) -> Any:
         """Send a command and await the ``result`` field of the response.
 
         The result is whatever HA returns — typically a dict, but several
         list-style endpoints (e.g. ``config/entity_registry/list``) return a
         list, and some return ``None``.
 
-        Raises :class:`ConnectionClosed` if not ready, :class:`CommandError` if
-        HA returns ``success: false``.
+        ``timeout`` bounds how long we'll wait for HA to reply. On timeout
+        the pending command is cancelled and :class:`CommandTimeout` is
+        raised — callers (tool handlers) can turn that into a structured
+        ToolResult so the model sees the failure as data rather than a
+        hang.
+
+        Raises :class:`ConnectionClosed` if not ready, :class:`CommandError`
+        if HA returns ``success: false``, :class:`CommandTimeout` on
+        timeout.
         """
         if self._state is not State.READY or self._ws is None:
             raise ConnectionClosed(f"not ready (state={self._state.value})")
@@ -222,7 +244,12 @@ class HaWsClient:
             raise
 
         try:
-            response = await pending.future
+            response = await asyncio.wait_for(pending.future, timeout=timeout)
+        except TimeoutError as exc:
+            # Pending dict cleanup is belt-and-suspenders — the finally
+            # block below handles it too.
+            self._pending.pop(msg_id, None)
+            raise CommandTimeout(type_, timeout) from exc
         finally:
             self._pending.pop(msg_id, None)
 

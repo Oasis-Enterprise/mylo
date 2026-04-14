@@ -9,11 +9,11 @@ return the state view.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from mylo.ha.states import get_all_states
 from mylo.ha.ws_client import CommandError, HaWsClient
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
@@ -126,18 +126,18 @@ async def handler(params: QueryAutomationsParams, ctx: ToolContext) -> ToolResul
         kinds = list(_KIND_DOMAINS)
 
     try:
-        states = await get_all_states(ctx.ws_client)
+        states = await ctx.states.get(ctx.ws_client)
     except Exception as exc:
         return ToolResult.error("ha_unavailable", f"get_states failed: {exc}")
 
-    items: list[dict[str, Any]] = []
+    # Pass 1: build candidate items using only registry + state (cheap).
+    candidates: list[tuple[str, dict[str, Any]]] = []  # (kind, item)
     for kind in kinds:
         domain = _KIND_DOMAINS[kind]
         for entity_id, state in states.items():
             if not entity_id.startswith(f"{domain}."):
                 continue
             registry = ctx.registries.entities.get(entity_id)
-            # Area filter: use effective area (device-inherited if any).
             if target_area_id is not None:
                 eff_area = None
                 if registry:
@@ -148,8 +148,7 @@ async def handler(params: QueryAutomationsParams, ctx: ToolContext) -> ToolResul
                 if eff_area != target_area_id:
                     continue
             if filt.enabled is not None:
-                current = state.get("state")
-                is_on = current == "on"
+                is_on = state.get("state") == "on"
                 if filt.enabled != is_on:
                     continue
 
@@ -162,17 +161,28 @@ async def handler(params: QueryAutomationsParams, ctx: ToolContext) -> ToolResul
                 "state": state.get("state"),
                 "last_triggered": attrs.get("last_triggered"),
             }
-            if params.include_config or filt.entity_referenced:
-                cfg = await _fetch_config(ctx.ws_client, kind, entity_id)
-                if filt.entity_referenced and not _references_entity(cfg, filt.entity_referenced):
-                    continue
-                if params.include_config and cfg is not None:
-                    item["config"] = cfg
-            elif filt.entity_referenced:
-                # entity_referenced filter without config fetch — skip if we can't
-                # determine references.
+            candidates.append((kind, item))
+
+    # Pass 2: if we need configs (either for include_config or to filter by
+    # entity_referenced), fetch them all in parallel. 71 sequential fetches
+    # was ~7s; parallelized it's bounded by the slowest single call (~200ms).
+    needs_config = params.include_config or bool(filt.entity_referenced)
+    configs: list[Any] = []
+    if needs_config:
+        configs = await asyncio.gather(
+            *(_fetch_config(ctx.ws_client, k, item["entity_id"]) for k, item in candidates),
+            return_exceptions=False,
+        )
+
+    items: list[dict[str, Any]] = []
+    for idx, (_kind, item) in enumerate(candidates):
+        if needs_config:
+            cfg = configs[idx]
+            if filt.entity_referenced and not _references_entity(cfg, filt.entity_referenced):
                 continue
-            items.append(item)
+            if params.include_config and cfg is not None:
+                item["config"] = cfg
+        items.append(item)
 
     truncated = len(items) > params.limit
     shown = items[: params.limit]

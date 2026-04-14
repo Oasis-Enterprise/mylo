@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Added / Changed
+- **Milestone 4b — Robustness pass.** Five targeted fixes surfaced by real
+  use against a 2204-entity home.
+  - `ws_client.send_command` now takes a ``timeout`` kwarg (default 60s)
+    and raises `CommandTimeout` instead of hanging. Tool handlers surface
+    it as a structured error the model can reason about.
+  - New `StatesCache` on `ToolContext` — a 30s TTL cache so multiple
+    tools in one turn share a single `get_states` fetch. On 2000+ entity
+    homes this cuts multi-tool turn time significantly.
+  - `query_automations` fetches configs in parallel via `asyncio.gather`
+    when `include_config` is true (was serial; 71 automations took ~7s).
+  - `query_logs` default `hours` lowered from 24 to 6 — large windows
+    shipped megabytes of logbook entries over websocket before trimming.
+  - `tool_loop` yields one `TextEvent` per text block instead of
+    joining with newlines; fixes a suspected truncation bug and is the
+    right shape for streaming UI later.
+  - Anthropic prompt caching: system prompt + tool definitions are
+    marked `cache_control: ephemeral`. First call pays full price plus
+    a small cache-write surcharge; every call in the 5-min window
+    after reads the cached ~7KB prefix at ~10% cost. Chat CLI shows
+    `cache_read` / `cache_write` counters when present.
+
 - **Milestone 4a — LLM loop + CLI chat.**
   - `llm.provider` — minimal Provider protocol (one `message()` call
     returning a `ProviderResponse` with text + tool_calls + stop_reason +

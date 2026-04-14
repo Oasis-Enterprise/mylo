@@ -37,10 +37,14 @@ class QueryLogsParams(BaseModel):
         ),
     )
     hours: int = Field(
-        default=24,
+        default=6,
         ge=1,
         le=24 * 30,
-        description="How far back to look, in hours.",
+        description=(
+            "How far back to look, in hours. Default 6 — raise deliberately "
+            "for historical queries, since larger windows can be slow on busy "
+            "homes."
+        ),
     )
     severity: str | None = Field(
         default=None,

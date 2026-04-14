@@ -262,6 +262,52 @@ async def test_conversation_hydrates_from_storage(tmp_path: Path) -> None:
     assert conv2.history[0]["content"] == "earlier question"
 
 
+async def test_multiple_text_blocks_yield_separate_events(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    # Simulate a turn where the model interleaves text → tool → text.
+    response = ProviderResponse(
+        content_blocks=[
+            {"type": "text", "text": "Let me check."},
+            {"type": "tool_use", "id": "t1", "name": "echo", "input": {"value": 1}},
+        ],
+        text="Let me check.",
+        tool_calls=[ToolCall(id="t1", name="echo", input={"value": 1})],
+        stop_reason="tool_use",
+        usage={},
+    )
+    final = ProviderResponse(
+        content_blocks=[
+            {"type": "text", "text": "First block."},
+            {"type": "text", "text": "Second block."},
+        ],
+        text="First block.\nSecond block.",
+        tool_calls=[],
+        stop_reason="end_turn",
+        usage={},
+    )
+    provider = _FakeProvider([response, final])
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+
+    events = [
+        e
+        async for e in run_turn(
+            user_message="hi",
+            conversation=_conv,
+            provider=provider,
+            ctx=ctx,
+            system="",
+            tools=[],
+            model="fake",
+        )
+    ]
+
+    text_events = [e for e in events if isinstance(e, TextEvent)]
+    texts = [e.text for e in text_events]
+    # Three text blocks expected: one from first turn, two from final.
+    assert texts == ["Let me check.", "First block.", "Second block."]
+
+
 async def test_usage_is_summed_across_iterations(
     tmp_path: Path, _conv: ConversationManager
 ) -> None:

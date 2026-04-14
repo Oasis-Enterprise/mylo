@@ -108,8 +108,13 @@ async def run_turn(
             "assistant", response.content_blocks, prompt_version=prompt_version
         )
 
-        if response.text:
-            yield TextEvent(text=response.text)
+        # Yield one TextEvent per text block — preserves exact provider
+        # output without risk of truncation or reordering from a join.
+        for block in response.content_blocks:
+            if block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    yield TextEvent(text=text)
 
         if not response.tool_calls:
             break

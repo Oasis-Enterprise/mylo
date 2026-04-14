@@ -7,10 +7,11 @@ services the server/CLI has already wired up.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from mylo.config import AppConfig
 from mylo.ha.registries import Registries
+from mylo.ha.states import StatesCache
 from mylo.ha.ws_client import HaWsClient
 from mylo.safety.audit import AuditLogger
 from mylo.safety.permissions import Permissions
@@ -23,6 +24,7 @@ class ToolContext:
     config: AppConfig
     permissions: Permissions
     audit: AuditLogger
+    states: StatesCache = field(default_factory=StatesCache)
     # Conversation id is relevant for audit logging, rate limits, and memory scope.
     conversation_id: str = "cli"
     # Set by the caller when the user has approved a tier-2/3 action (e.g.

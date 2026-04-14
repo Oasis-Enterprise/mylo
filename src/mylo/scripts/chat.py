@@ -85,10 +85,17 @@ def _print_text(event: TextEvent) -> None:
 
 def _print_done(event: DoneEvent, *, verbose: bool) -> None:
     if verbose and event.usage:
-        sys.stdout.write(
-            f"{_DIM}[{event.stop_reason}; in={event.usage.get('input_tokens', 0)} "
-            f"out={event.usage.get('output_tokens', 0)}]{_RESET}\n"
-        )
+        parts = [
+            f"in={event.usage.get('input_tokens', 0)}",
+            f"out={event.usage.get('output_tokens', 0)}",
+        ]
+        read = event.usage.get("cache_read_input_tokens")
+        write = event.usage.get("cache_creation_input_tokens")
+        if read:
+            parts.append(f"cache_read={read}")
+        if write:
+            parts.append(f"cache_write={write}")
+        sys.stdout.write(f"{_DIM}[{event.stop_reason}; {' '.join(parts)}]{_RESET}\n")
 
 
 async def _run() -> int:

@@ -13,7 +13,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.ha.registries import EntityEntry
-from mylo.ha.states import get_all_states
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.formatters import shape_entity, summarize_entities
@@ -160,9 +159,10 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
         except re.error as exc:
             return ToolResult.error("invalid_regex", str(exc))
 
-    # Fetch state once; we filter locally from there.
+    # Fetch state once (cached for the duration of a turn); we filter
+    # locally from there.
     try:
-        states = await get_all_states(ctx.ws_client)
+        states = await ctx.states.get(ctx.ws_client)
     except Exception as exc:
         return ToolResult.error("ha_unavailable", f"get_states failed: {exc}")
 
