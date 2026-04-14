@@ -124,9 +124,11 @@ async def _run() -> int:
     storage = ConversationStorage(db_path)
     await storage.init()
     conv = ConversationManager(storage=storage)
-    # Keep only the last ~40 messages in the working window for now —
-    # rolling summarization lands with M4b.
-    await conv.load(limit=40)
+    # Working window tuned for Anthropic's Tier 1 ITPM budget (30K/min).
+    # Proper rolling summarization lands with the full context assembler
+    # (M4c). Override by setting MYLO_HISTORY_LIMIT.
+    history_limit = int(os.environ.get("MYLO_HISTORY_LIMIT", "12"))
+    await conv.load(limit=history_limit)
 
     client = HaWsClient(ha_url, ha_token)
 
