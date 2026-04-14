@@ -18,7 +18,17 @@ _REGISTRY: dict[str, ToolDefinition[Any]] = {}
 
 # Modules to import when loading the default tool set. Each module registers
 # exactly one tool at import time. Adding a tool = adding a line here.
-_DEFAULT_MODULES: tuple[str, ...] = ("mylo.tools.read.query_entities",)
+_DEFAULT_MODULES: tuple[str, ...] = (
+    "mylo.tools.read.query_entities",
+    "mylo.tools.read.query_devices",
+    "mylo.tools.read.query_automations",
+    "mylo.tools.read.query_dashboard",
+    "mylo.tools.read.query_logs",
+    "mylo.tools.read.query_system",
+    "mylo.tools.read.read_config_file",
+    "mylo.tools.read.verify_change",
+    "mylo.tools.read.memory_note",
+)
 
 
 def register(tool: ToolDefinition[Any]) -> ToolDefinition[Any]:

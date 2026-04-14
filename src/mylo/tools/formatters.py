@@ -140,6 +140,42 @@ def shape_entity(
     return shaped
 
 
+# ─── Device shaping ──────────────────────────────────────────────────────────
+
+
+def shape_device(
+    device: DeviceEntry,
+    registries: Registries,
+    *,
+    include_entities: bool,
+) -> dict[str, Any]:
+    """Render a single device. ``include_entities`` attaches a compact list of
+    ``entity_id + domain + state-less friendly name`` for each entity that
+    belongs to this device.
+    """
+    area: AreaEntry | None = registries.areas.get(device.area_id) if device.area_id else None
+    shaped: dict[str, Any] = {
+        "id": device.id,
+        "name": device.display_name,
+        "manufacturer": device.manufacturer,
+        "model": device.model,
+        "area": area.name if area else None,
+    }
+    if device.disabled_by:
+        shaped["disabled_by"] = device.disabled_by
+    if include_entities:
+        shaped["entities"] = [
+            {
+                "entity_id": e.entity_id,
+                "domain": e.domain,
+                "friendly_name": e.friendly_name,
+            }
+            for e in registries.entities.values()
+            if e.device_id == device.id
+        ]
+    return shaped
+
+
 # ─── Summary string ──────────────────────────────────────────────────────────
 
 

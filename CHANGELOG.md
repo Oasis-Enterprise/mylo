@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 2b — Remaining tier-1 tools.**
+  - `query_devices`: filter by area/manufacturer/model/integration/regex,
+    optional entity listing per device, manufacturer roll-up.
+  - `query_automations`: list automations/scripts/scenes with
+    triggers/conditions/actions, filter by area or referenced entity,
+    optional full config fetch (storage-mode only).
+  - `query_dashboard`: list dashboards or return view summaries for a
+    dashboard; fetch a single view's full cards; storage-mode path only
+    (YAML dashboards flow through `read_config_file`).
+  - `query_logs`: three unified sources — `state_history`, `logbook`,
+    `system_log` — with severity / entity / hours filters; system log
+    entries trimmed so tracebacks don't flood context.
+  - `query_system`: `overview`, `integrations`, `addons`, `hardware`
+    scopes; add-on/hardware paths gracefully error with `unavailable`
+    when the Supervisor token isn't present (outside add-on).
+  - `read_config_file`: YAML/text reads under `/config/` with path-
+    traversal defense, directory allow/deny lists, extension allowlist,
+    size cap, and `!secret` masking via `safety.secret_filter`.
+  - `verify_change`: minimal `entity_exists` and `automation_loaded`
+    checks; richer checks land with the rollback loop in M7.
+  - `memory_note`: tier-1 stub that appends to `scratchpad.yaml` for
+    M8's reconciler to pick up later.
+  - New `safety/secret_filter.py` and `safety/file_access.py` — the
+    first pieces of the security layer.
+  - 28 new unit tests (76 total), covering each tool plus the path-
+    access policy end-to-end.
+
 - **Milestone 2a — Tool foundations + query_entities.**
   - `mylo.tools.base`: `ToolDefinition`, `ToolResult`, `Tier` enum. Pydantic
     v2 params models double as JSON Schema for both Anthropic and OpenAI
