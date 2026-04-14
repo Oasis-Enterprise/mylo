@@ -61,6 +61,18 @@ class QueryEntitiesParams(BaseModel):
             "percent, climate current temp, etc)."
         ),
     )
+    include_disabled: bool = Field(
+        default=False,
+        description=(
+            "Include entities marked disabled by HA or by the integration. "
+            "These are typically diagnostic entities HA hides by default; "
+            "excluding them keeps results clean."
+        ),
+    )
+    include_hidden: bool = Field(
+        default=False,
+        description="Include entities the user has marked hidden.",
+    )
     limit: int = Field(
         default=200,
         ge=1,
@@ -156,6 +168,10 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
 
     matched: list[EntityEntry] = []
     for entry in ctx.registries.entities.values():
+        if not params.include_disabled and entry.disabled_by:
+            continue
+        if not params.include_hidden and entry.hidden_by:
+            continue
         state = states.get(entry.entity_id)
         if _match(ctx, entry, state, filt, target_area_id, pattern):
             matched.append(entry)

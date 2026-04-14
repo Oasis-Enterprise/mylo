@@ -174,3 +174,67 @@ async def test_limit_truncates_and_flags(_ctx: ToolContext) -> None:
     assert result.data["entities_found"] == 1
     assert result.data["truncated"] is True
     assert result.data["total_before_limit"] == 3
+
+
+async def test_disabled_entities_excluded_by_default(_ctx: ToolContext) -> None:
+    # Mark one entity as disabled_by integration.
+    from mylo.ha.registries import EntityEntry
+
+    disabled = EntityEntry.from_raw(
+        {
+            "entity_id": "sensor.diagnostic_rssi",
+            "original_name": "RSSI",
+            "platform": "shelly",
+            "labels": [],
+            "disabled_by": "integration",
+        }
+    )
+    _ctx.registries.entities[disabled.entity_id] = disabled
+
+    # Default: disabled excluded.
+    result = await execute("query_entities", {"filter": {"domain": "sensor"}}, _ctx)
+    ids = {e["entity_id"] for e in result.data["entities"]}
+    assert "sensor.diagnostic_rssi" not in ids
+
+    # Opt-in: included.
+    result = await execute(
+        "query_entities",
+        {"filter": {"domain": "sensor"}, "include_disabled": True},
+        _ctx,
+    )
+    ids = {e["entity_id"] for e in result.data["entities"]}
+    assert "sensor.diagnostic_rssi" in ids
+
+
+async def test_friendly_name_prefers_state_attribute_over_registry_fallback(
+    _ctx: ToolContext,
+) -> None:
+    # Add an entity where the registry has no name/original_name but the state
+    # has a useful friendly_name in attributes.
+    from mylo.ha.registries import EntityEntry
+
+    _ctx.registries.entities["light.hue_white_lamp_1"] = EntityEntry.from_raw(
+        {
+            "entity_id": "light.hue_white_lamp_1",
+            "name": None,
+            "original_name": None,
+            "platform": "hue",
+            "labels": [],
+        }
+    )
+    # Patch the fake client to return a friendly_name in attributes.
+    _ctx.ws_client._states.append(  # type: ignore[attr-defined]
+        {
+            "entity_id": "light.hue_white_lamp_1",
+            "state": "on",
+            "attributes": {"friendly_name": "Living Room Lamp 1", "brightness": 255},
+        }
+    )
+
+    result = await execute(
+        "query_entities",
+        {"filter": {"pattern": "hue_white_lamp_1"}},
+        _ctx,
+    )
+    e = result.data["entities"][0]
+    assert e["friendly_name"] == "Living Room Lamp 1"

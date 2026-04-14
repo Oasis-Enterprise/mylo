@@ -104,9 +104,16 @@ def shape_entity(
     if area_id:
         area = registries.areas.get(area_id)
 
+    # Prefer HA's runtime-computed friendly_name (from state.attributes) over
+    # the registry's, which is often null — the registry fallback is the bare
+    # entity_id, which is worse than anything HA put together at runtime.
+    state_attrs = (state or {}).get("attributes") or {}
+    state_friendly = state_attrs.get("friendly_name")
+    friendly_name = entry.name or state_friendly or entry.original_name or entry.entity_id
+
     shaped: dict[str, Any] = {
         "entity_id": entry.entity_id,
-        "friendly_name": entry.friendly_name,
+        "friendly_name": friendly_name,
         "domain": entry.domain,
         "state": (state or {}).get("state"),
         "area": area.name if area else None,
@@ -128,8 +135,7 @@ def shape_entity(
         shaped["disabled_by"] = entry.disabled_by
 
     if include_attributes:
-        raw_attrs = (state or {}).get("attributes") or {}
-        shaped["key_attributes"] = _key_attributes(entry.domain, raw_attrs)
+        shaped["key_attributes"] = _key_attributes(entry.domain, state_attrs)
 
     return shaped
 
