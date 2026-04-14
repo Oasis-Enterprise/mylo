@@ -37,4 +37,9 @@ echo
 echo "  UI:     http://localhost:5173"
 echo "  API:    http://localhost:8099"
 echo
-wait -n "$PY_PID" "$UI_PID"
+
+# Poll for either process exiting — `wait -n` needs bash 4.3+ which
+# macOS doesn't ship. Sleep loop is cheap and pid-safe.
+while kill -0 "$PY_PID" 2>/dev/null && kill -0 "$UI_PID" 2>/dev/null; do
+  sleep 1
+done
