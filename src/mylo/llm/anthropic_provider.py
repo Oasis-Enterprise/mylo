@@ -25,14 +25,28 @@ from __future__ import annotations
 
 from typing import Any
 
-from anthropic import AsyncAnthropic
+from anthropic import APIConnectionError, AsyncAnthropic
 
 from mylo.llm.provider import ProviderMessage, ProviderResponse, ToolCall
+from mylo.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class AnthropicProvider:
     def __init__(self, api_key: str) -> None:
+        self._api_key = api_key
         self._client = AsyncAnthropic(api_key=api_key)
+
+    def _rebuild_client(self) -> None:
+        """Replace the underlying client — drops its connection pool.
+
+        httpx keeps connections alive between requests. If one goes half-
+        open (remote sent FIN but we didn't notice until the next send),
+        the pool will hand out a dead socket. A fresh client forces new
+        connections on the next call.
+        """
+        self._client = AsyncAnthropic(api_key=self._api_key)
 
     async def message(
         self,
@@ -61,13 +75,25 @@ class AnthropicProvider:
                 entry["cache_control"] = {"type": "ephemeral"}
             cached_tools.append(entry)
 
-        response = await self._client.messages.create(
-            model=model,
-            system=system_blocks,  # type: ignore[arg-type]
-            messages=messages,  # type: ignore[arg-type]
-            tools=cached_tools,  # type: ignore[arg-type]
-            max_tokens=max_tokens,
-        )
+        try:
+            response = await self._client.messages.create(
+                model=model,
+                system=system_blocks,  # type: ignore[arg-type]
+                messages=messages,  # type: ignore[arg-type]
+                tools=cached_tools,  # type: ignore[arg-type]
+                max_tokens=max_tokens,
+            )
+        except APIConnectionError:
+            # Pool may have a half-dead connection. Rebuild and retry once.
+            log.warning("anthropic.connection_error_rebuilding_pool")
+            self._rebuild_client()
+            response = await self._client.messages.create(
+                model=model,
+                system=system_blocks,  # type: ignore[arg-type]
+                messages=messages,  # type: ignore[arg-type]
+                tools=cached_tools,  # type: ignore[arg-type]
+                max_tokens=max_tokens,
+            )
 
         content_blocks: list[dict[str, Any]] = []
         text_parts: list[str] = []
