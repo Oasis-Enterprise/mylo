@@ -49,9 +49,7 @@ class AnthropicProvider:
                 text_parts.append(block.text)
             elif block.type == "tool_use":
                 raw_input = block.input if isinstance(block.input, dict) else {}
-                tool_calls.append(
-                    ToolCall(id=block.id, name=block.name, input=raw_input)
-                )
+                tool_calls.append(ToolCall(id=block.id, name=block.name, input=raw_input))
 
         usage: dict[str, int] = {}
         if response.usage is not None:

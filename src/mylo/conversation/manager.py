@@ -7,11 +7,15 @@ along with the full context assembler.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from mylo.conversation.storage import ConversationStorage
 from mylo.llm.provider import ProviderMessage
+from mylo.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -22,7 +26,26 @@ class ConversationManager:
     history: list[dict[str, Any]] = field(default_factory=list)
 
     async def load(self, limit: int | None = None) -> None:
-        self.history = await self.storage.load(self.conversation_id, limit=limit)
+        raw = await self.storage.load(self.conversation_id, limit=limit)
+        self.history, repairs = _repair_orphaned_tool_uses(raw)
+        for repair in repairs:
+            # Persist repair turns so future loads see a clean history.
+            await self.storage.append(
+                conversation_id=self.conversation_id,
+                user_id=self.user_id,
+                role="user",
+                content=repair["content"],
+                prompt_version="repair",
+            )
+            log.info(
+                "conversation.repaired_orphan_tool_use",
+                conversation_id=self.conversation_id,
+                tool_use_ids=[
+                    b["tool_use_id"]
+                    for b in repair["content"]
+                    if isinstance(b, dict) and b.get("type") == "tool_result"
+                ],
+            )
 
     async def append(self, role: str, content: Any, *, prompt_version: str | None = None) -> None:
         self.history.append({"role": role, "content": content})
@@ -38,10 +61,77 @@ class ConversationManager:
         """Cast the history into the provider-facing shape. Same structure
         today; keeps a seam for future filtering / truncation.
         """
-        return [
-            ProviderMessage(role=m["role"], content=m["content"]) for m in self.history
-        ]
+        return [ProviderMessage(role=m["role"], content=m["content"]) for m in self.history]
 
     async def clear(self) -> None:
         self.history = []
         await self.storage.clear(self.conversation_id)
+
+
+def _repair_orphaned_tool_uses(
+    history: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """If an assistant turn declares tool_use blocks that aren't answered by
+    a ``tool_result`` in the next message, synthesize a user message with
+    ``status: error, code: interrupted`` tool_result blocks. Anthropic
+    rejects dangling tool_use otherwise.
+
+    Returns ``(repaired_history, inserted_turns)``. ``inserted_turns`` is
+    what the caller should persist back to storage so the repair sticks.
+    """
+    repaired: list[dict[str, Any]] = []
+    inserted: list[dict[str, Any]] = []
+
+    i = 0
+    while i < len(history):
+        msg = history[i]
+        repaired.append(msg)
+
+        if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
+            tool_uses = [
+                b for b in msg["content"] if isinstance(b, dict) and b.get("type") == "tool_use"
+            ]
+            if tool_uses:
+                answered: set[str] = set()
+                next_msg = history[i + 1] if i + 1 < len(history) else None
+                if (
+                    next_msg is not None
+                    and next_msg.get("role") == "user"
+                    and isinstance(next_msg.get("content"), list)
+                ):
+                    for block in next_msg["content"]:
+                        if (
+                            isinstance(block, dict)
+                            and block.get("type") == "tool_result"
+                            and isinstance(block.get("tool_use_id"), str)
+                        ):
+                            answered.add(block["tool_use_id"])
+
+                unanswered = [tu for tu in tool_uses if tu.get("id") not in answered]
+                if unanswered:
+                    synth_blocks = [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tu["id"],
+                            "content": json.dumps(
+                                {
+                                    "status": "error",
+                                    "error": {
+                                        "code": "interrupted",
+                                        "message": (
+                                            "previous session was interrupted "
+                                            "before this tool completed"
+                                        ),
+                                    },
+                                }
+                            ),
+                        }
+                        for tu in unanswered
+                    ]
+                    synth_msg = {"role": "user", "content": synth_blocks}
+                    repaired.append(synth_msg)
+                    inserted.append(synth_msg)
+
+        i += 1
+
+    return repaired, inserted
