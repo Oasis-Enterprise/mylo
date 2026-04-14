@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Milestone 5 — Panel UI.**
+  - `server.app`: aiohttp application factory that owns the HA client,
+    registries, conversation store, tool registry, and provider as
+    long-lived singletons.
+  - `server.routes_chat`: `POST /api/chat` streams the tool loop via
+    SSE (`event: text/tool_call/tool_result/done/error`);
+    `POST /api/conversation/clear` resets the thread;
+    `GET /api/health` for liveness.
+  - `server.static`: serves built UI; falls back to a placeholder index
+    when the UI isn't built (source checkout without `npm build`).
+  - `ui/`: Vite + React + TypeScript + Tailwind. Zustand is a dep but
+    not yet used — state lives in `App.tsx` for now. Components:
+    `Message`, `ToolCallBlock` (collapsible), `Composer` (textarea with
+    Enter-to-send, Shift+Enter for newline). SSE parser in `api.ts`
+    since we need POST-body with a streaming response (EventSource
+    can't do POST). Token usage + cache hit/miss surfaces in the
+    header.
+  - `scripts/dev.sh`: one command runs Python server + Vite with HMR;
+    Vite proxies `/api/*` so SSE works locally.
+  - Dockerfile: multi-stage — Node builds the UI, output copied into
+    the Python package's static dir, runtime image stays
+    Python-alpine.
+  - `__main__` now starts and blocks on the server instead of
+    printing config and exiting.
+
 ### Added / Changed
 - **Milestone 4b — Robustness pass.** Five targeted fixes surfaced by real
   use against a 2204-entity home.

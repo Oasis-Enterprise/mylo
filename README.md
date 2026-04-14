@@ -26,14 +26,38 @@ _Coming soon._ Distribution will be via a Home Assistant **add-on repository** (
 
 ## Development
 
-Requires Python 3.12, Node 20+, and Docker (for integration tests against a real HA instance).
+Requires Python 3.12+, Node 20+, and Docker (for integration tests against a real HA instance).
+
+### One-time setup
 
 ```bash
-# Install Python deps
-uv sync
+python3.13 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+(cd ui && npm install)
+cp .env.example .env
+# then edit .env with HA_URL, HA_TOKEN, ANTHROPIC_API_KEY, MYLO_CONFIG_DIR
+```
 
-# Run the module locally (prints config + exits)
-python -m mylo
+### Panel UI dev loop (recommended)
+
+```bash
+./scripts/dev.sh
+```
+
+Launches the Python server on `:8099` and Vite on `:5173` with HMR. Open <http://localhost:5173>. Vite proxies `/api/*` to the Python server so SSE streaming works.
+
+### CLI chat
+
+```bash
+.venv/bin/python -m mylo.scripts.chat
+```
+
+Interactive REPL — useful for debugging prompts without the UI layer in the way.
+
+### One-off tool calls
+
+```bash
+.venv/bin/python -m mylo.scripts.call query_entities --filter.area kitchen
 ```
 
 ## License

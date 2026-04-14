@@ -1,0 +1,116 @@
+// SSE client for /api/chat.
+//
+// EventSource is read-only GET, but our chat endpoint is POST (message in
+// body). We use fetch + ReadableStream to receive `event:/data:` frames
+// manually. The parser handles multi-line data and ignores comments.
+
+export type ServerEvent =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; id: string; name: string; input: Record<string, unknown> }
+  | {
+      type: "tool_result";
+      id: string;
+      name: string;
+      status: "ok" | "error";
+      error_code: string | null;
+      data: unknown;
+    }
+  | {
+      type: "done";
+      stop_reason: string;
+      usage: Record<string, number>;
+    }
+  | { type: "error"; message: string; errorType: string };
+
+export async function* streamChat(
+  message: string,
+  signal?: AbortSignal,
+): AsyncGenerator<ServerEvent, void, void> {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+    signal,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`chat endpoint returned ${response.status}: ${text}`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("no response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx: number;
+    // SSE frames are separated by a blank line (\n\n).
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const parsed = parseFrame(frame);
+      if (parsed) yield parsed;
+    }
+  }
+}
+
+function parseFrame(frame: string): ServerEvent | null {
+  let eventName = "message";
+  const dataLines: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (!line || line.startsWith(":")) continue;
+    if (line.startsWith("event:")) eventName = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(dataLines.join("\n"));
+  } catch {
+    return null;
+  }
+  const obj = payload as Record<string, unknown>;
+  switch (eventName) {
+    case "text":
+      return { type: "text", text: String(obj.text ?? "") };
+    case "tool_call":
+      return {
+        type: "tool_call",
+        id: String(obj.id),
+        name: String(obj.name),
+        input: (obj.input as Record<string, unknown>) ?? {},
+      };
+    case "tool_result":
+      return {
+        type: "tool_result",
+        id: String(obj.id),
+        name: String(obj.name),
+        status: (obj.status as "ok" | "error") ?? "error",
+        error_code: (obj.error_code as string | null) ?? null,
+        data: obj.data,
+      };
+    case "done":
+      return {
+        type: "done",
+        stop_reason: String(obj.stop_reason ?? ""),
+        usage: (obj.usage as Record<string, number>) ?? {},
+      };
+    case "error":
+      return {
+        type: "error",
+        message: String(obj.message ?? ""),
+        errorType: String(obj.type ?? "error"),
+      };
+    default:
+      return null;
+  }
+}
+
+export async function clearConversation(): Promise<void> {
+  await fetch("/api/conversation/clear", { method: "POST" });
+}

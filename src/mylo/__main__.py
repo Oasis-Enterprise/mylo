@@ -1,7 +1,8 @@
-"""Mylo entrypoint.
+"""Mylo entrypoint — start the HTTP server.
 
-Milestone 0 scope: load config, log it, exit. The real event loop lands in
-later milestones once the HA websocket client and web server exist.
+Prints the loaded configuration for diagnostics, then hands off to
+:func:`mylo.server.app.run` which builds the aiohttp application and
+blocks on ``web.run_app``.
 """
 
 from __future__ import annotations
@@ -9,18 +10,21 @@ from __future__ import annotations
 import sys
 
 from mylo import __version__
-from mylo.config import AppConfig, load_config
+from mylo.config import load_config
 from mylo.logging_setup import configure_logging, get_logger
+from mylo.server.app import run as run_server
+from mylo.util.env import load_dotenv
 
 
 def main() -> int:
+    load_dotenv()  # no-op outside dev
     configure_logging()
     log = get_logger(__name__)
 
     log.info("mylo.startup", version=__version__)
 
     try:
-        config: AppConfig = load_config()
+        config = load_config()
     except Exception as exc:
         log.error("mylo.config_load_failed", error=str(exc))
         return 1
@@ -36,8 +40,7 @@ def main() -> int:
         supervisor_token_present=config.supervisor_token_present,
     )
 
-    # M0: we do not start the server or scheduler yet — that lands in later milestones.
-    log.info("mylo.m0_complete", note="scaffold-only; exiting")
+    run_server()
     return 0
 
 
