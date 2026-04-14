@@ -13,6 +13,7 @@ consistent snapshots between events.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -135,6 +136,12 @@ class Registries:
     _refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _loaded_event: asyncio.Event = field(default_factory=asyncio.Event)
     _subs: list[Subscription] = field(default_factory=list)
+    _last_full_refresh: float = 0.0
+
+    # Debounce window for full refreshes in seconds. Initial ``attach()`` and
+    # the client's own ``_post_ready_setup`` can both try to refresh back-to-
+    # back on startup; the second one is wasted work.
+    _REFRESH_DEBOUNCE: float = 0.5
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -178,8 +185,12 @@ class Registries:
 
     # ─── Fetch ──────────────────────────────────────────────────────────────
 
-    async def refresh(self) -> None:
+    async def refresh(self, *, force: bool = False) -> None:
         async with self._refresh_lock:
+            now = time.monotonic()
+            if not force and (now - self._last_full_refresh) < self._REFRESH_DEBOUNCE:
+                log.debug("ha.registries.refresh_skipped_debounced")
+                return
             assert self._client is not None
             entities_raw, devices_raw, areas_raw, labels_raw = await asyncio.gather(
                 self._client.send_command("config/entity_registry/list"),
@@ -192,6 +203,7 @@ class Registries:
             self._replace_devices(devices_raw)
             self._replace_areas(areas_raw)
             self._replace_labels(labels_raw)
+            self._last_full_refresh = time.monotonic()
             log.info(
                 "ha.registries.loaded",
                 entities=len(self.entities),
