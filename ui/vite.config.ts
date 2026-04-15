@@ -6,6 +6,11 @@ import react from "@vitejs/plugin-react";
 // app without CORS fuss.
 export default defineConfig({
   plugins: [react()],
+  // Relative asset URLs — HA Ingress serves the panel at
+  // /api/hassio_ingress/<token>/, and absolute /assets/... URLs 404 there.
+  // Relative ./assets/... resolves against the current document URL, so
+  // the same build works at both / (dev/localhost) and under ingress.
+  base: "./",
   server: {
     port: 5173,
     proxy: {

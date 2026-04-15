@@ -27,11 +27,18 @@ export interface SendOptions {
   signal?: AbortSignal;
 }
 
+// Relative URLs so the UI works both at / (localhost dev) AND at
+// /api/hassio_ingress/<token>/ (the HA panel iframe). An absolute
+// "/api/..." URL under ingress would hit HA's own REST, not ours.
+function apiUrl(path: string): string {
+  return new URL(path, document.baseURI).toString();
+}
+
 export async function* streamChat(
   message: string,
   options: SendOptions = {},
 ): AsyncGenerator<ServerEvent, void, void> {
-  const response = await fetch("/api/chat", {
+  const response = await fetch(apiUrl("api/chat"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, approved: Boolean(options.approved) }),
@@ -117,5 +124,5 @@ function parseFrame(frame: string): ServerEvent | null {
 }
 
 export async function clearConversation(): Promise<void> {
-  await fetch("/api/conversation/clear", { method: "POST" });
+  await fetch(apiUrl("api/conversation/clear"), { method: "POST" });
 }
