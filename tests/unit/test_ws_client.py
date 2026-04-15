@@ -137,6 +137,22 @@ def test_derive_ws_url_already_ws() -> None:
     assert _derive_ws_url("wss://x/api/websocket") == "wss://x/api/websocket"
 
 
+def test_derive_ws_url_supervisor_proxy_path() -> None:
+    # Add-ons reach HA core via Supervisor at /core — the path prefix
+    # must be preserved, not stripped.
+    assert (
+        _derive_ws_url("http://supervisor/core")
+        == "ws://supervisor/core/api/websocket"
+    )
+
+
+def test_derive_ws_url_trailing_slash_normalized() -> None:
+    assert (
+        _derive_ws_url("http://supervisor/core/")
+        == "ws://supervisor/core/api/websocket"
+    )
+
+
 def test_derive_ws_url_bad_scheme() -> None:
     with pytest.raises(ValueError):
         _derive_ws_url("ftp://x")
