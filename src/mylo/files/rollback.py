@@ -267,30 +267,32 @@ def automation_loaded_verifier(entity_id: str) -> Verifier:
     HA's automation domain exposes each automation as an ``automation.*``
     entity whose state is ``on`` (enabled) or ``off`` (disabled). A
     missing entity after a reload usually means a schema error HA logged
-    but we didn't catch pre-write.
+    but we didn't catch pre-write, or the automation file wasn't picked
+    up (e.g. a newly-added package that requires reload_all instead of
+    reload_automation).
     """
 
     async def _verify(client: HaWsClient) -> tuple[bool, str, dict[str, Any]]:
         try:
-            state = await client.send_command("get_state", entity_id=entity_id)
+            states = await client.send_command("get_states")
         except CommandError as exc:
             return False, f"{exc.code}: {exc.message}", {}
 
-        if not isinstance(state, dict):
-            # get_state isn't a universal WS command in all HA versions; fall
-            # back to get_states scan.
-            states = await client.send_command("get_states")
-            if not isinstance(states, list):
-                return False, "could not fetch states", {}
-            match = next(
-                (s for s in states if isinstance(s, dict) and s.get("entity_id") == entity_id),
-                None,
-            )
-            if match is None:
-                return False, f"{entity_id} not present after reload", {}
-            state = match
+        if not isinstance(states, list):
+            return False, "could not fetch states", {}
 
-        current = state.get("state")
+        match = next(
+            (
+                s
+                for s in states
+                if isinstance(s, dict) and s.get("entity_id") == entity_id
+            ),
+            None,
+        )
+        if match is None:
+            return False, f"{entity_id} not present after reload", {}
+
+        current = match.get("state")
         if current in ("on", "off"):
             return True, f"loaded (state={current})", {"state": current}
         return False, f"entity present but state is {current!r}", {"state": current}
