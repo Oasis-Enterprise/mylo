@@ -30,8 +30,15 @@ from mylo.files.backup import BackupHandle, take_backup
 from mylo.files.manager import atomic_write
 from mylo.ha.ws_client import CommandError, CommandTimeout, HaWsClient
 from mylo.logging_setup import get_logger
+from mylo.safety.audit import AuditLogger, make_entry
 
 log = get_logger(__name__)
+
+
+# Keep strong references to background verification tasks so they don't
+# get garbage-collected mid-flight. aiohttp clears this on shutdown via
+# task cancellation.
+_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
 
 StepName = Literal["backup", "write", "reload", "verify", "rollback", "rollback_reload"]
@@ -307,6 +314,267 @@ async def _rollback(
                 message=(f"rollback applied to disk but reload failed: {exc.code}: {exc.message}"),
             )
         )
+
+
+# ─── Optimistic apply (reload_all cold path) ────────────────────────────────
+
+
+async def apply_optimistic_reload_all(
+    *,
+    client: HaWsClient,
+    path: Path,
+    content: str,
+    config_dir: Path,
+    mylo_data_dir: Path,
+    verify: Verifier | None = None,
+    reload_wait_seconds: float = 15.0,
+    audit: AuditLogger | None = None,
+    tool_name: str = "",
+    conversation_id: str = "",
+    notify_on_failure: bool = True,
+) -> RollbackResult:
+    """Write synchronously, trigger reload_all, return immediately with an
+    optimistic success. Kick off a background task that waits for the
+    websocket to reconnect, runs verify, logs the outcome to audit, and
+    sends a persistent_notification if verify fails.
+
+    This is the cold-path for first writes to a new package file where
+    reload_all is unavoidable and takes 30-45s. The synchronous caller
+    doesn't pay that cost; the user sees a response immediately and gets
+    a notification later if HA didn't pick the file up correctly.
+
+    :class:`apply_with_rollback` remains the right choice for targeted
+    reloads — its rollback semantics are only meaningful when HA is
+    known to be in a consistent state.
+    """
+    result = RollbackResult(ok=True)
+
+    # 1. Backup.
+    backup: BackupHandle = take_backup(path, config_dir, mylo_data_dir)
+    result.backup_path = str(backup.backup_path) if backup.backup_path else None
+    result.steps.append(
+        StepResult(
+            "backup",
+            ok=True,
+            message=(
+                f"backup saved to {backup.backup_path}"
+                if backup.backup_path
+                else "no existing file — nothing to back up"
+            ),
+        )
+    )
+
+    # 2. Write.
+    try:
+        atomic_write(path, content)
+        result.steps.append(StepResult("write", ok=True, message=str(path)))
+    except Exception as exc:
+        result.steps.append(StepResult("write", ok=False, message=f"{type(exc).__name__}: {exc}"))
+        result.ok = False
+        return result
+
+    # 3. Fire the reload asynchronously and return. The verification
+    # task below handles the rest.
+    result.steps.append(
+        StepResult(
+            "reload",
+            ok=True,
+            message=(
+                "homeassistant.reload_all triggered in background — HA may take ~30-45s to settle"
+            ),
+        )
+    )
+    result.steps.append(
+        StepResult(
+            "verify",
+            ok=True,
+            message=(
+                "pending — background task will verify after reload "
+                "completes and notify you via HA if it fails"
+            ),
+        )
+    )
+
+    task = asyncio.create_task(
+        _background_verify_reload_all(
+            client=client,
+            path=path,
+            verify=verify,
+            reload_wait_seconds=reload_wait_seconds,
+            audit=audit,
+            tool_name=tool_name,
+            conversation_id=conversation_id,
+            notify_on_failure=notify_on_failure,
+        )
+    )
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+    return result
+
+
+async def _background_verify_reload_all(
+    *,
+    client: HaWsClient,
+    path: Path,
+    verify: Verifier | None,
+    reload_wait_seconds: float,
+    audit: AuditLogger | None,
+    tool_name: str,
+    conversation_id: str,
+    notify_on_failure: bool,
+) -> None:
+    """Fire reload_all, wait for reconnect, verify, surface outcome."""
+    try:
+        try:
+            await client.send_command(
+                "call_service",
+                domain="homeassistant",
+                service="reload_all",
+                timeout=5.0,
+            )
+        except CommandTimeout:
+            # Expected — reload_all resets the websocket.
+            pass
+        except CommandError as exc:
+            await _record_background_failure(
+                client,
+                audit,
+                tool_name,
+                conversation_id,
+                path,
+                f"reload_all call failed: {exc.code}: {exc.message}",
+                notify_on_failure,
+            )
+            return
+
+        try:
+            await client.wait_ready(timeout=60.0)
+        except TimeoutError:
+            await _record_background_failure(
+                client,
+                audit,
+                tool_name,
+                conversation_id,
+                path,
+                "websocket never reconnected after reload_all",
+                notify_on_failure,
+            )
+            return
+
+        if reload_wait_seconds > 0:
+            await asyncio.sleep(reload_wait_seconds)
+
+        if verify is None:
+            await _record_background_success(
+                audit,
+                tool_name,
+                conversation_id,
+                path,
+                "reload_all completed (no verifier attached)",
+            )
+            return
+
+        try:
+            ok, message, _details = await verify(client)
+        except Exception as exc:
+            ok = False
+            message = f"verifier raised {type(exc).__name__}: {exc}"
+
+        if ok:
+            await _record_background_success(audit, tool_name, conversation_id, path, message)
+        else:
+            await _record_background_failure(
+                client,
+                audit,
+                tool_name,
+                conversation_id,
+                path,
+                message,
+                notify_on_failure,
+            )
+    except Exception:
+        # Any uncaught exception in a background task would otherwise
+        # vanish silently. Log and continue.
+        log.exception("background_verify.unexpected_error", path=str(path))
+
+
+async def _record_background_success(
+    audit: AuditLogger | None,
+    tool_name: str,
+    conversation_id: str,
+    path: Path,
+    message: str,
+) -> None:
+    log.info("background_verify.ok", path=str(path), message=message, tool_name=tool_name)
+    if audit is None:
+        return
+    entry = make_entry(
+        conversation_id=conversation_id,
+        tool_name=tool_name or "apply_optimistic_reload_all",
+        tier=2,
+        params={"path": str(path)},
+        dry_run=False,
+        user_approved=True,
+        result="success",
+        details={"background_verify": message},
+    )
+    try:
+        await audit.write(entry)
+    except Exception:
+        log.exception("background_verify.audit_write_failed")
+
+
+async def _record_background_failure(
+    client: HaWsClient,
+    audit: AuditLogger | None,
+    tool_name: str,
+    conversation_id: str,
+    path: Path,
+    message: str,
+    notify_on_failure: bool,
+) -> None:
+    log.warning(
+        "background_verify.failed",
+        path=str(path),
+        message=message,
+        tool_name=tool_name,
+    )
+    if audit is not None:
+        entry = make_entry(
+            conversation_id=conversation_id,
+            tool_name=tool_name or "apply_optimistic_reload_all",
+            tier=2,
+            params={"path": str(path)},
+            dry_run=False,
+            user_approved=True,
+            result="failure",
+            details={"background_verify": message},
+        )
+        try:
+            await audit.write(entry)
+        except Exception:
+            log.exception("background_verify.audit_write_failed")
+
+    if not notify_on_failure:
+        return
+    try:
+        await client.send_command(
+            "call_service",
+            domain="persistent_notification",
+            service="create",
+            service_data={
+                "title": "Mylo: background verify failed",
+                "message": (
+                    f"Wrote {path.name} but couldn't confirm it loaded in "
+                    f"Home Assistant after reload_all: {message}. "
+                    "Check Settings → Automations and the file on disk."
+                ),
+                "notification_id": f"mylo_verify_failed_{path.stem}",
+            },
+        )
+    except Exception:
+        log.exception("background_verify.notification_failed")
 
 
 # ─── Verifiers ───────────────────────────────────────────────────────────────

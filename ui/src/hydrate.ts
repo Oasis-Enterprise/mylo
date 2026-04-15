@@ -89,6 +89,18 @@ export function hydrateFromMessages(messages: RawMessage[]): ChatItem[] {
   return items;
 }
 
+/** A turn is "complete" when the last message is an assistant turn
+ * whose content has no trailing tool_use blocks. Any tool_use means
+ * the agent is mid-iteration (waiting on a tool result). */
+export function isTurnComplete(messages: RawMessage[]): boolean {
+  if (messages.length === 0) return false;
+  const last = messages[messages.length - 1];
+  if (last.role !== "assistant") return false;
+  if (typeof last.content === "string") return true;
+  if (!Array.isArray(last.content)) return false;
+  return !last.content.some((b) => b && (b as { type?: string }).type === "tool_use");
+}
+
 function summarize(data: unknown): string | undefined {
   if (!data || typeof data !== "object") return undefined;
   const d = data as Record<string, unknown>;

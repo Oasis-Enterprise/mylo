@@ -7,7 +7,7 @@ import {
 } from "./api";
 import { Composer } from "./components/Composer";
 import { Message } from "./components/Message";
-import { hydrateFromMessages } from "./hydrate";
+import { hydrateFromMessages, isTurnComplete } from "./hydrate";
 import type { ChatFragment, ChatItem, DoneEvent, ToolCallRecord } from "./types";
 
 function randomId() {
@@ -116,7 +116,10 @@ export default function App() {
   );
 
   // On SSE error during a turn, wait for the server to come back and
-  // rehydrate from whatever it has. Returns true if we recovered.
+  // rehydrate from whatever it has. Returns true if we recovered to a
+  // genuinely-complete state (assistant turn with no trailing tool_use).
+  // Premature recoveries on a still-pending tool_use would leave the
+  // user staring at a half-rendered state and miss the actual answer.
   const pollUntilTurnCompletes = useCallback(
     async (_assistantId: string, timeoutMs = 90_000): Promise<boolean> => {
       const deadline = Date.now() + timeoutMs;
@@ -128,15 +131,9 @@ export default function App() {
         attempt += 1;
         try {
           const messages = await fetchConversation();
-          if (messages.length === 0) continue;
-          const last = messages[messages.length - 1];
-          // If the last stored message is an assistant turn, the
-          // server completed its work (tool loop ends on an
-          // assistant text turn).
-          if (last?.role === "assistant") {
-            setItems(hydrateFromMessages(messages));
-            return true;
-          }
+          if (!isTurnComplete(messages)) continue;
+          setItems(hydrateFromMessages(messages));
+          return true;
         } catch {
           // Server still rebooting — keep trying.
         }

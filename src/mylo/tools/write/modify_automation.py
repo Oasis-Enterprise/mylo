@@ -32,7 +32,11 @@ from slugify import slugify
 
 from mylo.files.diff import diff_structs
 from mylo.files.manager import exists, read_text
-from mylo.files.rollback import apply_with_rollback, automation_loaded_verifier
+from mylo.files.rollback import (
+    apply_optimistic_reload_all,
+    apply_with_rollback,
+    automation_loaded_verifier,
+)
 from mylo.resolver.resolver import Resolver
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
@@ -185,22 +189,47 @@ async def handler(params: ModifyAutomationParams, ctx: ToolContext) -> ToolResul
         if params.action in ("create", "update", "enable")
         else None
     )
-    # Use reload_all (not reload_automation) because we write to a
-    # packages/*.yaml file. HA's automation reload only re-reads the
-    # `automation:` source; it does NOT re-process the `packages:`
-    # directive. For a newly-created package file to be picked up, the
-    # package merge stage has to run again — that's what reload_all does.
-    # Slower (~5-10s on busy homes) but correctness beats speed here.
-    rollback_result = await apply_with_rollback(
-        client=ctx.ws_client,
-        path=pkg_path,
-        content=new_text,
-        domain="all",
-        config_dir=ctx.config.ha_config_dir,
-        mylo_data_dir=ctx.config.mylo_data_dir,
-        verify=verify,
-        reload_wait_seconds=15.0,
-    )
+
+    # Hot/cold path split for reload semantics:
+    #
+    # - Cold path (first write to a new package file): HA hasn't seen
+    #   the file at startup, so the packages: directive needs to re-run
+    #   to merge it. That requires homeassistant.reload_all, which
+    #   restarts ingress, which tears our SSE tunnel. We use
+    #   apply_optimistic_reload_all — write synchronously, return fast,
+    #   verify in a background task, send an HA persistent_notification
+    #   if the verify fails. User sees a 2-3s response instead of 45s.
+    #
+    # - Hot path (file already exists): the file was loaded at startup
+    #   (or by a previous reload_all). homeassistant.reload_automation
+    #   re-reads configuration.yaml — including the packages directive —
+    #   so it picks up edits to existing package files without bouncing
+    #   ingress. Synchronous verify is fast (3-5s) and accurate.
+    cold_path = not pkg_path.exists()
+    if cold_path:
+        rollback_result = await apply_optimistic_reload_all(
+            client=ctx.ws_client,
+            path=pkg_path,
+            content=new_text,
+            config_dir=ctx.config.ha_config_dir,
+            mylo_data_dir=ctx.config.mylo_data_dir,
+            verify=verify,
+            reload_wait_seconds=15.0,
+            audit=ctx.audit,
+            tool_name="modify_automation",
+            conversation_id=ctx.conversation_id,
+        )
+    else:
+        rollback_result = await apply_with_rollback(
+            client=ctx.ws_client,
+            path=pkg_path,
+            content=new_text,
+            domain="automation",
+            config_dir=ctx.config.ha_config_dir,
+            mylo_data_dir=ctx.config.mylo_data_dir,
+            verify=verify,
+            reload_wait_seconds=5.0,
+        )
     envelope: dict[str, Any] = {
         **preview,
         "preview": False,
