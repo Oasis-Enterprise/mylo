@@ -19,6 +19,7 @@ so the UI can offer a ``/clear`` button.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -41,6 +42,7 @@ log = get_logger(__name__)
 def register_chat_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", _handle_chat)
     app.router.add_post("/api/conversation/clear", _handle_clear)
+    app.router.add_get("/api/conversation", _handle_get_conversation)
     app.router.add_get("/api/health", _handle_health)
 
 
@@ -54,6 +56,23 @@ async def _handle_clear(request: web.Request) -> web.Response:
     conv = request.app[AppKeys.CONVERSATION]
     await conv.clear()
     return web.json_response({"ok": True})
+
+
+async def _handle_get_conversation(request: web.Request) -> web.Response:
+    """Return the current conversation history.
+
+    Used by the UI as a polling fallback: if the SSE stream dies
+    mid-turn (which happens when a tier-2 write triggers reload_all
+    and HA's ingress restarts), the UI can poll this endpoint and
+    render any turns that finished after the disconnect.
+    """
+    from mylo.server.app import AppKeys
+
+    conv = request.app[AppKeys.CONVERSATION]
+    # Freshly read from storage in case a background turn completed
+    # while the UI was disconnected.
+    await conv.load(limit=int(os.environ.get("MYLO_HISTORY_LIMIT", "12")))
+    return web.json_response({"messages": conv.history})
 
 
 async def _handle_chat(request: web.Request) -> web.StreamResponse:

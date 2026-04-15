@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearConversation, streamChat, type ServerEvent } from "./api";
+import {
+  clearConversation,
+  fetchConversation,
+  streamChat,
+  type ServerEvent,
+} from "./api";
 import { Composer } from "./components/Composer";
 import { Message } from "./components/Message";
+import { hydrateFromMessages } from "./hydrate";
 import type { ChatFragment, ChatItem, DoneEvent, ToolCallRecord } from "./types";
 
 function randomId() {
@@ -86,19 +92,73 @@ export default function App() {
           applyEvent(event, assistantId, toolCallsById, setItems, setLastUsage, setError);
         }
       } catch (exc) {
-        setError(exc instanceof Error ? exc.message : String(exc));
+        // SSE connection error during a turn — could be legitimate
+        // (network) or expected (reload_all restarted HA's ingress,
+        // killing the tunnel). Fall back to polling /api/conversation
+        // until the completed turn appears server-side. The reload
+        // finishes in ~10-30s typically.
+        setError(
+          `${exc instanceof Error ? exc.message : String(exc)} — waiting for Mylo to come back…`,
+        );
+        const recovered = await pollUntilTurnCompletes(assistantId);
+        if (recovered) {
+          setError(null);
+        }
       } finally {
         setItems((prev) =>
           prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),
         );
         setSending(false);
-        // If this turn produced a dry-run preview, surface Apply on the
-        // next user message.
         if (turnSawPreview) setPendingApproval(true);
       }
     },
     [handleClear, pendingApproval],
   );
+
+  // On SSE error during a turn, wait for the server to come back and
+  // rehydrate from whatever it has. Returns true if we recovered.
+  const pollUntilTurnCompletes = useCallback(
+    async (_assistantId: string, timeoutMs = 90_000): Promise<boolean> => {
+      const deadline = Date.now() + timeoutMs;
+      let attempt = 0;
+      while (Date.now() < deadline) {
+        // Back off: 3s, 3s, 5s, 5s, 8s, ... up to 15s.
+        const delay = Math.min(3000 + attempt * 1000, 15_000);
+        await new Promise((r) => setTimeout(r, delay));
+        attempt += 1;
+        try {
+          const messages = await fetchConversation();
+          if (messages.length === 0) continue;
+          const last = messages[messages.length - 1];
+          // If the last stored message is an assistant turn, the
+          // server completed its work (tool loop ends on an
+          // assistant text turn).
+          if (last?.role === "assistant") {
+            setItems(hydrateFromMessages(messages));
+            return true;
+          }
+        } catch {
+          // Server still rebooting — keep trying.
+        }
+      }
+      return false;
+    },
+    [],
+  );
+
+  // Rehydrate conversation on initial mount so a refresh doesn't lose
+  // prior turns.
+  useEffect(() => {
+    (async () => {
+      try {
+        const messages = await fetchConversation();
+        const hydrated = hydrateFromMessages(messages);
+        if (hydrated.length > 0) setItems(hydrated);
+      } catch {
+        // Non-fatal — user can still start a new conversation.
+      }
+    })();
+  }, []);
 
   const handleApply = useCallback(async () => {
     // The user clicks Apply without typing — send a short confirmation

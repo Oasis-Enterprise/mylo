@@ -215,6 +215,24 @@ async def apply_with_rollback(
             details = {}
         result.steps.append(StepResult("verify", ok=ok, message=message, details=details))
         if not ok:
+            if is_global_reload:
+                # HA has already loaded the file (reload_all completed before
+                # we got here). Rolling back the file now would DELETE or
+                # REVERT it on disk while HA keeps the new automation in
+                # memory — creating a drift that only surfaces on the next
+                # restart, when the automation silently disappears. Leave
+                # the file and surface a warning; the user can inspect.
+                result.steps.append(
+                    StepResult(
+                        "rollback",
+                        ok=True,
+                        message=(
+                            "skipped: reload_all already applied; keeping "
+                            "file on disk to stay aligned with HA runtime"
+                        ),
+                    )
+                )
+                return result
             await _rollback(client, path, backup, reload_service, result)
             return result
     else:

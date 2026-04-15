@@ -126,3 +126,22 @@ function parseFrame(frame: string): ServerEvent | null {
 export async function clearConversation(): Promise<void> {
   await fetch(apiUrl("api/conversation/clear"), { method: "POST" });
 }
+
+export interface RawMessage {
+  role: "user" | "assistant";
+  content: string | RawContentBlock[];
+}
+
+export type RawContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; tool_use_id: string; content: string };
+
+export async function fetchConversation(): Promise<RawMessage[]> {
+  const response = await fetch(apiUrl("api/conversation"), { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`conversation endpoint returned ${response.status}`);
+  }
+  const body = (await response.json()) as { messages: RawMessage[] };
+  return body.messages || [];
+}
