@@ -185,14 +185,21 @@ async def handler(params: ModifyAutomationParams, ctx: ToolContext) -> ToolResul
         if params.action in ("create", "update", "enable")
         else None
     )
+    # Use reload_all (not reload_automation) because we write to a
+    # packages/*.yaml file. HA's automation reload only re-reads the
+    # `automation:` source; it does NOT re-process the `packages:`
+    # directive. For a newly-created package file to be picked up, the
+    # package merge stage has to run again — that's what reload_all does.
+    # Slower (~5-10s on busy homes) but correctness beats speed here.
     rollback_result = await apply_with_rollback(
         client=ctx.ws_client,
         path=pkg_path,
         content=new_text,
-        domain="automation",
+        domain="all",
         config_dir=ctx.config.ha_config_dir,
         mylo_data_dir=ctx.config.mylo_data_dir,
         verify=verify,
+        reload_wait_seconds=15.0,
     )
     envelope: dict[str, Any] = {
         **preview,
