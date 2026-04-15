@@ -21,9 +21,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# tini is intentionally NOT installed — the HA base-python image already
+# uses s6-overlay as PID 1 (ENTRYPOINT=/init). Adding tini on top made
+# Docker try to run `/init /init` and s6 refused with "can only run as
+# pid 1".
 RUN apk add --no-cache \
         ca-certificates \
-        tini \
     && apk add --no-cache --virtual .build-deps \
         build-base \
         python3-dev \
@@ -43,4 +46,5 @@ RUN pip install --no-cache-dir . \
 
 COPY rootfs /
 
-CMD ["/init"]
+# No CMD — inherit ENTRYPOINT=/init from the base image. s6-overlay takes
+# over from there and runs our service under rootfs/etc/services.d/mylo/.
