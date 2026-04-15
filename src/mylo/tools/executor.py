@@ -58,10 +58,15 @@ async def execute(
             data={"errors": _serialize_validation_errors(exc)},
         )
 
+    # A tool invocation's dry_run status comes from the params, not the
+    # context — the LLM asks for dry runs per-call. Extract it early so
+    # the permission check can allow tier-2 previews without approval.
+    tool_dry_run = _dry_run_from_params(raw_params)
     decision: PermissionDecision = ctx.permissions.check(
         tier=tool.tier,
         conversation_id=ctx.conversation_id,
         user_approved=ctx.user_approved,
+        dry_run=tool_dry_run,
     )
     if not decision.allowed:
         await _audit(
@@ -133,6 +138,11 @@ async def _audit(
         await ctx.audit.write(entry)
     except Exception as exc:  # audit failures must not break tool calls
         log.warning("tools.audit_write_failed", error=str(exc))
+
+
+def _dry_run_from_params(raw_params: dict[str, Any]) -> bool:
+    value = (raw_params or {}).get("dry_run")
+    return bool(value)
 
 
 def _serialize_validation_errors(exc: ValidationError) -> list[dict[str, Any]]:

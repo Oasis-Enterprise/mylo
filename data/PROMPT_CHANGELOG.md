@@ -5,6 +5,19 @@ first-class versioned artifacts. Every change to ``system_prompt.txt``
 bumps the version in the first line of that file and adds an entry
 here explaining what changed and why.
 
+## 0.2.0 — 2026-04-14 (M7a)
+
+Added the write-path behavior rules:
+
+- Documented the tier-2 dry-run-first flow. The model must always call
+  tier-2 tools with `dry_run=true` first, present the preview, and wait
+  for user approval (which arrives as an `approved: true` flag on the
+  next request) before retrying with `dry_run=false`.
+- Described tier-3 service-call expectations, including the extra care
+  around locks/alarms/covers.
+- Noted that if a dry_run returns schema/ref errors the model should
+  fix and retry instead of asking the user to approve a broken change.
+
 ## 0.1.0 — 2026-04-13 (M4a)
 
 Initial minimal system prompt. Covers identity, tool-use behavior, and

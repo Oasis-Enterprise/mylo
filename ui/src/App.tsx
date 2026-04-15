@@ -13,6 +13,9 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [lastUsage, setLastUsage] = useState<DoneEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // When the last turn's tool output included a dry-run preview, we offer
+  // an Apply button that sends the user's next message with approved=true.
+  const [pendingApproval, setPendingApproval] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -24,6 +27,7 @@ export default function App() {
     setItems([]);
     setLastUsage(null);
     setError(null);
+    setPendingApproval(false);
   }, []);
 
   const handleSubmit = useCallback(
@@ -56,6 +60,11 @@ export default function App() {
       }
 
       setError(null);
+      // Approved is consumed per-turn: if the user hit Apply on the last
+      // preview, this turn gets the flag; after that it resets.
+      const approvedForThisTurn = pendingApproval;
+      setPendingApproval(false);
+
       const userId = randomId();
       const assistantId = randomId();
 
@@ -67,9 +76,13 @@ export default function App() {
       setSending(true);
 
       const toolCallsById = new Map<string, ToolCallRecord>();
+      let turnSawPreview = false;
 
       try {
-        for await (const event of streamChat(message)) {
+        for await (const event of streamChat(message, { approved: approvedForThisTurn })) {
+          if (event.type === "tool_result" && _isPreviewResult(event.data)) {
+            turnSawPreview = true;
+          }
           applyEvent(event, assistantId, toolCallsById, setItems, setLastUsage, setError);
         }
       } catch (exc) {
@@ -79,10 +92,20 @@ export default function App() {
           prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),
         );
         setSending(false);
+        // If this turn produced a dry-run preview, surface Apply on the
+        // next user message.
+        if (turnSawPreview) setPendingApproval(true);
       }
     },
-    [handleClear],
+    [handleClear, pendingApproval],
   );
+
+  const handleApply = useCallback(async () => {
+    // The user clicks Apply without typing — send a short confirmation
+    // message with approved=true. The model's retry with dry_run=false
+    // is what actually writes.
+    await handleSubmit("Yes, apply the change.");
+  }, [handleSubmit]);
 
   return (
     <div className="flex h-full flex-col">
@@ -122,8 +145,42 @@ export default function App() {
         </div>
       ) : null}
 
+      {pendingApproval ? (
+        <div className="flex items-center justify-between gap-3 border-t border-indigo-500/30 bg-indigo-950/30 px-4 py-2 text-sm">
+          <div className="text-indigo-200">
+            Mylo is waiting for you to approve the change above.
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setPendingApproval(false)}
+              disabled={sending}
+              className="rounded border border-border px-3 py-1 text-xs text-mute hover:text-gray-200 disabled:opacity-40"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleApply()}
+              disabled={sending}
+              className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium hover:bg-indigo-500 disabled:opacity-40"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <Composer disabled={sending} onSubmit={handleSubmit} />
     </div>
+  );
+}
+
+function _isPreviewResult(data: unknown): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as Record<string, unknown>).preview === true
   );
 }
 
@@ -171,6 +228,7 @@ function applyEvent(
         state: event.status === "ok" ? "ok" : "error",
         errorCode: event.error_code,
         summary: extractSummary(event.data),
+        data: event.data,
       };
       toolCallsById.set(event.id, updated);
       setItems((prev) =>

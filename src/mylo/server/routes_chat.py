@@ -68,6 +68,11 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     if not isinstance(message, str) or not message.strip():
         return web.json_response({"error": "missing_message"}, status=400)
 
+    # The UI sets ``approved: true`` when the user clicks "Apply" after
+    # seeing a dry-run preview. That flag travels on the next request,
+    # authorizing tier-2/3 writes for this turn only. Default false.
+    approved = bool(body.get("approved", False))
+
     provider = request.app.get(AppKeys.PROVIDER)
     if provider is None:
         return web.json_response(
@@ -76,7 +81,21 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         )
 
     conv = request.app[AppKeys.CONVERSATION]
-    ctx = request.app[AppKeys.TOOL_CONTEXT]
+    base_ctx = request.app[AppKeys.TOOL_CONTEXT]
+    # Per-turn context — user_approved is request-scoped, not server-wide.
+    from mylo.tools.context import ToolContext
+
+    ctx = ToolContext(
+        ws_client=base_ctx.ws_client,
+        registries=base_ctx.registries,
+        config=base_ctx.config,
+        permissions=base_ctx.permissions,
+        audit=base_ctx.audit,
+        states=base_ctx.states,
+        conversation_id=base_ctx.conversation_id,
+        user_approved=approved,
+        dry_run=False,
+    )
     tools = request.app[AppKeys.TOOLS_JSON]
     config = request.app[AppKeys.CONFIG]
     prompt = load_system_prompt()

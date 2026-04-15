@@ -58,8 +58,15 @@ class Permissions:
         tier: Tier,
         conversation_id: str,
         user_approved: bool,
+        dry_run: bool = False,
     ) -> PermissionDecision:
         if tier is Tier.READ:
+            return PermissionDecision(allowed=True)
+
+        # Tier-2 dry runs are previews — they validate, plan, and return a
+        # diff, but don't write. Always allow without user_approved so the
+        # model can propose → user sees → user approves.
+        if tier is Tier.MODIFY and dry_run:
             return PermissionDecision(allowed=True)
 
         if not user_approved:
@@ -68,7 +75,8 @@ class Permissions:
                 reason_code="confirmation_required",
                 reason_message=(
                     f"tier-{tier.value} tools require user confirmation; "
-                    "present a dry-run preview and pass user_approved=True"
+                    "present a dry-run preview first and then retry with the "
+                    "user's approval"
                 ),
             )
 

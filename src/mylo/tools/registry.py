@@ -28,6 +28,12 @@ _DEFAULT_MODULES: tuple[str, ...] = (
     "mylo.tools.read.read_config_file",
     "mylo.tools.read.verify_change",
     "mylo.tools.read.memory_note",
+    # M7a: tier-2 write tools and tier-3 actions.
+    "mylo.tools.write.write_config_file",
+    "mylo.tools.write.patch_config_file",
+    "mylo.tools.write.modify_automation",
+    "mylo.tools.action.call_service",
+    "mylo.tools.action.reload_config",
 )
 
 

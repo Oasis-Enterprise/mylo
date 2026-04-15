@@ -10,6 +10,8 @@ export interface ToolCallRecord {
   errorCode?: string | null;
   // Short human-facing summary of the result (e.g. "2 lights (2 on)").
   summary?: string;
+  // Raw result data (trimmed) — used to display dry-run previews inline.
+  data?: unknown;
 }
 
 export interface ChatItem {

@@ -22,15 +22,20 @@ export type ServerEvent =
     }
   | { type: "error"; message: string; errorType: string };
 
+export interface SendOptions {
+  approved?: boolean;
+  signal?: AbortSignal;
+}
+
 export async function* streamChat(
   message: string,
-  signal?: AbortSignal,
+  options: SendOptions = {},
 ): AsyncGenerator<ServerEvent, void, void> {
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
-    signal,
+    body: JSON.stringify({ message, approved: Boolean(options.approved) }),
+    signal: options.signal,
   });
 
   if (!response.ok) {

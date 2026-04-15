@@ -8,6 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 7a — Write path: tier-2 tools, rollback loop, tier-3
+  service calls.** This is the big capability unlock — Mylo can now
+  actually modify your HA.
+  - `files.rollback.apply_with_rollback`: backup → atomic write →
+    reload → verify → rollback-on-failure. Every step's outcome lives
+    in `StepResult` so tool handlers can diagnose exactly what went
+    wrong.
+  - `write_config_file` (tier 2): generic YAML write under /config/.
+    Runs schema + entity-ref + template validation before touching
+    disk; on dry_run=True returns a structured diff preview; on
+    dry_run=False runs the full rollback pipeline.
+  - `patch_config_file` (tier 2): surgical add/update/remove at a
+    dotted path — safer than rewriting a whole file.
+  - `modify_automation` (tier 2): create/update/delete/enable/disable
+    against a single managed package at /config/packages/agent.yaml.
+    YAML-mode only in M7a; storage-mode handling lands later.
+  - `call_service` (tier 3): invoke any HA service with a hard-
+    blocklist (restart/shutdown/reboot) and a restricted-services
+    warning set (lock/unlock, alarm_disarm, cover/open_cover).
+    Rate-limited.
+  - `reload_config` (tier 3): trigger a specific domain reload.
+  - Permission gate now understands `dry_run` — tier-2 dry runs are
+    allowed without `user_approved` so the LLM can propose → user sees
+    → user approves. Non-dry-run writes still require approval.
+  - Server accepts `approved: true` in the chat request body; the UI
+    surfaces an Apply button after any tool call that returns
+    `preview: true` in its data, and the next user message carries the
+    approval flag through to the permission gate.
+  - System prompt v0.2.0: documents the dry-run-first write flow and
+    the tier-3 physical-action expectations. Prompt changelog updated.
+  - 25 new unit tests (202 total). Rollback pipeline covered end-to-
+    end including first-write rollback-by-delete, verify failure, and
+    reload failure. Write tools covered through the executor so the
+    permission matrix, audit log, and dry-run gate all fire as they
+    would at runtime.
+
 - **Milestone 6 — Validators, resolver, file manager.** Foundation for
   the write path — no behavior change yet, but every piece M7's write
   tools will compose against is now in place and tested.

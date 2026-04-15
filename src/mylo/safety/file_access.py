@@ -1,8 +1,10 @@
 """File-access policy enforcement.
 
 Spec §4.13 + §5. The agent may read YAML files under ``/config/`` but must
-never see ``secrets.yaml`` (even via read) or files outside the config tree.
-Write rules are enforced elsewhere; this module only concerns read.
+never see ``secrets.yaml`` (even via read) or files outside the config
+tree. Writes have the same path rules as reads plus a small extra block
+list (``configuration.yaml`` and the log files are read-only even for
+write tools — editing the root config is outside the v1 scope).
 """
 
 from __future__ import annotations
@@ -29,6 +31,22 @@ NEVER_READ_DIRS: frozenset[str] = frozenset(
 
 # Extensions we'll allow for *content* reads. Binary/opaque files are refused.
 ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".yaml", ".yml", ".md", ".txt", ".json"})
+
+# Files that are readable but NEVER writable. configuration.yaml is the
+# big one — editing a user's core HA config is v2 scope at best, and the
+# blast radius of a typo is too large. Users who want to edit it should
+# do it manually.
+NEVER_WRITE: frozenset[str] = frozenset(
+    {
+        "configuration.yaml",
+        "configuration.yml",
+    }
+)
+
+# Write-only extensions — the agent should only write config YAML. Text
+# / JSON / Markdown are allowed to READ (for docs, integrations) but not
+# WRITE (the agent shouldn't be editing user's README.md).
+WRITE_ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".yaml", ".yml"})
 
 
 class FileAccessError(ValueError):
@@ -80,4 +98,26 @@ def resolve_under_config(config_dir: Path, rel_path: str) -> Path:
             f"extension {candidate.suffix!r} not in {sorted(ALLOWED_EXTENSIONS)}",
         )
 
+    return candidate
+
+
+def resolve_under_config_writable(config_dir: Path, rel_path: str) -> Path:
+    """Resolve + enforce the **write** policy.
+
+    Applies every read-time rule plus:
+    * refuses :data:`NEVER_WRITE` filenames (configuration.yaml);
+    * extension must be in :data:`WRITE_ALLOWED_EXTENSIONS` (yaml/yml).
+    """
+    candidate = resolve_under_config(config_dir, rel_path)
+
+    if candidate.name in NEVER_WRITE:
+        raise FileAccessError(
+            "denied_write",
+            f"{candidate.name!r} is read-only — edit it manually",
+        )
+    if candidate.suffix.lower() not in WRITE_ALLOWED_EXTENSIONS:
+        raise FileAccessError(
+            "unsupported_write_extension",
+            f"write target must be YAML (.yaml or .yml), got {candidate.suffix!r}",
+        )
     return candidate
