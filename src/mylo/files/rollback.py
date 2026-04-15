@@ -28,7 +28,7 @@ from typing import Any, Literal
 
 from mylo.files.backup import BackupHandle, take_backup
 from mylo.files.manager import atomic_write
-from mylo.ha.ws_client import CommandError, HaWsClient
+from mylo.ha.ws_client import CommandError, CommandTimeout, HaWsClient
 from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -141,33 +141,68 @@ async def apply_with_rollback(
         return result
 
     # 3. Reload.
+    #
+    # homeassistant.reload_all restarts enough of HA core (including the
+    # ingress integration) that our own websocket gets reset mid-call —
+    # the call_service request never receives a response. That's not a
+    # failure; it just means HA accepted the reload and the transport
+    # rolled. We use a short timeout in that case so we don't sit 60s
+    # waiting for a reply that can't come, then wait for reconnect
+    # before verifying.
     reload_service = RELOAD_SERVICES.get(domain, RELOAD_SERVICES["all"])
+    is_global_reload = domain == "all"
+    call_timeout = 5.0 if is_global_reload else 60.0
+    reload_message = f"{reload_service[0]}.{reload_service[1]}"
     try:
         await client.send_command(
             "call_service",
             domain=reload_service[0],
             service=reload_service[1],
+            timeout=call_timeout,
         )
+        result.steps.append(StepResult("reload", ok=True, message=reload_message))
+    except CommandTimeout:
+        if not is_global_reload:
+            result.steps.append(
+                StepResult("reload", ok=False, message=f"{reload_message}: timed out")
+            )
+            await _rollback(client, path, backup, reload_service, result)
+            return result
+        # reload_all's websocket-reset is the expected signal that HA is
+        # processing the reload. Keep going and verify after reconnect.
         result.steps.append(
             StepResult(
                 "reload",
                 ok=True,
-                message=f"{reload_service[0]}.{reload_service[1]}",
+                message=f"{reload_message} (websocket reset — reload in progress)",
             )
         )
     except CommandError as exc:
         result.steps.append(
-            StepResult(
-                "reload",
-                ok=False,
-                message=f"{exc.code}: {exc.message}",
-            )
+            StepResult("reload", ok=False, message=f"{exc.code}: {exc.message}")
         )
         await _rollback(client, path, backup, reload_service, result)
         return result
 
-    # Wait for HA to process the reload before verifying. The reload call
-    # returns immediately but the domain takes a moment to pick up new
+    # For a global reload, wait for our client to reconnect before
+    # verifying — the call likely tore the websocket.
+    if is_global_reload:
+        try:
+            await client.wait_ready(timeout=30.0)
+        except TimeoutError:
+            result.steps.append(
+                StepResult(
+                    "verify",
+                    ok=False,
+                    message="websocket never reconnected after reload_all",
+                )
+            )
+            # Don't rollback: without a working client we can't verify
+            # OR revert safely. The file stays; user reconciles.
+            return result
+
+    # Wait for HA to process the reload before verifying. Reload calls
+    # return immediately but the domain takes a moment to pick up new
     # entities.
     if reload_wait_seconds > 0:
         await asyncio.sleep(reload_wait_seconds)
