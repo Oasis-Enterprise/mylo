@@ -52,6 +52,19 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/mylo"]
 
+# Ensure the data/ directory (shipped prompts, reference YAML) is
+# included in the wheel — hatchling would otherwise skip non-.py files
+# under certain layouts.
+[tool.hatch.build.targets.wheel.shared-data]
+"src/mylo/data" = "mylo/data"
+
+[tool.hatch.build]
+include = [
+    "src/mylo/**/*.py",
+    "src/mylo/data/**/*",
+    "src/mylo/server/static/**/*",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

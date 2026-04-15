@@ -24,9 +24,12 @@ class LoadedPrompt:
 
 
 def _find_prompt_path() -> Path:
-    # src/mylo/context/basic_prompt.py  →  <repo>/data/system_prompt.txt
+    # src/mylo/context/basic_prompt.py  →  src/mylo/data/system_prompt.txt
+    # Ships with the package via pyproject.toml force-include so the same
+    # lookup works in a source checkout AND in a pip install inside the
+    # add-on container.
     here = Path(__file__).resolve()
-    return here.parent.parent.parent.parent / "data" / "system_prompt.txt"
+    return here.parent.parent / "data" / "system_prompt.txt"
 
 
 def load_system_prompt(path: Path | None = None) -> LoadedPrompt:

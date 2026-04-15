@@ -36,7 +36,6 @@ WORKDIR /app
 
 COPY pyproject.toml README.md LICENSE /app/
 COPY src /app/src
-COPY data /app/data
 
 # Drop the built UI into the Python package's static dir.
 COPY --from=ui-builder /ui/dist /app/src/mylo/server/static
