@@ -8,6 +8,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 6 — Validators, resolver, file manager.** Foundation for
+  the write path — no behavior change yet, but every piece M7's write
+  tools will compose against is now in place and tested.
+  - `validators.yaml_parser`: ruamel round-trip that preserves comments,
+    key order, and quoting; HA's `!secret` / `!include*` / `!env_var`
+    / `!input` tags are preserved through load → dump so edits never
+    trash a user's magic references.
+  - `validators.automation_schema`: lint automation/script configs for
+    the shapes the LLM most commonly gets wrong — missing
+    trigger/action, invalid mode, unknown platform (warning), bad
+    service-call shape, nested choose/if-then/repeat structure.
+    Errors vs warnings: warnings surface in previews but don't block.
+  - `validators.template_check`: parse Jinja2 ASTs, report syntax
+    errors with line numbers, and extract entity refs from
+    `states()` / `state_attr()` / `is_state()` / `expand()` calls.
+  - `validators.entity_refs`: walks a config tree finding every
+    `entity_id` / `target.entity_id` / template-extracted ref, runs
+    each through the resolver, produces a structured report with
+    resolutions + mismatches + template errors.
+  - `resolver.resolver`: **the hallucination defense** — exact-hit
+    first, rapidfuzz fuzzy match next (≥0.92 similarity, single
+    candidate auto-corrects; ambiguous stays mismatch), `did_you_mean`
+    suggestions on miss. Covers entity IDs, devices (by id or display
+    name), and areas.
+  - `resolver.errors`: the standardized envelope. Every ref failure
+    emits the same `{error, invalid_ref, kind, did_you_mean, hint}`
+    shape so the LLM's self-correction loop sees one schema.
+  - `files.manager.atomic_write`: POSIX-atomic writes via
+    sibling tempfile + fsync + `os.replace`. Readers always see the
+    old file or the fully-written new one, never a torn half.
+  - `files.backup`: timestamped backups under
+    `{mylo_data_dir}/backups/<relpath>/<ts>.yaml`, rotated to the 10
+    most recent per file. Returns a `BackupHandle` the audit log can
+    record.
+  - `files.diff`: structural YAML diff for dry-run previews.
+    Normalizes formatting differences away so the UI shows only real
+    edits — no noise from ruamel's reflow or quote-style flips.
+    `None → dict` gracefully produces per-key `added` entries.
+  - 42 new unit tests across six new modules. 181 total, all green.
+
 - **Milestone 5 — Panel UI.**
   - `server.app`: aiohttp application factory that owns the HA client,
     registries, conversation store, tool registry, and provider as
