@@ -94,7 +94,18 @@ class _PendingCommand:
 
 
 def _derive_ws_url(base_url: str) -> str:
-    """Turn ``http(s)://host:port/...`` into ``ws(s)://host:port/api/websocket``."""
+    """Turn a base URL into the HA websocket URL.
+
+    Preserves any path prefix on the base URL and appends ``/api/websocket``.
+    This matters for the Supervisor proxy case where the add-on reaches
+    HA core at ``http://supervisor/core`` — the websocket is therefore at
+    ``ws://supervisor/core/api/websocket``, not ``ws://supervisor/api/websocket``.
+    A path-stripping implementation worked for direct HA URLs but 401'd
+    against the Supervisor proxy.
+
+    Inputs already ending in ``/api/websocket`` (or ``wss://…/api/websocket``)
+    pass through unchanged.
+    """
     parsed = urlparse(base_url)
     if parsed.scheme in ("ws", "wss"):
         ws_scheme = parsed.scheme
@@ -104,7 +115,11 @@ def _derive_ws_url(base_url: str) -> str:
         ws_scheme = "ws"
     else:
         raise ValueError(f"unsupported URL scheme: {parsed.scheme!r} in {base_url!r}")
-    return urlunparse((ws_scheme, parsed.netloc, "/api/websocket", "", "", ""))
+
+    path = parsed.path.rstrip("/")
+    if not path.endswith("/api/websocket"):
+        path = f"{path}/api/websocket"
+    return urlunparse((ws_scheme, parsed.netloc, path, "", "", ""))
 
 
 class HaWsClient:
