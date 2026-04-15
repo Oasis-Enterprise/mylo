@@ -282,11 +282,7 @@ def automation_loaded_verifier(entity_id: str) -> Verifier:
             return False, "could not fetch states", {}
 
         match = next(
-            (
-                s
-                for s in states
-                if isinstance(s, dict) and s.get("entity_id") == entity_id
-            ),
+            (s for s in states if isinstance(s, dict) and s.get("entity_id") == entity_id),
             None,
         )
         if match is None:

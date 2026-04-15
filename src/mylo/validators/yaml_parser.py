@@ -14,12 +14,41 @@ reference them.
 
 from __future__ import annotations
 
+import copy
 import io
+import re
 from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.constructor import ConstructorError
 from ruamel.yaml.nodes import ScalarNode, SequenceNode
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+
+# Patterns that YAML 1.1 (which HA's PyYAML parser uses) would
+# *mis-interpret* as non-strings when emitted without quotes:
+#   - 23:00:00 → sexagesimal integer
+#   - true/false/yes/no/on/off → boolean
+#   - null/~ → null
+#   - numeric-looking → int or float
+#
+# We force double-quotes on anything matching these so the round-tripped
+# YAML still means the same thing when HA reads it. Targeted, so normal
+# text values like aliases stay unquoted and readable.
+_YAML_AMBIGUOUS = re.compile(
+    r"""^(?:
+        # Time-like: HH:MM or HH:MM:SS
+        \d{1,2}:\d{2}(?::\d{2})?
+      | # YAML 1.1 booleans
+        (?:true|false|yes|no|on|off|y|n)
+      | # Null tokens
+        (?:null|~)
+      | # Numbers (int, float, hex, octal)
+        [+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?
+      | # Leading zero forms YAML 1.1 treated specially
+        0x[0-9a-fA-F]+|0o?[0-7]+
+    )$""",
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 class PreservedTag:
@@ -105,14 +134,51 @@ def load_yaml(text: str) -> Any:
 
 
 def dump_yaml(data: Any) -> str:
-    """Round-trip dump. Always ends with a newline."""
+    """Round-trip dump. Always ends with a newline.
+
+    Walks the structure first to wrap YAML-1.1-ambiguous strings in
+    :class:`DoubleQuotedScalarString`, so values like ``"23:00:00"`` land
+    in the output as ``"23:00:00"`` rather than the bare ``23:00:00``
+    that HA's parser would read as sexagesimal 82800.
+    """
     yaml = _yaml_instance()
     buf = io.StringIO()
-    yaml.dump(data, buf)
+    yaml.dump(_quote_ambiguous(data), buf)
     out = buf.getvalue()
     if not out.endswith("\n"):
         out += "\n"
     return out
+
+
+def _quote_ambiguous(value: Any) -> Any:
+    """Return a copy of ``value`` with YAML-1.1-ambiguous leaf strings
+    wrapped in :class:`DoubleQuotedScalarString`.
+
+    We deep-copy then mutate in place so ruamel's ``CommentedMap`` /
+    ``CommentedSeq`` keep their comment + key-order metadata. Rebuilding
+    them with ``type(value)(...)`` strips those anchors — that broke the
+    round-trip-preserves-comments contract.
+    """
+    cloned = copy.deepcopy(value)
+    _quote_in_place(cloned)
+    return cloned
+
+
+def _quote_in_place(value: Any) -> None:
+    if isinstance(value, dict):
+        for k, v in list(value.items()):
+            if isinstance(v, str) and not isinstance(v, DoubleQuotedScalarString):
+                if _YAML_AMBIGUOUS.match(v):
+                    value[k] = DoubleQuotedScalarString(v)
+            else:
+                _quote_in_place(v)
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            if isinstance(v, str) and not isinstance(v, DoubleQuotedScalarString):
+                if _YAML_AMBIGUOUS.match(v):
+                    value[i] = DoubleQuotedScalarString(v)
+            else:
+                _quote_in_place(v)
 
 
 def safe_load(text: str) -> Any:
