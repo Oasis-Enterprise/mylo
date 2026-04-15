@@ -44,7 +44,11 @@ class PatchConfigFileParams(BaseModel):
     )
     yaml_path: str = Field(
         description=(
-            "Dotted path into the YAML structure. List indices as [N], e.g. 'automation[0].alias'."
+            "Dotted path into the YAML structure. List indices as [N] "
+            "(positive) or [-N] (from end). For append-to-list with "
+            "operation='add', use [+] as the trailing segment — e.g. "
+            "'automation[+]' appends a new automation to the end. "
+            "Examples: 'automation[0].alias', 'sensor[+]', 'homeassistant.customize'."
         ),
     )
     content: str | None = Field(
@@ -151,12 +155,23 @@ class PatchError(Exception):
         self.message = message
 
 
-_SEGMENT = re.compile(r"(?P<key>[^.\[\]]+)|\[(?P<idx>\d+)\]")
+_SEGMENT = re.compile(r"(?P<key>[^.\[\]]+)|\[(?P<idx>-?\d+|\+|-)\]")
 
 
-def _parse_path(path: str) -> list[str | int]:
-    """Parse ``'a.b[0].c'`` into ``['a', 'b', 0, 'c']``."""
-    parts: list[str | int] = []
+# Sentinel for "append to end of list" — yields from `[+]` or `[-]`.
+APPEND = object()
+
+
+def _parse_path(path: str) -> list[str | int | object]:
+    """Parse ``'a.b[0].c'`` into ``['a', 'b', 0, 'c']``.
+
+    Supports:
+    * ``[N]`` — positive index
+    * ``[-N]`` — negative index (from end)
+    * ``[+]`` or ``[-]`` — append sentinel, only valid as the last
+      segment of an ``add`` operation
+    """
+    parts: list[str | int | object] = []
     remainder = path
     while remainder:
         match = _SEGMENT.match(remainder)
@@ -165,7 +180,11 @@ def _parse_path(path: str) -> list[str | int]:
         if match.group("key") is not None:
             parts.append(match.group("key"))
         else:
-            parts.append(int(match.group("idx")))
+            token = match.group("idx")
+            if token in ("+", "-"):
+                parts.append(APPEND)
+            else:
+                parts.append(int(token))
         remainder = remainder[match.end() :].lstrip(".")
     return parts
 
@@ -190,7 +209,7 @@ def _apply_patch(struct: Any, yaml_path: str, operation: Operation, content: Any
     return struct
 
 
-def _descend(value: Any, seg: str | int) -> Any:
+def _descend(value: Any, seg: Any) -> Any:
     if isinstance(seg, int):
         if not isinstance(value, list):
             raise PatchError(
@@ -210,7 +229,7 @@ def _descend(value: Any, seg: str | int) -> Any:
     return value[seg]
 
 
-def _remove_at(parent: Any, key: str | int) -> None:
+def _remove_at(parent: Any, key: Any) -> None:
     if isinstance(key, int):
         if not isinstance(parent, list) or key >= len(parent):
             raise PatchError("path_not_found", f"list index {key} out of range")
@@ -221,7 +240,7 @@ def _remove_at(parent: Any, key: str | int) -> None:
     del parent[key]
 
 
-def _update_at(parent: Any, key: str | int, content: Any) -> None:
+def _update_at(parent: Any, key: Any, content: Any) -> None:
     if isinstance(key, int):
         if not isinstance(parent, list) or key >= len(parent):
             raise PatchError("path_not_found", f"list index {key} out of range")
@@ -232,11 +251,22 @@ def _update_at(parent: Any, key: str | int, content: Any) -> None:
     parent[key] = content
 
 
-def _add_at(parent: Any, key: str | int, content: Any) -> None:
+def _add_at(parent: Any, key: Any, content: Any) -> None:
+    if key is APPEND:
+        if not isinstance(parent, list):
+            raise PatchError(
+                "path_type_mismatch",
+                f"[+]/[-] append only works on lists, got {type(parent).__name__}",
+            )
+        parent.append(content)
+        return
     if isinstance(key, int):
         if not isinstance(parent, list):
             raise PatchError("path_type_mismatch", f"cannot add indexed at {type(parent).__name__}")
-        # For 'add' with an index, insert at that position.
+        # Negative indices use Python's list-index semantics: [-1]
+        # inserts BEFORE the current last element.
+        if key < 0:
+            key = len(parent) + key
         parent.insert(key, content)
         return
     if not isinstance(parent, dict):
