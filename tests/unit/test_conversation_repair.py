@@ -131,7 +131,7 @@ def test_trim_keeps_plain_user_start() -> None:
     assert _trim_to_clean_start(history) == history
 
 
-async def test_manager_load_persists_repairs(tmp_path: Path) -> None:
+async def test_manager_load_repairs_in_memory_only(tmp_path: Path) -> None:
     storage = ConversationStorage(tmp_path / "conv.db")
     await storage.init()
 
@@ -145,16 +145,40 @@ async def test_manager_load_persists_repairs(tmp_path: Path) -> None:
         content=[{"type": "tool_use", "id": "t1", "name": "echo", "input": {}}],
     )
 
-    # First load repairs and persists.
+    # Load repairs in memory — but storage stays exactly the 2 rows we
+    # appended. Persisting repairs used to cause synthetic tool_results
+    # to drift to the end of storage, breaking Anthropic's "immediately
+    # after" adjacency rule in later windows.
     m1 = ConversationManager(storage=storage, conversation_id=conv_id)
     await m1.load()
     assert len(m1.history) == 3
     assert m1.history[2]["content"][0]["type"] == "tool_result"
 
-    # Second load sees the already-persisted repair; no new repairs needed.
+    rows = await storage.load(conv_id)
+    assert len(rows) == 2  # no repair row persisted
+
+    # Second load regenerates the in-memory repair; still 2 rows in DB.
     m2 = ConversationManager(storage=storage, conversation_id=conv_id)
     await m2.load()
     assert len(m2.history) == 3
-    # The repair only fires once per orphan, so DB should have exactly 3 rows.
     rows = await storage.load(conv_id)
-    assert len(rows) == 3
+    assert len(rows) == 2
+
+
+async def test_as_provider_messages_strips_leading_orphan(tmp_path: Path) -> None:
+    # Simulate a poisoned in-memory history that somehow still has an
+    # orphan leading tool_result. The provider boundary must clean it.
+    storage = ConversationStorage(tmp_path / "conv.db")
+    await storage.init()
+    m = ConversationManager(storage=storage, conversation_id="x")
+    m.history = [
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "ghost", "content": "{}"}],
+        },
+        {"role": "user", "content": "hi"},
+    ]
+
+    msgs = m.as_provider_messages()
+    assert [x["role"] for x in msgs] == ["user"]
+    assert msgs[0]["content"] == "hi"

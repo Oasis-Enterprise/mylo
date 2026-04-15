@@ -27,10 +27,9 @@ class ConversationManager:
 
     async def load(self, limit: int | None = None) -> None:
         raw = await self.storage.load(self.conversation_id, limit=limit)
-        # Truncating to a limit can cut mid tool_use/tool_result pair. Drop
-        # leading fragments so the window always starts on a clean user
-        # turn — otherwise the first message may be an orphaned tool_result
-        # which Anthropic rejects.
+        # Truncating to a limit can cut mid tool_use/tool_result pair.
+        # Drop leading fragments so the window always starts on a clean
+        # user turn.
         trimmed = _trim_to_clean_start(raw)
         if len(trimmed) != len(raw):
             log.info(
@@ -38,18 +37,16 @@ class ConversationManager:
                 conversation_id=self.conversation_id,
                 dropped=len(raw) - len(trimmed),
             )
+        # Repairs are IN-MEMORY ONLY now. Persisting them used to append
+        # synthetic tool_results to the END of storage (SQLite
+        # autoincrement doesn't allow insert-at-position-K), which
+        # broke Anthropic's "tool_result must be immediately after its
+        # tool_use" rule in later windows. Regenerating on each load is
+        # microseconds of work and strictly correct.
         self.history, repairs = _repair_orphaned_tool_uses(trimmed)
         for repair in repairs:
-            # Persist repair turns so future loads see a clean history.
-            await self.storage.append(
-                conversation_id=self.conversation_id,
-                user_id=self.user_id,
-                role="user",
-                content=repair["content"],
-                prompt_version="repair",
-            )
             log.info(
-                "conversation.repaired_orphan_tool_use",
+                "conversation.repaired_orphan_tool_use_in_memory",
                 conversation_id=self.conversation_id,
                 tool_use_ids=[
                     b["tool_use_id"]
@@ -69,10 +66,16 @@ class ConversationManager:
         )
 
     def as_provider_messages(self) -> list[ProviderMessage]:
-        """Cast the history into the provider-facing shape. Same structure
-        today; keeps a seam for future filtering / truncation.
+        """Cast the history into the provider-facing shape.
+
+        Re-runs the trim + repair at send time so any orphan created by
+        a mid-session append (e.g. an in-flight tool_use that never
+        completed) never reaches Anthropic. Cheap — the trim/repair are
+        O(history length) and the history is trimmed to ~12 entries.
         """
-        return [ProviderMessage(role=m["role"], content=m["content"]) for m in self.history]
+        trimmed = _trim_to_clean_start(self.history)
+        repaired, _ = _repair_orphaned_tool_uses(trimmed)
+        return [ProviderMessage(role=m["role"], content=m["content"]) for m in repaired]
 
     async def clear(self) -> None:
         self.history = []

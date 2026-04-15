@@ -178,9 +178,7 @@ async def apply_with_rollback(
             )
         )
     except CommandError as exc:
-        result.steps.append(
-            StepResult("reload", ok=False, message=f"{exc.code}: {exc.message}")
-        )
+        result.steps.append(StepResult("reload", ok=False, message=f"{exc.code}: {exc.message}"))
         await _rollback(client, path, backup, reload_service, result)
         return result
 
