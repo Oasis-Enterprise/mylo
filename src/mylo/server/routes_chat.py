@@ -126,7 +126,9 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     from mylo.context.memory_injection import build_memory_section
 
     memory_section = build_memory_section(
-        memory_store.current(), mylo_data_dir=config.mylo_data_dir
+        memory_store.current(),
+        mylo_data_dir=config.mylo_data_dir,
+        timezone=request.app.get(AppKeys.HA_TIMEZONE),
     )
     system_text = prompt.text
     if memory_section:
