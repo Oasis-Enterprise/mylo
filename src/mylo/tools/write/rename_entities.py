@@ -25,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.files.manager import atomic_write, exists, read_text
-from mylo.ha.ws_client import CommandError
+from mylo.ha.ws_client import CommandError, CommandTimeout
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.registry import register
@@ -111,16 +111,60 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
         return ToolResult.ok(preview)
 
     # Apply registry renames.
+    #
+    # entity_id changes on big registries (2000+ entities) can take
+    # 30-90s server-side — HA has to recompute a lot. The call
+    # sometimes doesn't return a response within our timeout even
+    # though the rename succeeded. On CommandTimeout we reconnect,
+    # refresh the registry, and confirm the new entity_id exists
+    # before reporting success.
     rename_results: list[dict[str, Any]] = []
     for entry in params.renames:
+        update_kwargs: dict[str, Any] = {"entity_id": entry.entity_id}
+        if entry.new_entity_id:
+            update_kwargs["new_entity_id"] = entry.new_entity_id
+        if entry.new_friendly_name:
+            update_kwargs["name"] = entry.new_friendly_name
         try:
-            update_kwargs: dict[str, Any] = {"entity_id": entry.entity_id}
-            if entry.new_entity_id:
-                update_kwargs["new_entity_id"] = entry.new_entity_id
-            if entry.new_friendly_name:
-                update_kwargs["name"] = entry.new_friendly_name
-            await ctx.ws_client.send_command("config/entity_registry/update", **update_kwargs)
+            await ctx.ws_client.send_command(
+                "config/entity_registry/update", **update_kwargs
+            )
             rename_results.append({"entity_id": entry.entity_id, "ok": True})
+        except CommandTimeout:
+            # Wait for reconnect, refresh registry, verify by id.
+            try:
+                await ctx.ws_client.wait_ready(timeout=30.0)
+                await ctx.registries.refresh(force=True)
+            except Exception as exc:
+                rename_results.append(
+                    {
+                        "entity_id": entry.entity_id,
+                        "ok": False,
+                        "error": f"timed out and reconnect failed: {exc}",
+                    }
+                )
+                continue
+
+            verified_id = entry.new_entity_id or entry.entity_id
+            if verified_id in ctx.registries.entities:
+                rename_results.append(
+                    {
+                        "entity_id": entry.entity_id,
+                        "ok": True,
+                        "note": (
+                            "command timed out but rename verified in "
+                            "registry after reconnect"
+                        ),
+                    }
+                )
+            else:
+                rename_results.append(
+                    {
+                        "entity_id": entry.entity_id,
+                        "ok": False,
+                        "error": "timed out and new entity_id not in registry",
+                    }
+                )
         except CommandError as exc:
             rename_results.append(
                 {
