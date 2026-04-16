@@ -119,6 +119,19 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     config = request.app[AppKeys.CONFIG]
     prompt = load_system_prompt()
 
+    # Layer 3 memory injection. Reload scratchpad fresh each turn so the
+    # model sees notes the user just recorded. context.yaml is cached —
+    # only the reconciler writes to it, so no reload needed between turns.
+    memory_store = request.app[AppKeys.MEMORY]
+    from mylo.context.memory_injection import build_memory_section
+
+    memory_section = build_memory_section(
+        memory_store.current(), mylo_data_dir=config.mylo_data_dir
+    )
+    system_text = prompt.text
+    if memory_section:
+        system_text = f"{system_text}\n\n---\n\n{memory_section}"
+
     response = web.StreamResponse(
         status=200,
         reason="OK",
@@ -141,7 +154,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
             conversation=conv,
             provider=provider,
             ctx=ctx,
-            system=prompt.text,
+            system=system_text,
             tools=tools,
             model=config.model,
             prompt_version=prompt.version,

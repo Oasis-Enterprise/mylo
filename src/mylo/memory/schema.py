@@ -1,0 +1,214 @@
+"""Pydantic models for ``context.yaml`` — Mylo's persistent memory.
+
+Matches the schema in spec §3.2. Every memory item carries metadata
+(``created``, ``last_referenced``, ``reference_count``, ``priority``,
+``ttl``) used by the pruner (§3.4) to decide what to drop first.
+
+The root :class:`MemoryFile` is permissive about section content — the
+sync job (M8b) will normalize shape drift. For reads during chat we
+just need to load and render what exists without blowing up on
+user-edited files.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+NoteSource = Literal["conversation", "observation", "user_confirmed"]
+Priority = Literal["critical", "normal", "low"]
+
+
+class ItemMetadata(BaseModel):
+    """Common metadata carried by every memory item."""
+
+    model_config = ConfigDict(extra="allow")
+
+    created: str | None = None
+    last_referenced: str | None = None
+    reference_count: int = 0
+    source: NoteSource = "conversation"
+    priority: Priority = "normal"
+    ttl: str | None = None  # ISO date; null = indefinite
+
+
+class Scope(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    entity: str | None = None
+    area: str | None = None
+    general: bool | None = None
+
+
+class HouseholdMember(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    role: str = "household_member"
+    ha_user: str | None = None
+    presence_entity: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class Household(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    members: list[HouseholdMember] = Field(default_factory=list)
+    shared: dict[str, Any] = Field(default_factory=dict)
+
+
+class DashboardPreferences(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    card_style: str | None = None
+    layout_preference: str | None = None
+    notes: str | None = None
+
+
+class NamingPreferences(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    convention: str | None = None
+    examples: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AlertPreferences(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    sensitivity: str | None = None
+    quiet_hours: str | None = None
+    channels: list[str] = Field(default_factory=list)
+
+
+class Preferences(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    dashboard: DashboardPreferences = Field(default_factory=DashboardPreferences)
+    naming: NamingPreferences = Field(default_factory=NamingPreferences)
+    alerts: AlertPreferences = Field(default_factory=AlertPreferences)
+
+
+class Note(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    content: str
+    entity: str | None = None
+    area: str | None = None
+    scope: str | None = None  # "general" when not entity/area-scoped
+    added: str | None = None
+    source: NoteSource = "conversation"
+    metadata: ItemMetadata = Field(default_factory=ItemMetadata)
+
+
+class KnownIssue(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    description: str
+    first_seen: str | None = None
+    status: str = "active"
+    evidence: list[str] = Field(default_factory=list)
+    suggested_fix: str | None = None
+    user_acknowledged: bool = False
+
+
+class Pattern(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    description: str
+    confidence: float = 0.0
+    first_observed: str | None = None
+    last_confirmed: str | None = None
+    source: str = "observation"
+    exceptions: list[str] = Field(default_factory=list)
+
+
+class RejectedSuggestion(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    suggestion: str
+    reason: str | None = None
+    date: str | None = None
+
+
+class Claim(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    content: str
+    source: str
+    evidence: str | None = None
+    date: str | None = None
+
+
+class Conflict(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    type: str
+    subject: dict[str, Any] = Field(default_factory=dict)
+    claim_a: Claim | None = None
+    claim_b: Claim | None = None
+    status: str = "pending_review"
+    resolution: dict[str, Any] | None = None
+
+
+class EntityBaseline(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    entity: str
+    metric: str
+    avg: float
+    stddev: float
+    last_calculated: str | None = None
+
+
+class EnergyBaseline(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    daily_kwh_avg: float | None = None
+    daily_kwh_stddev: float | None = None
+    last_calculated: str | None = None
+    by_period: dict[str, Any] = Field(default_factory=dict)
+
+
+class Baselines(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    energy: EnergyBaseline | None = None
+    entities: list[EntityBaseline] = Field(default_factory=list)
+
+
+class MemoryFile(BaseModel):
+    """Root of ``context.yaml``. See spec §3.2."""
+
+    model_config = ConfigDict(extra="allow")
+
+    version: int = 2
+    last_sync: str | None = None
+    sync_hash: str | None = None
+
+    household: Household = Field(default_factory=Household)
+    preferences: Preferences = Field(default_factory=Preferences)
+    notes: list[Note] = Field(default_factory=list)
+    known_issues: list[KnownIssue] = Field(default_factory=list)
+    patterns: list[Pattern] = Field(default_factory=list)
+    rejected: list[RejectedSuggestion] = Field(default_factory=list)
+    conflicts: list[Conflict] = Field(default_factory=list)
+    monitored_entities: list[str] = Field(default_factory=list)
+    baselines: Baselines = Field(default_factory=Baselines)
+
+    def pending_conflicts(self) -> list[Conflict]:
+        return [c for c in self.conflicts if c.status == "pending_review"]
+
+
+def empty_memory() -> MemoryFile:
+    """Return an empty but valid memory document — used on first run."""
+    return MemoryFile(
+        version=2,
+        last_sync=datetime.now(UTC).replace(microsecond=0).isoformat(),
+    )

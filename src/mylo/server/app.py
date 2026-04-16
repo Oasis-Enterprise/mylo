@@ -25,6 +25,7 @@ from mylo.ha.registries import Registries
 from mylo.ha.ws_client import HaWsClient
 from mylo.llm.anthropic_provider import AnthropicProvider
 from mylo.logging_setup import get_logger
+from mylo.memory.store import MemoryStore
 from mylo.safety.audit import AuditLogger
 from mylo.safety.permissions import default_permissions
 from mylo.server.routes_chat import register_chat_routes
@@ -44,6 +45,7 @@ class AppKeys:
     PROVIDER = web.AppKey("provider", AnthropicProvider)
     TOOL_CONTEXT = web.AppKey("tool_context", ToolContext)
     TOOLS_JSON = web.AppKey("tools_json", list)
+    MEMORY = web.AppKey("memory", MemoryStore)
 
 
 async def _startup(app: web.Application) -> None:
@@ -73,6 +75,11 @@ async def _startup(app: web.Application) -> None:
     conv = ConversationManager(storage=storage)
     await conv.load(limit=int(os.environ.get("MYLO_HISTORY_LIMIT", "12")))
     app[AppKeys.CONVERSATION] = conv
+
+    # Memory (context.yaml + scratchpad reader).
+    memory_store = MemoryStore(mylo_data_dir=config.mylo_data_dir)
+    await memory_store.load()
+    app[AppKeys.MEMORY] = memory_store
 
     # LLM provider.
     api_key = os.environ.get("ANTHROPIC_API_KEY") or config.api_key

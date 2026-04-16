@@ -254,9 +254,7 @@ async def _background_verify_rename(
         loop_deadline = asyncio.get_event_loop().time() + poll_seconds
         while asyncio.get_event_loop().time() < loop_deadline:
             try:
-                listing = await client.send_command(
-                    "config/entity_registry/list", timeout=10.0
-                )
+                listing = await client.send_command("config/entity_registry/list", timeout=10.0)
             except CommandTimeout:
                 await asyncio.sleep(5.0)
                 continue
@@ -265,12 +263,9 @@ async def _background_verify_rename(
                 continue
 
             if isinstance(listing, list) and any(
-                isinstance(e, dict) and e.get("entity_id") == new_id
-                for e in listing
+                isinstance(e, dict) and e.get("entity_id") == new_id for e in listing
             ):
-                await _record_rename_success(
-                    audit, conversation_id, old_id, new_id
-                )
+                await _record_rename_success(audit, conversation_id, old_id, new_id)
                 return
             await asyncio.sleep(5.0)
 
