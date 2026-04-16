@@ -46,6 +46,7 @@ class AppKeys:
     TOOL_CONTEXT = web.AppKey("tool_context", ToolContext)
     TOOLS_JSON = web.AppKey("tools_json", list)
     MEMORY = web.AppKey("memory", MemoryStore)
+    HA_TIMEZONE = web.AppKey("ha_timezone", str)
 
 
 async def _startup(app: web.Application) -> None:
@@ -80,6 +81,15 @@ async def _startup(app: web.Application) -> None:
     memory_store = MemoryStore(mylo_data_dir=config.mylo_data_dir)
     await memory_store.load()
     app[AppKeys.MEMORY] = memory_store
+
+    # HA timezone — cached at startup so the memory section renders
+    # the current time in the user's local tz on every chat turn.
+    try:
+        ha_config = await client.send_command("get_config", timeout=10.0)
+        if isinstance(ha_config, dict) and isinstance(ha_config.get("time_zone"), str):
+            app[AppKeys.HA_TIMEZONE] = ha_config["time_zone"]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("server.timezone_fetch_failed", error=str(exc))
 
     # LLM provider.
     api_key = os.environ.get("ANTHROPIC_API_KEY") or config.api_key

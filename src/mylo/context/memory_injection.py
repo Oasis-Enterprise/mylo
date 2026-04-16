@@ -12,7 +12,9 @@ the minimum needed for user notes to actually influence replies.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from mylo.memory.schema import Conflict, MemoryFile
 from mylo.memory.scratchpad import read_scratchpad, summarize_entries
@@ -24,12 +26,18 @@ def build_memory_section(
     *,
     mylo_data_dir: Path,
     scratchpad_limit: int = 50,
+    timezone: str | None = None,
 ) -> str:
     """Return a text block to splice into the system prompt after the
     static identity/security rules. Empty string when there's nothing
     to say so we don't burn tokens on blank structure.
     """
     sections: list[str] = []
+
+    # Always include current time so time-based memory rules ("don't
+    # turn on X after 8pm") can fire without a tool call. Uses the HA
+    # timezone if known, else the process's local tz.
+    sections.append(_render_now(timezone))
 
     household_text = _render_household(memory)
     if household_text:
@@ -62,6 +70,20 @@ def build_memory_section(
 
 
 # ─── Renderers ──────────────────────────────────────────────────────────────
+
+
+def _render_now(timezone: str | None) -> str:
+    tz: ZoneInfo | None = None
+    if timezone:
+        try:
+            tz = ZoneInfo(timezone)
+        except Exception:
+            tz = None
+    now = datetime.now(tz) if tz else datetime.now().astimezone()
+    return (
+        f"CURRENT TIME: {now.strftime('%A, %B %d, %Y — %-I:%M %p %Z')} "
+        f"(ISO: {now.isoformat(timespec='seconds')})"
+    )
 
 
 def _render_household(memory: MemoryFile) -> str:

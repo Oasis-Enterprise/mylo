@@ -127,9 +127,11 @@ def test_summarize_entries_renders_human_readable(tmp_path: Path) -> None:
 # ─── System prompt integration ──────────────────────────────────────────────
 
 
-def test_build_memory_section_empty_when_no_memory(tmp_path: Path) -> None:
+def test_build_memory_section_always_includes_current_time(tmp_path: Path) -> None:
+    # Even with an empty memory, we include CURRENT TIME so time-based
+    # rules can fire without tool calls.
     section = build_memory_section(empty_memory(), mylo_data_dir=tmp_path)
-    assert section == ""
+    assert "CURRENT TIME:" in section
 
 
 def test_build_memory_section_includes_notes(tmp_path: Path) -> None:
