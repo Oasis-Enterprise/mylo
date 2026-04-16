@@ -88,7 +88,7 @@ async def _startup(app: web.Application) -> None:
         ha_config = await client.send_command("get_config", timeout=10.0)
         if isinstance(ha_config, dict) and isinstance(ha_config.get("time_zone"), str):
             app[AppKeys.HA_TIMEZONE] = ha_config["time_zone"]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("server.timezone_fetch_failed", error=str(exc))
 
     # LLM provider.
