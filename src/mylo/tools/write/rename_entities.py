@@ -128,34 +128,26 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
         if entry.new_friendly_name:
             update_kwargs["name"] = entry.new_friendly_name
         try:
+            # Short timeout — entity renames often outlast our wait.
+            # Fail fast and poll the registry instead of blocking.
             await ctx.ws_client.send_command(
-                "config/entity_registry/update", **update_kwargs
+                "config/entity_registry/update", timeout=10.0, **update_kwargs
             )
             rename_results.append({"entity_id": entry.entity_id, "ok": True})
         except CommandTimeout:
-            # Wait for reconnect, refresh registry, verify by id.
-            try:
-                await ctx.ws_client.wait_ready(timeout=30.0)
-                await ctx.registries.refresh(force=True)
-            except Exception as exc:
-                rename_results.append(
-                    {
-                        "entity_id": entry.entity_id,
-                        "ok": False,
-                        "error": f"timed out and reconnect failed: {exc}",
-                    }
-                )
-                continue
-
-            verified_id = entry.new_entity_id or entry.entity_id
-            if verified_id in ctx.registries.entities:
+            verified = await _poll_for_rename(
+                ctx,
+                new_id=entry.new_entity_id or entry.entity_id,
+                poll_seconds=30.0,
+            )
+            if verified:
                 rename_results.append(
                     {
                         "entity_id": entry.entity_id,
                         "ok": True,
                         "note": (
-                            "command timed out but rename verified in "
-                            "registry after reconnect"
+                            "command timed out; rename confirmed in "
+                            "registry after polling"
                         ),
                     }
                 )
@@ -164,7 +156,10 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
                     {
                         "entity_id": entry.entity_id,
                         "ok": False,
-                        "error": "timed out and new entity_id not in registry",
+                        "error": (
+                            "timed out; new entity_id not in registry after "
+                            "30s of polling — verify manually in HA"
+                        ),
                     }
                 )
         except CommandError as exc:
