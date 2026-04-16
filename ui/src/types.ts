@@ -37,3 +37,98 @@ export interface DoneEvent {
     cache_creation_input_tokens?: number;
   };
 }
+
+// ─── Memory tab types ──────────────────────────────────────────────────────
+
+export interface MemoryNote {
+  id: string;
+  content: string;
+  entity?: string | null;
+  area?: string | null;
+  scope?: string | null;
+  source?: string;
+  added?: string | null;
+  metadata?: {
+    created?: string | null;
+    last_referenced?: string | null;
+    reference_count?: number;
+    source?: string;
+    priority?: string;
+    ttl?: string | null;
+  };
+}
+
+export interface MemoryIssue {
+  id: string;
+  description: string;
+  first_seen?: string | null;
+  status: string;
+  suggested_fix?: string | null;
+  evidence?: string[];
+  user_acknowledged?: boolean;
+}
+
+export interface MemoryPattern {
+  id: string;
+  description: string;
+  confidence: number;
+  first_observed?: string | null;
+  last_confirmed?: string | null;
+  source?: string;
+}
+
+export interface MemoryRejection {
+  id: string;
+  suggestion: string;
+  reason?: string | null;
+  date?: string | null;
+}
+
+export interface MemoryConflict {
+  id: string;
+  type: string;
+  subject: Record<string, unknown>;
+  claim_a?: { content: string; source: string; date?: string | null } | null;
+  claim_b?: { content: string; source: string; date?: string | null } | null;
+  status: string;
+  resolution?: Record<string, unknown> | null;
+}
+
+export interface MemoryHouseholdMember {
+  name: string;
+  role: string;
+  presence_entity?: string | null;
+  notes: string[];
+}
+
+export interface MemoryFull {
+  version: number;
+  last_sync: string | null;
+  household: {
+    members: MemoryHouseholdMember[];
+    shared: Record<string, unknown>;
+  };
+  preferences: Record<string, unknown>;
+  notes: MemoryNote[];
+  known_issues: MemoryIssue[];
+  patterns: MemoryPattern[];
+  rejected: MemoryRejection[];
+  conflicts: MemoryConflict[];
+  monitored_entities: string[];
+}
+
+export interface PruneCandidate {
+  section: string;
+  id: string;
+  reason: string;
+  summary: string;
+}
+
+export interface SyncResult {
+  ok: boolean;
+  changed: boolean;
+  applied: boolean;
+  summary: string;
+  conflicts_added: number;
+  prune_candidates: PruneCandidate[];
+}

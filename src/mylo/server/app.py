@@ -29,6 +29,7 @@ from mylo.memory.store import MemoryStore
 from mylo.safety.audit import AuditLogger
 from mylo.safety.permissions import default_permissions
 from mylo.server.routes_chat import register_chat_routes
+from mylo.server.routes_memory import register_memory_routes
 from mylo.server.static import register_static_routes
 from mylo.tools import registry as tool_registry
 from mylo.tools.context import ToolContext
@@ -133,6 +134,7 @@ def build_app(config: AppConfig | None = None) -> web.Application:
     app.on_cleanup.append(_cleanup)
 
     register_chat_routes(app)
+    register_memory_routes(app)
     register_static_routes(app)
 
     return app

@@ -6,15 +6,19 @@ import {
   type ServerEvent,
 } from "./api";
 import { Composer } from "./components/Composer";
+import { MemoryTab } from "./components/MemoryTab";
 import { Message } from "./components/Message";
 import { hydrateFromMessages, isTurnComplete } from "./hydrate";
 import type { ChatFragment, ChatItem, DoneEvent, ToolCallRecord } from "./types";
+
+type Tab = "chat" | "memory";
 
 function randomId() {
   return Math.random().toString(36).slice(2);
 }
 
 export default function App() {
+  const [tab, setTab] = useState<Tab>("chat");
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sending, setSending] = useState(false);
   const [lastUsage, setLastUsage] = useState<DoneEvent | null>(null);
@@ -25,8 +29,8 @@ export default function App() {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [items]);
+    if (tab === "chat") endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [items, tab]);
 
   const handleClear = useCallback(async () => {
     await clearConversation();
@@ -174,66 +178,104 @@ export default function App() {
         <div>
           <h1 className="text-base font-semibold">Mylo</h1>
           <div className="text-xs text-mute">
-            {lastUsage ? (
-              <UsageSummary usage={lastUsage} />
+            {tab === "chat" ? (
+              lastUsage ? <UsageSummary usage={lastUsage} /> : "Ready. Ask about your Home Assistant setup."
             ) : (
-              "Ready. Ask about your Home Assistant setup."
+              "Review and correct what Mylo knows about your home."
             )}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleClear()}
-          disabled={sending}
-          className="text-xs text-mute hover:text-gray-200 disabled:opacity-40"
-        >
-          Clear conversation
-        </button>
+        <div className="flex items-center gap-4">
+          <nav className="flex overflow-hidden rounded border border-border text-xs">
+            <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>Chat</TabButton>
+            <TabButton active={tab === "memory"} onClick={() => setTab("memory")}>Memory</TabButton>
+          </nav>
+          {tab === "chat" ? (
+            <button
+              type="button"
+              onClick={() => void handleClear()}
+              disabled={sending}
+              className="text-xs text-mute hover:text-gray-200 disabled:opacity-40"
+            >
+              Clear conversation
+            </button>
+          ) : null}
+        </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 space-y-3">
-        {items.length === 0 ? (
-          <EmptyState />
-        ) : (
-          items.map((item) => <Message key={item.id} item={item} />)
-        )}
-        <div ref={endRef} />
-      </main>
+      {tab === "chat" ? (
+        <>
+          <main className="flex-1 overflow-y-auto p-4 space-y-3">
+            {items.length === 0 ? (
+              <EmptyState />
+            ) : (
+              items.map((item) => <Message key={item.id} item={item} />)
+            )}
+            <div ref={endRef} />
+          </main>
 
-      {error ? (
-        <div className="border-t border-rose-900/40 bg-rose-950/40 px-4 py-2 text-xs text-rose-300">
-          {error}
-        </div>
-      ) : null}
+          {error ? (
+            <div className="border-t border-rose-900/40 bg-rose-950/40 px-4 py-2 text-xs text-rose-300">
+              {error}
+            </div>
+          ) : null}
 
-      {pendingApproval ? (
-        <div className="flex items-center justify-between gap-3 border-t border-indigo-500/30 bg-indigo-950/30 px-4 py-2 text-sm">
-          <div className="text-indigo-200">
-            Mylo is waiting for you to approve the change above.
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setPendingApproval(false)}
-              disabled={sending}
-              className="rounded border border-border px-3 py-1 text-xs text-mute hover:text-gray-200 disabled:opacity-40"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleApply()}
-              disabled={sending}
-              className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium hover:bg-indigo-500 disabled:opacity-40"
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      ) : null}
+          {pendingApproval ? (
+            <div className="flex items-center justify-between gap-3 border-t border-indigo-500/30 bg-indigo-950/30 px-4 py-2 text-sm">
+              <div className="text-indigo-200">
+                Mylo is waiting for you to approve the change above.
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingApproval(false)}
+                  disabled={sending}
+                  className="rounded border border-border px-3 py-1 text-xs text-mute hover:text-gray-200 disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleApply()}
+                  disabled={sending}
+                  className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium hover:bg-indigo-500 disabled:opacity-40"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          ) : null}
 
-      <Composer disabled={sending} onSubmit={handleSubmit} />
+          <Composer disabled={sending} onSubmit={handleSubmit} />
+        </>
+      ) : (
+        <MemoryTab />
+      )}
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1 ${
+        active
+          ? "bg-indigo-600/70 text-white"
+          : "bg-transparent text-mute hover:text-gray-200"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

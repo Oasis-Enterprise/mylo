@@ -145,3 +145,71 @@ export async function fetchConversation(): Promise<RawMessage[]> {
   const body = (await response.json()) as { messages: RawMessage[] };
   return body.messages || [];
 }
+
+// ─── Memory API ───────────────────────────────────────────────────────────
+
+import type { MemoryFull, SyncResult } from "./types";
+
+export async function fetchMemoryFull(): Promise<MemoryFull> {
+  const response = await fetch(apiUrl("api/memory/full"), { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`memory/full returned ${response.status}`);
+  }
+  return (await response.json()) as MemoryFull;
+}
+
+export async function syncMemory(options: { applyPrune?: boolean } = {}): Promise<SyncResult> {
+  const response = await fetch(apiUrl("api/memory/sync"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apply_prune: Boolean(options.applyPrune) }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`memory/sync ${response.status}: ${text}`);
+  }
+  return (await response.json()) as SyncResult;
+}
+
+export async function applyPrune(options: { ids?: string[] } = {}): Promise<SyncResult> {
+  const body: Record<string, unknown> = {};
+  if (options.ids) body.ids = options.ids;
+  const response = await fetch(apiUrl("api/memory/prune"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`memory/prune ${response.status}`);
+  }
+  return (await response.json()) as SyncResult;
+}
+
+export async function deleteMemoryItem(section: string, id: string): Promise<void> {
+  const response = await fetch(apiUrl("api/memory/item"), {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ section, id }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`memory/item DELETE ${response.status}: ${text}`);
+  }
+}
+
+export async function resolveConflict(
+  conflictId: string,
+  choice: "a" | "b" | "dismiss",
+): Promise<void> {
+  const response = await fetch(
+    apiUrl(`api/memory/conflict/${encodeURIComponent(conflictId)}/resolve`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`conflict resolve returned ${response.status}`);
+  }
+}

@@ -8,6 +8,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 8c — Memory tab + review UI.** Closes out M8 — the user
+  can now see, correct, and audit everything Mylo knows.
+  - Panel now has **Chat / Memory** tabs in the header.
+  - Memory tab: last-sync status, counts header, "Sync now" button,
+    post-sync review card (summary + prune-candidate list + Apply-prune
+    button), and sections for household, notes, known issues, patterns,
+    rejections, and pending conflicts. Each item has a Delete button;
+    conflicts have Keep A / Keep B / Dismiss controls. User-confirmed
+    notes are badged "protected" but still manually deletable.
+  - New backend endpoints: `GET /api/memory/full` (entire memory as
+    JSON), `DELETE /api/memory/item` (section+id), `POST /api/memory/prune`
+    (apply the pruner without running the reconciler; optional `ids`
+    filter), `POST /api/memory/conflict/{id}/resolve` (choice: a/b/dismiss).
+  - 8 new endpoint tests covering full-view rendering, delete
+    semantics (including 400 on structural sections and 404 on unknown
+    ids), prune-only with ids filter, and conflict resolution
+    round-trip. 286 total tests.
+  - Deferred from M8c: per-item editing (delete-and-recapture via chat
+    is sufficient for the trust primitive). The nightly scheduler
+    lives in M11 with `monitor.scheduler`.
+
+- **Milestone 8b — Memory reconciler, pruner, and sync endpoint.**
+  - `memory.pruner` (spec §3.4): deterministic ranked sweep that
+    flags candidates for removal — expired TTL, stale unconfirmed
+    observations (>90d), resolved issues, low-confidence old patterns
+    (<0.5 and >60d), old rejections (>180d), and lowest-reference
+    notes (budget-gated). Never auto-prunes user-confirmed notes,
+    active known issues, critical items, preferences, or household.
+    `apply_prune` returns a pruned MemoryFile; callers decide whether
+    to save.
+  - `memory.reconciler` (spec §3.5): Haiku-backed merger. Loads
+    current memory + scratchpad + HA state diff, prompts Haiku to
+    produce an updated YAML, validates against the schema, and
+    re-protects user-confirmed sections client-side (defense in
+    depth against prompt drift). Parses out code fences. Detects
+    contradictions via prompt-instructed `conflicts:` entries.
+    Fallback path without an API key merges scratchpad as tentative
+    notes so the endpoint still works offline.
+  - `POST /api/memory/sync`: manual-trigger endpoint. Returns changed
+    flag, summary, conflicts_added, and prune_candidates list.
+    `{"apply_prune": true}` in the body drops candidates in the same
+    transaction.
+  - `GET /api/memory`: lightweight status endpoint with counts for
+    the future Memory tab.
+  - 16 new unit tests covering the pruner matrix, reconciler with
+    stubbed Haiku, malformed-YAML recovery, conflict emission,
+    user-section protection, and endpoint smoke. 278 total tests.
+
 - **Milestone 7b — Organizational & dashboard tools.**
   - `modify_areas` (tier 2): create/rename/delete areas, assign
     devices and entities between areas. Pure websocket — immediate
