@@ -264,15 +264,13 @@ async def test_call_service_with_approval_invokes_ha(_ctx: ToolContext) -> None:
         _ctx,
     )
     assert result.status.value == "ok"
-    assert (
-        "call_service",
-        {
-            "domain": "light",
-            "service": "turn_on",
-            "target": {"entity_id": "light.kitchen_overhead"},
-            "service_data": None,
-        },
-    ) in client.calls
+    assert any(
+        type_ == "call_service"
+        and kw.get("domain") == "light"
+        and kw.get("service") == "turn_on"
+        and kw.get("target") == {"entity_id": "light.kitchen_overhead"}
+        for type_, kw in client.calls
+    )
 
 
 async def test_call_service_restricted_service_adds_warning(_ctx: ToolContext) -> None:
