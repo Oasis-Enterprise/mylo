@@ -82,20 +82,24 @@ Verifier = Callable[[HaWsClient], Awaitable[tuple[bool, str, dict[str, Any]]]]
 
 
 RELOAD_SERVICES: dict[str, tuple[str, str]] = {
-    # domain → (service_domain, service_name)
-    "automation": ("homeassistant", "reload_automation"),
-    "script": ("homeassistant", "reload_script"),
-    "scene": ("homeassistant", "reload_scene"),
-    "group": ("homeassistant", "reload_group"),
-    "input_boolean": ("homeassistant", "reload_input_boolean"),
-    "input_number": ("homeassistant", "reload_input_number"),
-    "input_select": ("homeassistant", "reload_input_select"),
-    "input_text": ("homeassistant", "reload_input_text"),
-    "input_datetime": ("homeassistant", "reload_input_datetime"),
-    "template": ("homeassistant", "reload_template"),
+    # Modern HA uses domain-native reload services. The legacy
+    # "homeassistant.reload_<domain>" variants were phased out and may
+    # not exist in 2024+ versions — every prior hot-path apply failure
+    # ("service not found" → rollback) traced to this map pointing at
+    # services that don't exist on the user's HA 2026.4.2.
+    "automation": ("automation", "reload"),
+    "script": ("script", "reload"),
+    "scene": ("scene", "reload"),
+    "group": ("group", "reload"),
+    "input_boolean": ("input_boolean", "reload"),
+    "input_number": ("input_number", "reload"),
+    "input_select": ("input_select", "reload"),
+    "input_text": ("input_text", "reload"),
+    "input_datetime": ("input_datetime", "reload"),
+    "template": ("template", "reload"),
     "core": ("homeassistant", "reload_core_config"),
     "lovelace": ("lovelace", "reload_resources"),
-    # Fallback — reloads most YAML-configured components.
+    # Nuclear option — reloads all YAML-configured components + packages.
     "all": ("homeassistant", "reload_all"),
 }
 
