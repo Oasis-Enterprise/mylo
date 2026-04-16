@@ -27,6 +27,10 @@ export default function App() {
   // render the ApprovalCard inline at the tail of the conversation
   // and enable Apply. Approval is consumed per-turn.
   const [pendingApproval, setPendingApproval] = useState(false);
+  // If the user clicks APPLY while the previous SSE stream is still
+  // closing out its final text, queue the submit and fire it once
+  // sending clears. Prevents overlapping POSTs to /api/chat.
+  const [queuedApply, setQueuedApply] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const recordTurn = useSession((s) => s.recordTurn);
   const resetSession = useSession((s) => s.reset);
@@ -148,12 +152,30 @@ export default function App() {
   }, []);
 
   const handleApply = useCallback(async () => {
-    await handleSubmit("Yes, apply the change.");
-  }, [handleSubmit]);
+    const message = "Yes, apply the change.";
+    if (sending) {
+      // Previous stream still closing out — queue the submit so it
+      // fires the moment sending clears, and give the button visible
+      // feedback.
+      setQueuedApply(message);
+      return;
+    }
+    await handleSubmit(message);
+  }, [handleSubmit, sending]);
 
   const handleReject = useCallback(() => {
     setPendingApproval(false);
+    setQueuedApply(null);
   }, []);
+
+  // Flush a queued apply once the previous turn's stream finishes.
+  useEffect(() => {
+    if (!sending && queuedApply) {
+      const msg = queuedApply;
+      setQueuedApply(null);
+      void handleSubmit(msg);
+    }
+  }, [sending, queuedApply, handleSubmit]);
 
   // Pull the latest tool call + dry-run data so the ApprovalCard can
   // surface a meaningful diff. Walk backwards looking for the most
@@ -181,7 +203,7 @@ export default function App() {
                   tierLabel={approvalContext.tierLabel}
                   onApprove={() => void handleApply()}
                   onReject={handleReject}
-                  disabled={sending}
+                  applying={queuedApply !== null}
                 />
               </div>
             ) : null}
@@ -259,10 +281,60 @@ function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
     }
   }
 
+  // Service calls — describe "light.turn_on on light.kitchen" so the
+  // user can sanity-check target + payload before approving.
+  if (call.name === "call_service") {
+    const domain = String(input.domain ?? "");
+    const service = String(input.service ?? "");
+    const target = (input.target as Record<string, unknown> | undefined) ?? {};
+    const serviceData = (input.data as Record<string, unknown> | undefined) ?? {};
+    const targetEntity = target.entity_id;
+    const targetArea = target.area_id;
+    const targetDevice = target.device_id;
+
+    const targetLabel = formatTargetList(targetEntity)
+      || formatTargetList(targetArea)
+      || formatTargetList(targetDevice)
+      || "—";
+
+    const description =
+      domain && service
+        ? `Call ${domain}.${service} on ${targetLabel}`
+        : call.name;
+
+    const dataEntries = Object.entries(serviceData);
+    const meta =
+      dataEntries.length > 0
+        ? "data: " + dataEntries.map(([k, v]) => `${k}=${compactValue(v)}`).join(" · ")
+        : undefined;
+
+    // call_service is tier-3 when not on the allow-list; we default
+    // the label to TIER-3 for the impactful warning.
+    const tierLabel = String(data.tier ?? "TIER-3").toUpperCase();
+
+    return { description, meta, tierLabel };
+  }
+
   return {
     description: `${call.name} · dry run`,
     tierLabel: "TIER-2",
   };
+}
+
+function formatTargetList(value: unknown): string {
+  if (!value) return "";
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
+function compactValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "string") return v.length > 30 ? `${v.slice(0, 27)}…` : v;
+  if (typeof v === "object") {
+    const s = JSON.stringify(v);
+    return s.length > 30 ? `${s.slice(0, 27)}…` : s;
+  }
+  return String(v);
 }
 
 function _needsApproval(event: ServerEvent): boolean {

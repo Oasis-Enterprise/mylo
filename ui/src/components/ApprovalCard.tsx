@@ -12,7 +12,10 @@ interface Props {
   tierLabel?: string;
   onApprove: () => void;
   onReject: () => void;
-  disabled?: boolean;
+  // True when an apply has been queued but not yet submitted (prior
+  // turn's SSE stream still closing). Disables APPLY to avoid double-
+  // send and swaps the label to "Applying…" so the click feels live.
+  applying?: boolean;
 }
 
 // Inline approval card rendered in the chat stream, not as a bottom
@@ -26,7 +29,7 @@ export function ApprovalCard({
   tierLabel = "TIER-2",
   onApprove,
   onReject,
-  disabled = false,
+  applying = false,
 }: Props) {
   return (
     <div
@@ -79,8 +82,7 @@ export function ApprovalCard({
         <button
           type="button"
           onClick={onReject}
-          disabled={disabled}
-          className="rounded border px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label disabled:opacity-40"
+          className="rounded border px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:opacity-80"
           style={{
             borderColor: "var(--color-border)",
             color: "var(--color-text-muted)",
@@ -92,15 +94,15 @@ export function ApprovalCard({
         <button
           type="button"
           onClick={onApprove}
-          disabled={disabled}
-          className="btn-glow rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label disabled:opacity-40"
+          disabled={applying}
+          className="btn-glow rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
           style={{
             backgroundColor: "var(--color-accent-soft)",
             border: "1px solid var(--color-accent)",
             color: "var(--color-accent)",
           }}
         >
-          Apply
+          {applying ? "Applying…" : "Apply"}
         </button>
       </div>
     </div>
