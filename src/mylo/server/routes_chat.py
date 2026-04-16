@@ -44,10 +44,57 @@ def register_chat_routes(app: web.Application) -> None:
     app.router.add_post("/api/conversation/clear", _handle_clear)
     app.router.add_get("/api/conversation", _handle_get_conversation)
     app.router.add_get("/api/health", _handle_health)
+    app.router.add_get("/api/status", _handle_status)
 
 
 async def _handle_health(_request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
+
+
+async def _handle_status(request: web.Request) -> web.Response:
+    """Header status-bar payload — entity/automation counts, memory
+    sync freshness, version.
+
+    The panel header polls this on mount so we avoid stuffing all of
+    this into the SSE stream. Cheap: every field is already cached in
+    memory (registries + MemoryStore.current()).
+    """
+    from mylo.server.app import AppKeys
+
+    registries = request.app.get(AppKeys.REGISTRIES)
+    memory_store = request.app.get(AppKeys.MEMORY)
+
+    entity_count = 0
+    automation_count = 0
+    if registries is not None:
+        entity_count = sum(
+            1
+            for e in registries.entities.values()
+            if not e.disabled_by and not e.hidden_by
+        )
+        automation_count = sum(
+            1
+            for e in registries.entities.values()
+            if e.domain == "automation" and not e.disabled_by and not e.hidden_by
+        )
+
+    memory_payload: dict[str, Any] = {"last_sync": None, "pending_conflicts": 0}
+    if memory_store is not None:
+        mem = memory_store.current()
+        memory_payload = {
+            "last_sync": mem.last_sync,
+            "pending_conflicts": len(mem.pending_conflicts()),
+        }
+
+    return web.json_response(
+        {
+            "ok": True,
+            "entities": entity_count,
+            "automations": automation_count,
+            "memory": memory_payload,
+            "has_provider": AppKeys.PROVIDER in request.app,
+        }
+    )
 
 
 async def _handle_clear(request: web.Request) -> web.Response:

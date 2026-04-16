@@ -1,0 +1,171 @@
+import { useEffect, useState } from "react";
+import { fetchStatus, type ServerStatus } from "../api";
+import { formatRelative, formatTokens } from "../lib/format";
+import { useSession } from "../store";
+import { StatusDot } from "./StatusDot";
+import { Tag } from "./Tag";
+
+export type Tab = "chat" | "memory" | "activity";
+
+interface Props {
+  tab: Tab;
+  onChange: (tab: Tab) => void;
+  version?: string;
+}
+
+// Top row: status dot, MYLO wordmark, version, right-aligned tabs.
+// Bottom row: mono 9px status bar with entity/automation counts,
+// memory sync age, and session-level token + turn counters. The
+// status endpoint is polled every 30s and right after mount so the
+// memory sync string stays fresh without a WebSocket.
+export function Header({ tab, onChange, version = "v0.0" }: Props) {
+  const [status, setStatus] = useState<ServerStatus | null>(null);
+  const turns = useSession((s) => s.turns);
+  const inputTokens = useSession((s) => s.inputTokens);
+  const outputTokens = useSession((s) => s.outputTokens);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function tick() {
+      try {
+        const s = await fetchStatus();
+        if (!cancelled) setStatus(s);
+      } catch {
+        // Offline or server restarting — keep last-known state.
+      }
+    }
+    void tick();
+    const interval = window.setInterval(tick, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const totalSessionTokens = inputTokens + outputTokens;
+
+  return (
+    <header className="border-b border-border bg-surface">
+      <div className="flex items-center justify-between px-4 pt-3 pb-2">
+        <div className="flex items-center gap-2.5">
+          <StatusDot tone="accent" pulse={status !== null} />
+          <span
+            className="font-mono font-extrabold text-[13px] tracking-wordmark"
+            style={{ color: "var(--color-text)" }}
+          >
+            MYLO
+          </span>
+          <Tag tone="muted">{version.toUpperCase()}</Tag>
+        </div>
+        <nav className="flex items-center gap-1">
+          <TabButton active={tab === "chat"} onClick={() => onChange("chat")}>
+            Chat
+          </TabButton>
+          <TabButton active={tab === "memory"} onClick={() => onChange("memory")}>
+            Memory
+          </TabButton>
+          <TabButton active={tab === "activity"} onClick={() => onChange("activity")}>
+            Activity
+          </TabButton>
+        </nav>
+      </div>
+      <div className="px-4 pb-2">
+        <div
+          className="font-mono text-[9px] leading-none flex items-center gap-2 flex-wrap"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          <StatusField label="entities" value={status ? String(status.entities) : "—"} />
+          <Sep />
+          <StatusField
+            label="automations"
+            value={status ? String(status.automations) : "—"}
+          />
+          <Sep />
+          <StatusField
+            label="memory"
+            value={
+              status ? (
+                <span style={{ color: "var(--color-accent)" }}>
+                  synced {formatRelative(status.memory.last_sync)}
+                </span>
+              ) : (
+                "—"
+              )
+            }
+          />
+          {status && status.memory.pending_conflicts > 0 ? (
+            <>
+              <Sep />
+              <StatusField
+                label=""
+                value={
+                  <span style={{ color: "var(--color-warning)" }}>
+                    {status.memory.pending_conflicts} conflict
+                    {status.memory.pending_conflicts === 1 ? "" : "s"}
+                  </span>
+                }
+              />
+            </>
+          ) : null}
+          <Sep />
+          <StatusField
+            label="session"
+            value={`${turns} turns · ${formatTokens(totalSessionTokens)} tok`}
+          />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function TabButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  const base =
+    "font-sans text-[12px] font-medium px-3 py-1 rounded-tag border transition-colors";
+  const activeStyles =
+    "text-accent bg-accent-soft";
+  const inactiveStyles =
+    "text-muted hover:text-text border-transparent";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${base} ${active ? activeStyles : inactiveStyles}`}
+      style={
+        active
+          ? { borderColor: "var(--color-border-accent)" }
+          : undefined
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+function StatusField({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {label ? (
+        <span style={{ color: "var(--color-text-dim)" }}>{label}</span>
+      ) : null}
+      <span style={{ color: "var(--color-text)" }}>{value}</span>
+    </span>
+  );
+}
+
+function Sep() {
+  return <span style={{ color: "var(--color-text-dim)" }}>·</span>;
+}

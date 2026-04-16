@@ -137,6 +137,25 @@ export type RawContentBlock =
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; tool_use_id: string; content: string };
 
+export interface ServerStatus {
+  ok: boolean;
+  entities: number;
+  automations: number;
+  memory: {
+    last_sync: string | null;
+    pending_conflicts: number;
+  };
+  has_provider: boolean;
+}
+
+export async function fetchStatus(): Promise<ServerStatus> {
+  const response = await fetch(apiUrl("api/status"), { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`status returned ${response.status}`);
+  }
+  return (await response.json()) as ServerStatus;
+}
+
 export async function fetchConversation(): Promise<RawMessage[]> {
   const response = await fetch(apiUrl("api/conversation"), { method: "GET" });
   if (!response.ok) {

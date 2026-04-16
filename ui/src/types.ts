@@ -12,6 +12,10 @@ export interface ToolCallRecord {
   summary?: string;
   // Raw result data (trimmed) — used to display dry-run previews inline.
   data?: unknown;
+  // Client-side timing for the tactical status line. Populated when
+  // the tool_call event arrives and finalized on tool_result.
+  startedAt?: number;
+  durationMs?: number;
 }
 
 export interface ChatItem {

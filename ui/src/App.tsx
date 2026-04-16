@@ -5,13 +5,14 @@ import {
   streamChat,
   type ServerEvent,
 } from "./api";
+import { ApprovalCard } from "./components/ApprovalCard";
 import { Composer } from "./components/Composer";
+import { Header, type Tab } from "./components/Header";
 import { MemoryTab } from "./components/MemoryTab";
 import { Message } from "./components/Message";
 import { hydrateFromMessages, isTurnComplete } from "./hydrate";
-import type { ChatFragment, ChatItem, DoneEvent, ToolCallRecord } from "./types";
-
-type Tab = "chat" | "memory";
+import { useSession } from "./store";
+import type { ChatFragment, ChatItem, ToolCallRecord } from "./types";
 
 function randomId() {
   return Math.random().toString(36).slice(2);
@@ -21,12 +22,14 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sending, setSending] = useState(false);
-  const [lastUsage, setLastUsage] = useState<DoneEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // When the last turn's tool output included a dry-run preview, we offer
-  // an Apply button that sends the user's next message with approved=true.
+  // When the last turn's tool output included a dry-run preview, we
+  // render the ApprovalCard inline at the tail of the conversation
+  // and enable Apply. Approval is consumed per-turn.
   const [pendingApproval, setPendingApproval] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const recordTurn = useSession((s) => s.recordTurn);
+  const resetSession = useSession((s) => s.reset);
 
   useEffect(() => {
     if (tab === "chat") endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -35,15 +38,14 @@ export default function App() {
   const handleClear = useCallback(async () => {
     await clearConversation();
     setItems([]);
-    setLastUsage(null);
     setError(null);
     setPendingApproval(false);
-  }, []);
+    resetSession();
+  }, [resetSession]);
 
   const handleSubmit = useCallback(
     async (message: string) => {
-      // Slash commands run locally against the server's REST endpoints
-      // instead of being sent to the LLM.
+      // Slash commands run locally against the server's REST endpoints.
       if (message === "/clear") {
         await handleClear();
         return;
@@ -70,8 +72,6 @@ export default function App() {
       }
 
       setError(null);
-      // Approved is consumed per-turn: if the user hit Apply on the last
-      // preview, this turn gets the flag; after that it resets.
       const approvedForThisTurn = pendingApproval;
       setPendingApproval(false);
 
@@ -92,26 +92,16 @@ export default function App() {
         for await (const event of streamChat(message, { approved: approvedForThisTurn })) {
           if (_needsApproval(event)) {
             turnSawPreview = true;
-            // Show Apply bar immediately — don't wait for the turn to
-            // finish. The model will keep typing ("click Apply below")
-            // but the user can already see and click the button.
             setPendingApproval(true);
           }
-          applyEvent(event, assistantId, toolCallsById, setItems, setLastUsage, setError);
+          applyEvent(event, assistantId, toolCallsById, setItems, recordTurn, setError);
         }
       } catch (exc) {
-        // SSE connection error during a turn — could be legitimate
-        // (network) or expected (reload_all restarted HA's ingress,
-        // killing the tunnel). Fall back to polling /api/conversation
-        // until the completed turn appears server-side. The reload
-        // finishes in ~10-30s typically.
         setError(
           `${exc instanceof Error ? exc.message : String(exc)} — waiting for Mylo to come back…`,
         );
         const recovered = await pollUntilTurnCompletes(assistantId);
-        if (recovered) {
-          setError(null);
-        }
+        if (recovered) setError(null);
       } finally {
         setItems((prev) =>
           prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),
@@ -120,20 +110,14 @@ export default function App() {
         if (turnSawPreview) setPendingApproval(true);
       }
     },
-    [handleClear, pendingApproval],
+    [handleClear, pendingApproval, recordTurn],
   );
 
-  // On SSE error during a turn, wait for the server to come back and
-  // rehydrate from whatever it has. Returns true if we recovered to a
-  // genuinely-complete state (assistant turn with no trailing tool_use).
-  // Premature recoveries on a still-pending tool_use would leave the
-  // user staring at a half-rendered state and miss the actual answer.
   const pollUntilTurnCompletes = useCallback(
     async (_assistantId: string, timeoutMs = 90_000): Promise<boolean> => {
       const deadline = Date.now() + timeoutMs;
       let attempt = 0;
       while (Date.now() < deadline) {
-        // Back off: 3s, 3s, 5s, 5s, 8s, ... up to 15s.
         const delay = Math.min(3000 + attempt * 1000, 15_000);
         await new Promise((r) => setTimeout(r, delay));
         attempt += 1;
@@ -151,8 +135,6 @@ export default function App() {
     [],
   );
 
-  // Rehydrate conversation on initial mount so a refresh doesn't lose
-  // prior turns.
   useEffect(() => {
     (async () => {
       try {
@@ -166,121 +148,124 @@ export default function App() {
   }, []);
 
   const handleApply = useCallback(async () => {
-    // The user clicks Apply without typing — send a short confirmation
-    // message with approved=true. The model's retry with dry_run=false
-    // is what actually writes.
     await handleSubmit("Yes, apply the change.");
   }, [handleSubmit]);
 
+  const handleReject = useCallback(() => {
+    setPendingApproval(false);
+  }, []);
+
+  // Pull the latest tool call + dry-run data so the ApprovalCard can
+  // surface a meaningful diff. Walk backwards looking for the most
+  // recent tool fragment with a preview payload.
+  const approvalContext = findApprovalContext(items);
+
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-elevated px-4 py-3">
-        <div>
-          <h1 className="text-base font-semibold">Mylo</h1>
-          <div className="text-xs text-mute">
-            {tab === "chat" ? (
-              lastUsage ? <UsageSummary usage={lastUsage} /> : "Ready. Ask about your Home Assistant setup."
-            ) : (
-              "Review and correct what Mylo knows about your home."
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <nav className="flex overflow-hidden rounded border border-border text-xs">
-            <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>Chat</TabButton>
-            <TabButton active={tab === "memory"} onClick={() => setTab("memory")}>Memory</TabButton>
-          </nav>
-          {tab === "chat" ? (
-            <button
-              type="button"
-              onClick={() => void handleClear()}
-              disabled={sending}
-              className="text-xs text-mute hover:text-gray-200 disabled:opacity-40"
-            >
-              Clear conversation
-            </button>
-          ) : null}
-        </div>
-      </header>
+    <div className="flex h-full flex-col bg-bg">
+      <Header tab={tab} onChange={setTab} />
 
       {tab === "chat" ? (
         <>
-          <main className="flex-1 overflow-y-auto p-4 space-y-3">
+          <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
             {items.length === 0 ? (
               <EmptyState />
             ) : (
               items.map((item) => <Message key={item.id} item={item} />)
             )}
+            {pendingApproval && approvalContext ? (
+              <div style={{ paddingRight: 40 }}>
+                <ApprovalCard
+                  description={approvalContext.description}
+                  diff={approvalContext.diff}
+                  meta={approvalContext.meta}
+                  tierLabel={approvalContext.tierLabel}
+                  onApprove={() => void handleApply()}
+                  onReject={handleReject}
+                  disabled={sending}
+                />
+              </div>
+            ) : null}
             <div ref={endRef} />
           </main>
 
           {error ? (
-            <div className="border-t border-rose-900/40 bg-rose-950/40 px-4 py-2 text-xs text-rose-300">
+            <div
+              className="border-t px-4 py-2 font-mono text-[10px]"
+              style={{
+                borderColor: "var(--color-border)",
+                backgroundColor: "var(--color-error-soft)",
+                color: "var(--color-error)",
+              }}
+            >
               {error}
-            </div>
-          ) : null}
-
-          {pendingApproval ? (
-            <div className="flex items-center justify-between gap-3 border-t border-indigo-500/30 bg-indigo-950/30 px-4 py-2 text-sm">
-              <div className="text-indigo-200">
-                Mylo is waiting for you to approve the change above.
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPendingApproval(false)}
-                  disabled={sending}
-                  className="rounded border border-border px-3 py-1 text-xs text-mute hover:text-gray-200 disabled:opacity-40"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleApply()}
-                  disabled={sending}
-                  className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium hover:bg-indigo-500 disabled:opacity-40"
-                >
-                  Apply
-                </button>
-              </div>
             </div>
           ) : null}
 
           <Composer disabled={sending} onSubmit={handleSubmit} />
         </>
-      ) : (
+      ) : tab === "memory" ? (
         <MemoryTab />
+      ) : (
+        <ActivityPlaceholder />
       )}
     </div>
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-3 py-1 ${
-        active
-          ? "bg-indigo-600/70 text-white"
-          : "bg-transparent text-mute hover:text-gray-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
+interface ApprovalContext {
+  description: string;
+  diff?: { before: string; after: string };
+  meta?: string;
+  tierLabel: string;
+}
+
+function findApprovalContext(items: ChatItem[]): ApprovalContext | null {
+  // Walk the most recent assistant turn's fragments in reverse and
+  // pull the first tool fragment we see.
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.role !== "assistant") continue;
+    for (let j = item.fragments.length - 1; j >= 0; j--) {
+      const frag = item.fragments[j];
+      if (frag.kind !== "tool") continue;
+      return buildApprovalContext(frag.call);
+    }
+  }
+  return null;
+}
+
+function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
+  const input = call.input || {};
+  const data = (call.data as Record<string, unknown> | undefined) || {};
+
+  // Rename preview — the most common write that benefits from a diff.
+  if (call.name === "rename_entities") {
+    const renames = (input.renames as Array<Record<string, unknown>> | undefined) ?? [];
+    if (renames.length > 0) {
+      const r = renames[0];
+      const before = String(r.entity_id ?? "");
+      const after = String(r.new_entity_id ?? r.new_friendly_name ?? "");
+      const references = (data.references_found as Record<string, unknown[]> | undefined) ?? {};
+      const totalRefs = Object.values(references).reduce(
+        (sum, list) => sum + (Array.isArray(list) ? list.length : 0),
+        0,
+      );
+      return {
+        description: "Rename entity",
+        diff: { before, after },
+        meta: `references: ${totalRefs} file${totalRefs === 1 ? "" : "s"}`,
+        tierLabel: "TIER-2",
+      };
+    }
+  }
+
+  return {
+    description: `${call.name} · dry run`,
+    tierLabel: "TIER-2",
+  };
 }
 
 function _needsApproval(event: ServerEvent): boolean {
-  // Tier-2 dry-run preview completed successfully.
   if (
     event.type === "tool_result" &&
     event.status === "ok" &&
@@ -290,7 +275,6 @@ function _needsApproval(event: ServerEvent): boolean {
   ) {
     return true;
   }
-  // Tier-2/3 blocked without approval.
   if (
     event.type === "tool_result" &&
     event.status === "error" &&
@@ -306,7 +290,7 @@ function applyEvent(
   assistantId: string,
   toolCallsById: Map<string, ToolCallRecord>,
   setItems: React.Dispatch<React.SetStateAction<ChatItem[]>>,
-  setLastUsage: (d: DoneEvent) => void,
+  recordTurn: (u: Record<string, number>) => void,
   setError: (s: string) => void,
 ) {
   switch (event.type) {
@@ -326,6 +310,7 @@ function applyEvent(
         name: event.name,
         input: event.input,
         state: "pending",
+        startedAt: performance.now(),
       };
       toolCallsById.set(event.id, record);
       setItems((prev) =>
@@ -340,12 +325,15 @@ function applyEvent(
     case "tool_result": {
       const existing = toolCallsById.get(event.id);
       if (!existing) break;
+      const durationMs =
+        existing.startedAt !== undefined ? performance.now() - existing.startedAt : undefined;
       const updated: ToolCallRecord = {
         ...existing,
         state: event.status === "ok" ? "ok" : "error",
         errorCode: event.error_code,
         summary: extractSummary(event.data),
         data: event.data,
+        durationMs,
       };
       toolCallsById.set(event.id, updated);
       setItems((prev) =>
@@ -363,7 +351,7 @@ function applyEvent(
       break;
     }
     case "done":
-      setLastUsage({ stopReason: event.stop_reason, usage: event.usage });
+      recordTurn(event.usage || {});
       break;
     case "error":
       setError(`${event.errorType}: ${event.message}`);
@@ -374,28 +362,52 @@ function applyEvent(
 function extractSummary(data: unknown): string | undefined {
   if (!data || typeof data !== "object") return undefined;
   const d = data as Record<string, unknown>;
+  if (d.preview === true) return "dry run";
   for (const key of ["summary", "entities_found", "devices_found", "count"]) {
-    if (key in d) return `${key}=${String(d[key])}`;
+    if (key in d) return `${String(d[key])} ${key.replace(/_/g, " ")}`;
   }
   return undefined;
 }
 
-function UsageSummary({ usage }: { usage: DoneEvent }) {
-  const { input_tokens = 0, output_tokens = 0, cache_read_input_tokens, cache_creation_input_tokens } =
-    usage.usage;
-  const parts = [`in=${input_tokens}`, `out=${output_tokens}`];
-  if (cache_read_input_tokens) parts.push(`cache_read=${cache_read_input_tokens}`);
-  if (cache_creation_input_tokens) parts.push(`cache_write=${cache_creation_input_tokens}`);
-  return <span>last turn · {parts.join(" ")}</span>;
-}
-
 function EmptyState() {
   return (
-    <div className="flex h-full items-center justify-center text-center text-mute">
+    <div
+      className="flex h-full items-center justify-center text-center"
+      style={{ color: "var(--color-text-muted)" }}
+    >
       <div>
-        <div className="text-base text-gray-300">Nothing here yet.</div>
-        <div className="mt-2 text-xs">
+        <div
+          className="font-mono text-[11px] uppercase tracking-label"
+          style={{ color: "var(--color-text-dim)" }}
+        >
+          Session empty
+        </div>
+        <div
+          className="mt-2 font-sans text-[13px]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
           Try: <em>what lights are on in the basement?</em>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivityPlaceholder() {
+  return (
+    <div className="flex-1 flex items-center justify-center px-4">
+      <div className="text-center">
+        <div
+          className="font-mono text-[11px] uppercase tracking-label"
+          style={{ color: "var(--color-text-dim)" }}
+        >
+          Activity
+        </div>
+        <div
+          className="mt-2 font-sans text-[13px]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          Audit timeline view lands with M12.
         </div>
       </div>
     </div>

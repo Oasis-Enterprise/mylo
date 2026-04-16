@@ -8,6 +8,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 10 — Signal theme (tactical green-on-black UI refresh).**
+  Pure visual/component overhaul on top of the existing SSE, state,
+  and tool-call plumbing — no behavioral changes.
+  - `ui/src/styles/theme.ts` — canonical design tokens. Mirrored into
+    CSS variables in `index.css`; Tailwind utilities map back via the
+    extended config so both TS-inline and class-based usage share one
+    source of truth.
+  - JetBrains Mono + Inter shipped via `@fontsource`. Tactical mono
+    for status/data/label surfaces, Inter for prose/messages.
+  - New components (one file each): `Header`, `StatusDot`, `Tag`,
+    `SeverityCard`, `ApprovalCard`. Primitives the rest of the UI
+    composes on.
+  - `Header` is two-row: dot + MYLO wordmark + version + right-aligned
+    Chat/Memory/Activity tabs on top; mono 9px status bar on bottom
+    with live entity/automation counts, memory-sync age (polled),
+    pending-conflict callout, and session turn/token counters.
+  - `Composer` now shows a mono 9px metadata row above the input
+    with "budget: Nk/200k tokens · cost: $X.XX this session",
+    computed from real per-turn usage via the new `store.ts` zustand
+    session store. Send button is an accent-soft arrow in mono
+    uppercase.
+  - `ApprovalCard` replaces the bottom indigo approval bar. Pulsing
+    accent dot, "AWAITING APPROVAL" header, tier tag, red/green diff
+    block when a rename is pending, Reject/Apply buttons (Apply with
+    accent glow).
+  - `ToolCallBlock` restyled: status dot with glow, accent-colored
+    tool name in mono bold, dim-mono summary, right-aligned
+    duration + rotating chevron. Click-to-expand params in mono 10px.
+  - Client-side tool duration tracking (`startedAt` / `durationMs`
+    on `ToolCallRecord`).
+  - User messages render as a right-aligned bubble with userBubble
+    bg and userBorder border. Agent messages flow as plain prose —
+    the asymmetry reflects that agent turns are running commentary,
+    user turns are finite utterances.
+  - Memory tab fully re-themed: tactical mono header, SeverityCard
+    for pending conflicts (Keep A / Keep B / Dismiss), themed sync
+    result card, Tag-based badges for protected notes / issue status.
+  - New `GET /api/status` endpoint feeds the header — entity count,
+    automation count, memory sync state, provider-presence flag.
+  - `lib/format.ts` and `lib/cost.ts` helpers for relative time,
+    token/dollar formatting, and per-model cost estimation (Sonnet,
+    Opus, Haiku rates).
+  - Keyframe `pulse-dot` (2s opacity loop) powers the AWAITING
+    APPROVAL dot and typing indicator.
+  - Activity tab is a placeholder until M12 lands the audit timeline.
+
 - **Milestone 4c — Four-layer context assembler.** Replaces the
   always-inject-everything prompt with a selective, task-aware
   assembler that scales to 2000+ entity homes without ballooning

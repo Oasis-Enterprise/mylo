@@ -1,13 +1,166 @@
+/* Webfonts. Only the weights the UI actually uses, to keep the
+   bundle small. JetBrains Mono for status/data/tool-call surfaces;
+   Inter for prose/messages. */
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
+@import "@fontsource/jetbrains-mono/800.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Canonical tokens as CSS variables. Tailwind's `theme.extend` maps
+   utility classes (bg-surface, text-accent, etc.) to these. Kept in
+   sync with ui/src/styles/theme.ts — that file is the source of truth
+   for any TS that needs a token inline. */
 :root {
   color-scheme: dark;
+
+  --color-bg: #08090a;
+  --color-surface: #0f1114;
+  --color-surface-raised: #151820;
+  --color-border: #1e222a;
+  --color-border-accent: #10b98133;
+  --color-text: #c8cdd5;
+  --color-text-muted: #5c6370;
+  --color-text-dim: #333842;
+
+  --color-accent: #10b981;
+  --color-accent-dim: #0d9668;
+  --color-accent-soft: #10b98115;
+  --color-accent-glow: #10b98140;
+
+  --color-success: #10b981;
+  --color-success-soft: #10b98118;
+  --color-warning: #e5a10e;
+  --color-warning-soft: #e5a10e18;
+  --color-error: #e5484d;
+  --color-error-soft: #e5484d18;
+  --color-info: #3b82f6;
+  --color-info-soft: #3b82f618;
+
+  --color-user-bubble: #0d1118;
+  --color-user-border: #1a2030;
+
+  --radius: 4px;
+  --radius-tag: 3px;
 }
 
 html,
 body,
 #root {
   height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar — subtle, matches the tactical feel. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-dim);
+}
+
+/* Pulsing dot used in the ApprovalCard. 2s loop, opacity only —
+   avoids layout thrash. */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.dot-pulse {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Glow used on status dots — box-shadow hack, no filter. */
+.dot-glow-accent {
+  box-shadow: 0 0 6px var(--color-accent-glow);
+}
+.dot-glow-warning {
+  box-shadow: 0 0 6px rgba(229, 161, 14, 0.4);
+}
+.dot-glow-error {
+  box-shadow: 0 0 6px rgba(229, 72, 77, 0.4);
+}
+
+/* Accent button glow reserved for the APPLY action. */
+.btn-glow {
+  box-shadow: 0 0 12px var(--color-accent-glow);
+}
+
+/* Markdown/prose tweaks — slight adjustments so react-markdown output
+   feels native in the Signal theme. */
+.prose-signal {
+  color: var(--color-text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.prose-signal p {
+  margin: 0 0 0.6em 0;
+}
+.prose-signal p:last-child {
+  margin-bottom: 0;
+}
+.prose-signal code {
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 11.5px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.prose-signal pre {
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 11.5px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+.prose-signal pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.prose-signal strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+.prose-signal a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.prose-signal a:hover {
+  text-decoration: underline;
+}
+.prose-signal ul,
+.prose-signal ol {
+  margin: 0.4em 0 0.6em 0;
+  padding-left: 1.4em;
+}
+.prose-signal li {
+  margin: 0.15em 0;
 }

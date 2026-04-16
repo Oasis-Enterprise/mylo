@@ -7,6 +7,7 @@ import {
   resolveConflict,
   syncMemory,
 } from "../api";
+import { formatRelative } from "../lib/format";
 import type {
   MemoryConflict,
   MemoryFull,
@@ -17,6 +18,9 @@ import type {
   ScratchpadEntry,
   SyncResult,
 } from "../types";
+import { SeverityCard } from "./SeverityCard";
+import { StatusDot } from "./StatusDot";
+import { Tag } from "./Tag";
 
 export function MemoryTab() {
   const [memory, setMemory] = useState<MemoryFull | null>(null);
@@ -110,10 +114,24 @@ export function MemoryTab() {
   );
 
   if (loading && !memory) {
-    return <div className="p-4 text-sm text-mute">Loading memory…</div>;
+    return (
+      <div
+        className="p-4 font-mono text-[11px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        loading memory…
+      </div>
+    );
   }
   if (error && !memory) {
-    return <div className="p-4 text-sm text-rose-400">Error: {error}</div>;
+    return (
+      <div
+        className="p-4 font-mono text-[11px]"
+        style={{ color: "var(--color-error)" }}
+      >
+        error: {error}
+      </div>
+    );
   }
   if (!memory) return null;
 
@@ -121,27 +139,45 @@ export function MemoryTab() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex items-center justify-between border-b border-border bg-elevated px-4 py-3">
-        <div>
-          <div className="text-sm font-medium">Memory</div>
-          <div className="text-xs text-mute">
-            Last sync: {memory.last_sync ? formatDate(memory.last_sync) : "never"}
-            {" · "}
-            {counts(memory)}
-          </div>
+      <div
+        className="flex items-center justify-between border-b px-4 py-2.5"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        <div
+          className="font-mono text-[10px]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          <span style={{ color: "var(--color-text-dim)" }}>last sync: </span>
+          <span style={{ color: "var(--color-text)" }}>
+            {formatRelative(memory.last_sync)}
+          </span>
+          <span className="mx-2" style={{ color: "var(--color-text-dim)" }}>·</span>
+          {counts(memory)}
         </div>
         <button
           type="button"
           onClick={() => void handleSync()}
           disabled={syncing}
-          className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium hover:bg-indigo-500 disabled:opacity-40"
+          className="rounded px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-label disabled:opacity-40"
+          style={{
+            backgroundColor: "var(--color-accent-soft)",
+            border: "1px solid rgba(16, 185, 129, 0.55)",
+            color: "var(--color-accent)",
+          }}
         >
           {syncing ? "Syncing…" : "Sync now"}
         </button>
-      </header>
+      </div>
 
       {error ? (
-        <div className="border-b border-rose-900/40 bg-rose-950/40 px-4 py-2 text-xs text-rose-300">
+        <div
+          className="border-b px-4 py-2 font-mono text-[10px]"
+          style={{
+            borderColor: "var(--color-border)",
+            color: "var(--color-error)",
+            backgroundColor: "var(--color-error-soft)",
+          }}
+        >
           {error}
         </div>
       ) : null}
@@ -162,16 +198,22 @@ export function MemoryTab() {
         ) : null}
 
         {pendingConflicts.length > 0 ? (
-          <Section title={`Conflicts (${pendingConflicts.length} pending)`} accent="amber">
+          <div className="space-y-2">
+            <div
+              className="font-mono text-[10px] font-bold uppercase tracking-label"
+              style={{ color: "var(--color-warning)" }}
+            >
+              Conflicts ({pendingConflicts.length} pending)
+            </div>
             {pendingConflicts.map((c) => (
-              <ConflictRow
+              <ConflictCard
                 key={c.id}
                 conflict={c}
                 busy={busyItem === `conflict/${c.id}`}
                 onResolve={handleResolve}
               />
             ))}
-          </Section>
+          </div>
         ) : null}
 
         <Section title={`Household (${memory.household.members.length})`}>
@@ -270,24 +312,54 @@ function SyncResultCard({
   onApplyPrune: () => void;
 }) {
   return (
-    <div className="rounded border border-indigo-500/30 bg-indigo-950/30 p-3 text-sm">
-      <div className="font-medium text-indigo-200">Sync result</div>
-      <div className="mt-1 text-xs text-indigo-100">{result.summary}</div>
+    <div
+      className="rounded border p-3"
+      style={{
+        borderColor: "var(--color-border-accent)",
+        backgroundColor: "var(--color-accent-soft)",
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <StatusDot tone="accent" />
+        <span
+          className="font-mono text-[10px] font-bold uppercase tracking-label"
+          style={{ color: "var(--color-accent)" }}
+        >
+          Sync result
+        </span>
+      </div>
+      <div
+        className="mt-1.5 font-sans text-[12px]"
+        style={{ color: "var(--color-text)" }}
+      >
+        {result.summary}
+      </div>
       {result.conflicts_added > 0 ? (
-        <div className="mt-1 text-xs text-amber-300">
-          {result.conflicts_added} new conflict(s) — review below
+        <div
+          className="mt-1 font-mono text-[10px]"
+          style={{ color: "var(--color-warning)" }}
+        >
+          {result.conflicts_added} new conflict{result.conflicts_added === 1 ? "" : "s"} — review below
         </div>
       ) : null}
       {result.prune_candidates.length > 0 ? (
-        <div className="mt-2">
-          <div className="text-xs text-indigo-100">
-            Prune candidates ({result.prune_candidates.length}):
+        <div className="mt-3">
+          <div
+            className="font-mono text-[10px] uppercase tracking-label"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            Prune candidates ({result.prune_candidates.length})
           </div>
-          <ul className="mt-1 ml-4 list-disc text-xs text-mute">
+          <ul
+            className="mt-1 ml-4 list-disc font-mono text-[10px] leading-[1.55]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
             {result.prune_candidates.slice(0, 5).map((c) => (
               <li key={`${c.section}/${c.id}`}>
-                <span className="text-gray-300">{c.section}/{c.id}</span>
-                <span className="ml-2 text-mute">{c.reason}</span>
+                <span style={{ color: "var(--color-text)" }}>
+                  {c.section}/{c.id}
+                </span>
+                <span className="ml-2">{c.reason}</span>
               </li>
             ))}
             {result.prune_candidates.length > 5 ? (
@@ -297,7 +369,12 @@ function SyncResultCard({
           <button
             type="button"
             onClick={onApplyPrune}
-            className="mt-2 rounded bg-indigo-600 px-3 py-1 text-xs font-medium hover:bg-indigo-500"
+            className="mt-2 rounded px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-label"
+            style={{
+              backgroundColor: "var(--color-accent-soft)",
+              border: "1px solid var(--color-accent)",
+              color: "var(--color-accent)",
+            }}
           >
             Apply prune ({result.prune_candidates.length})
           </button>
@@ -316,18 +393,36 @@ function Section({
   accent?: "amber" | "indigo";
   children: React.ReactNode;
 }) {
-  const border =
+  const borderColor =
     accent === "amber"
-      ? "border-amber-500/40"
+      ? "rgba(229, 161, 14, 0.33)"
       : accent === "indigo"
-        ? "border-indigo-500/40"
-        : "border-border";
+        ? "var(--color-border-accent)"
+        : "var(--color-border)";
   return (
-    <section className={`rounded border ${border} bg-elevated`}>
-      <div className="border-b border-border px-3 py-2 text-xs font-semibold text-gray-200">
+    <section
+      className="rounded border bg-surface"
+      style={{ borderColor }}
+    >
+      <div
+        className="border-b px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-label"
+        style={{
+          borderColor: "var(--color-border)",
+          color: "var(--color-text-muted)",
+        }}
+      >
         {title}
       </div>
-      <div className="divide-y divide-border px-3">{children}</div>
+      <div
+        className="divide-y px-3"
+        style={{
+          // @ts-expect-error CSS custom prop for `divide-y` child borders.
+          "--tw-divide-opacity": 1,
+          borderColor: "var(--color-border)",
+        }}
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -338,21 +433,41 @@ function ScratchpadRow({ entry }: { entry: ScratchpadEntry }) {
     (entry.scope.area as string | undefined) ||
     (entry.scope.general ? "general" : undefined);
   return (
-    <div className="py-2">
-      <div className="text-sm text-gray-100">{entry.content}</div>
-      <div className="mt-0.5 text-xs text-mute">
-        <span className="rounded bg-indigo-900/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-indigo-200">
-          {entry.type}
-        </span>
-        {scope ? <span className="ml-2">[{scope}]</span> : null}
-        {entry.recorded ? <span className="ml-2">{entry.recorded}</span> : null}
+    <div
+      className="py-2 border-b last:border-b-0"
+      style={{ borderColor: "var(--color-border)" }}
+    >
+      <div
+        className="font-sans text-[13px]"
+        style={{ color: "var(--color-text)" }}
+      >
+        {entry.content}
+      </div>
+      <div
+        className="mt-1 flex items-center gap-2 font-mono text-[10px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        <Tag tone="default">{entry.type}</Tag>
+        {scope ? <span>[{scope}]</span> : null}
+        {entry.recorded ? (
+          <span style={{ color: "var(--color-text-dim)" }}>
+            {formatRelative(entry.recorded)}
+          </span>
+        ) : null}
       </div>
     </div>
   );
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="py-3 text-xs text-mute">{text}</div>;
+  return (
+    <div
+      className="py-3 font-mono text-[11px]"
+      style={{ color: "var(--color-text-muted)" }}
+    >
+      {text}
+    </div>
+  );
 }
 
 function NoteRow({
@@ -368,20 +483,21 @@ function NoteRow({
   const protectedFlag =
     note.source === "user_confirmed" || note.metadata?.priority === "critical";
   return (
-    <div className="flex items-start justify-between gap-3 py-2">
-      <div className="min-w-0 flex-1">
-        <div className="text-sm text-gray-100">{note.content}</div>
-        <div className="mt-0.5 text-xs text-mute">
-          <code className="text-mute">{note.id}</code>
-          {scope ? <span className="ml-2">[{scope}]</span> : null}
-          {protectedFlag ? <span className="ml-2 text-emerald-400">protected</span> : null}
+    <MemoryRow
+      body={note.content}
+      meta={
+        <>
+          <code style={{ color: "var(--color-text-dim)" }}>{note.id}</code>
+          {scope ? <span>[{scope}]</span> : null}
+          {protectedFlag ? <Tag tone="success">protected</Tag> : null}
           {note.metadata?.reference_count ? (
-            <span className="ml-2">refs={note.metadata.reference_count}</span>
+            <span>refs={note.metadata.reference_count}</span>
           ) : null}
-        </div>
-      </div>
-      <DeleteButton onClick={onDelete} busy={busy} />
-    </div>
+        </>
+      }
+      busy={busy}
+      onDelete={onDelete}
+    />
   );
 }
 
@@ -394,20 +510,25 @@ function IssueRow({
   busy: boolean;
   onDelete: () => void;
 }) {
+  const tone = issue.status === "active" ? "warning" : "muted";
   return (
-    <div className="flex items-start justify-between gap-3 py-2">
-      <div className="min-w-0 flex-1">
-        <div className="text-sm text-gray-100">{issue.description}</div>
-        <div className="mt-0.5 text-xs text-mute">
-          <code>{issue.id}</code>
-          <span className="ml-2">{issue.status}</span>
+    <MemoryRow
+      body={issue.description}
+      meta={
+        <>
+          <code style={{ color: "var(--color-text-dim)" }}>{issue.id}</code>
+          <Tag tone={tone}>{issue.status}</Tag>
           {issue.suggested_fix ? (
-            <span className="ml-2">fix: {issue.suggested_fix}</span>
+            <span>
+              <span style={{ color: "var(--color-text-dim)" }}>fix: </span>
+              {issue.suggested_fix}
+            </span>
           ) : null}
-        </div>
-      </div>
-      <DeleteButton onClick={onDelete} busy={busy} />
-    </div>
+        </>
+      }
+      busy={busy}
+      onDelete={onDelete}
+    />
   );
 }
 
@@ -421,16 +542,17 @@ function PatternRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-2">
-      <div className="min-w-0 flex-1">
-        <div className="text-sm text-gray-100">{pattern.description}</div>
-        <div className="mt-0.5 text-xs text-mute">
-          <code>{pattern.id}</code>
-          <span className="ml-2">confidence={pattern.confidence.toFixed(2)}</span>
-        </div>
-      </div>
-      <DeleteButton onClick={onDelete} busy={busy} />
-    </div>
+    <MemoryRow
+      body={pattern.description}
+      meta={
+        <>
+          <code style={{ color: "var(--color-text-dim)" }}>{pattern.id}</code>
+          <span>confidence={pattern.confidence.toFixed(2)}</span>
+        </>
+      }
+      busy={busy}
+      onDelete={onDelete}
+    />
   );
 }
 
@@ -444,12 +566,53 @@ function RejectionRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-2">
+    <MemoryRow
+      body={rejection.suggestion}
+      meta={
+        <>
+          <code style={{ color: "var(--color-text-dim)" }}>{rejection.id}</code>
+          {rejection.reason ? (
+            <span>
+              <span style={{ color: "var(--color-text-dim)" }}>reason: </span>
+              {rejection.reason}
+            </span>
+          ) : null}
+        </>
+      }
+      busy={busy}
+      onDelete={onDelete}
+    />
+  );
+}
+
+function MemoryRow({
+  body,
+  meta,
+  busy,
+  onDelete,
+}: {
+  body: string;
+  meta: React.ReactNode;
+  busy: boolean;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className="flex items-start justify-between gap-3 py-2 border-b last:border-b-0"
+      style={{ borderColor: "var(--color-border)" }}
+    >
       <div className="min-w-0 flex-1">
-        <div className="text-sm text-gray-100">{rejection.suggestion}</div>
-        <div className="mt-0.5 text-xs text-mute">
-          <code>{rejection.id}</code>
-          {rejection.reason ? <span className="ml-2">reason: {rejection.reason}</span> : null}
+        <div
+          className="font-sans text-[13px]"
+          style={{ color: "var(--color-text)" }}
+        >
+          {body}
+        </div>
+        <div
+          className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[10px]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          {meta}
         </div>
       </div>
       <DeleteButton onClick={onDelete} busy={busy} />
@@ -457,7 +620,7 @@ function RejectionRow({
   );
 }
 
-function ConflictRow({
+function ConflictCard({
   conflict,
   busy,
   onResolve,
@@ -467,54 +630,124 @@ function ConflictRow({
   onResolve: (id: string, choice: "a" | "b" | "dismiss") => void;
 }) {
   return (
-    <div className="py-3">
-      <div className="text-xs text-amber-300">
-        <code>{conflict.id}</code>
-        <span className="ml-2">{conflict.type}</span>
-      </div>
-      <div className="mt-1 space-y-1 text-sm">
+    <SeverityCard
+      severity="high"
+      title={conflict.type || "contradiction"}
+      action={
+        <code
+          className="font-mono text-[10px]"
+          style={{ color: "var(--color-text-dim)" }}
+        >
+          {conflict.id}
+        </code>
+      }
+    >
+      <div className="space-y-1.5">
         {conflict.claim_a ? (
           <div>
-            <span className="text-emerald-300">A</span>
-            <span className="ml-2 text-mute">({conflict.claim_a.source})</span>:
-            <span className="ml-2">{conflict.claim_a.content}</span>
+            <span
+              className="font-mono text-[10px] font-bold mr-2"
+              style={{ color: "var(--color-accent)" }}
+            >
+              A
+            </span>
+            <span
+              className="font-mono text-[10px] mr-2"
+              style={{ color: "var(--color-text-dim)" }}
+            >
+              ({conflict.claim_a.source})
+            </span>
+            <span style={{ color: "var(--color-text)" }}>
+              {conflict.claim_a.content}
+            </span>
           </div>
         ) : null}
         {conflict.claim_b ? (
           <div>
-            <span className="text-sky-300">B</span>
-            <span className="ml-2 text-mute">({conflict.claim_b.source})</span>:
-            <span className="ml-2">{conflict.claim_b.content}</span>
+            <span
+              className="font-mono text-[10px] font-bold mr-2"
+              style={{ color: "var(--color-info)" }}
+            >
+              B
+            </span>
+            <span
+              className="font-mono text-[10px] mr-2"
+              style={{ color: "var(--color-text-dim)" }}
+            >
+              ({conflict.claim_b.source})
+            </span>
+            <span style={{ color: "var(--color-text)" }}>
+              {conflict.claim_b.content}
+            </span>
           </div>
         ) : null}
       </div>
-      <div className="mt-2 flex gap-2">
-        <button
-          type="button"
+      <div className="mt-3 flex gap-2">
+        <ConflictButton
           disabled={busy}
           onClick={() => onResolve(conflict.id, "a")}
-          className="rounded bg-emerald-700 px-2 py-1 text-xs hover:bg-emerald-600 disabled:opacity-40"
+          tone="accent"
         >
           Keep A
-        </button>
-        <button
-          type="button"
+        </ConflictButton>
+        <ConflictButton
           disabled={busy}
           onClick={() => onResolve(conflict.id, "b")}
-          className="rounded bg-sky-700 px-2 py-1 text-xs hover:bg-sky-600 disabled:opacity-40"
+          tone="info"
         >
           Keep B
-        </button>
-        <button
-          type="button"
+        </ConflictButton>
+        <ConflictButton
           disabled={busy}
           onClick={() => onResolve(conflict.id, "dismiss")}
-          className="rounded border border-border px-2 py-1 text-xs text-mute hover:text-gray-200 disabled:opacity-40"
+          tone="muted"
         >
           Dismiss
-        </button>
+        </ConflictButton>
       </div>
-    </div>
+    </SeverityCard>
+  );
+}
+
+function ConflictButton({
+  children,
+  disabled,
+  onClick,
+  tone,
+}: {
+  children: React.ReactNode;
+  disabled: boolean;
+  onClick: () => void;
+  tone: "accent" | "info" | "muted";
+}) {
+  const styles =
+    tone === "accent"
+      ? {
+          backgroundColor: "var(--color-accent-soft)",
+          border: "1px solid var(--color-accent)",
+          color: "var(--color-accent)",
+        }
+      : tone === "info"
+        ? {
+            backgroundColor: "var(--color-info-soft)",
+            border: "1px solid rgba(59, 130, 246, 0.55)",
+            color: "var(--color-info)",
+          }
+        : {
+            backgroundColor: "transparent",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-muted)",
+          };
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-label disabled:opacity-40"
+      style={styles}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -524,7 +757,12 @@ function DeleteButton({ onClick, busy }: { onClick: () => void; busy: boolean })
       type="button"
       onClick={onClick}
       disabled={busy}
-      className="shrink-0 rounded border border-border px-2 py-1 text-xs text-mute hover:text-rose-400 disabled:opacity-40"
+      className="shrink-0 rounded border px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-label disabled:opacity-40"
+      style={{
+        borderColor: "var(--color-border)",
+        color: "var(--color-text-muted)",
+        background: "transparent",
+      }}
     >
       {busy ? "…" : "Delete"}
     </button>
@@ -533,20 +771,20 @@ function DeleteButton({ onClick, busy }: { onClick: () => void; busy: boolean })
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-function counts(memory: MemoryFull): string {
-  const parts = [
-    `${memory.notes.length} notes`,
-    `${memory.known_issues.length} issues`,
-    `${memory.patterns.length} patterns`,
-    `${memory.conflicts.filter((c) => c.status === "pending_review").length} open conflicts`,
-  ];
-  return parts.join(", ");
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
+function counts(memory: MemoryFull): React.ReactNode {
+  const open = memory.conflicts.filter((c) => c.status === "pending_review").length;
+  return (
+    <>
+      <span style={{ color: "var(--color-text)" }}>{memory.notes.length}</span>
+      <span style={{ color: "var(--color-text-dim)" }}> notes · </span>
+      <span style={{ color: "var(--color-text)" }}>{memory.known_issues.length}</span>
+      <span style={{ color: "var(--color-text-dim)" }}> issues · </span>
+      <span style={{ color: "var(--color-text)" }}>{memory.patterns.length}</span>
+      <span style={{ color: "var(--color-text-dim)" }}> patterns · </span>
+      <span style={{ color: open > 0 ? "var(--color-warning)" : "var(--color-text)" }}>
+        {open}
+      </span>
+      <span style={{ color: "var(--color-text-dim)" }}> open conflicts</span>
+    </>
+  );
 }
