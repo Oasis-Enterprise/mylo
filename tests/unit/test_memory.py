@@ -45,6 +45,25 @@ def test_unknown_sections_pass_through() -> None:
     assert mem.version == 2
 
 
+def test_note_accepts_dict_scope_from_reconciler() -> None:
+    # Haiku occasionally copies the scratchpad scope-as-dict shape
+    # into context.yaml Notes. Validator flattens it instead of
+    # raising, so the sync doesn't fail.
+    raw = {
+        "version": 2,
+        "notes": [
+            {
+                "id": "n1",
+                "content": "workshop conversion in progress",
+                "scope": {"area": "garage"},
+            }
+        ],
+    }
+    mem = MemoryFile.model_validate(raw)
+    assert mem.notes[0].area == "garage"
+    assert mem.notes[0].scope is None
+
+
 # ─── Store ───────────────────────────────────────────────────────────────────
 
 

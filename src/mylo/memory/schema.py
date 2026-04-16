@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 NoteSource = Literal["conversation", "observation", "user_confirmed"]
 Priority = Literal["critical", "normal", "low"]
@@ -101,6 +101,32 @@ class Note(BaseModel):
     added: str | None = None
     source: NoteSource = "conversation"
     metadata: ItemMetadata = Field(default_factory=ItemMetadata)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_dict_scope(cls, data: Any) -> Any:
+        """Accept Haiku reconciler output where ``scope`` is a dict.
+
+        The scratchpad format uses ``scope: {entity: ..., area: ...}``
+        and Haiku occasionally copies that shape into context.yaml
+        Notes. Lift those fields up and coerce ``scope`` into the
+        expected string so validation passes.
+        """
+        if not isinstance(data, dict):
+            return data
+        raw = data.get("scope")
+        if not isinstance(raw, dict):
+            return data
+        flat = dict(data)
+        if not flat.get("entity") and isinstance(raw.get("entity"), str):
+            flat["entity"] = raw["entity"]
+        if not flat.get("area") and isinstance(raw.get("area"), str):
+            flat["area"] = raw["area"]
+        if raw.get("general"):
+            flat["scope"] = "general"
+        else:
+            flat["scope"] = None
+        return flat
 
 
 class KnownIssue(BaseModel):

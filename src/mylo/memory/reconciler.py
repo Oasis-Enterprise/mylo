@@ -238,6 +238,24 @@ RULES — follow exactly:
 8. Preserve every key present in the input memory unless a rule above
    says to change it.
 
+Note shape (IMPORTANT — do not copy the scratchpad ``scope: {...}``
+dict into Notes; Notes have separate fields):
+
+  notes:
+    - id: note_<short>
+      content: "<what to remember>"
+      entity: "<entity_id>" OR null
+      area: "<area_slug>" OR null
+      scope: "general" OR null
+      source: conversation | observation | user_confirmed
+      added: "<ISO>"
+      metadata:
+        created: "<ISO>"
+        last_referenced: "<ISO>"
+        reference_count: 1
+        source: conversation | observation | user_confirmed
+        priority: normal | critical | low
+
 Conflict entry shape:
 
   conflicts:
