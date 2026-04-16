@@ -21,16 +21,23 @@ verify before committing.
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.files.manager import atomic_write, exists, read_text
-from mylo.ha.ws_client import CommandError, CommandTimeout
+from mylo.ha.ws_client import CommandError, CommandTimeout, HaWsClient
+from mylo.logging_setup import get_logger
+from mylo.safety.audit import AuditLogger, make_entry
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.registry import register
+
+log = get_logger(__name__)
+
+# Keep strong refs on background verify tasks so they don't get
+# garbage-collected mid-flight.
+_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
 
 class RenameEntry(BaseModel):
@@ -128,40 +135,45 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
         if entry.new_friendly_name:
             update_kwargs["name"] = entry.new_friendly_name
         try:
-            # Short timeout — entity renames often outlast our wait.
-            # Fail fast and poll the registry instead of blocking.
+            # Short timeout. Entity renames on 2000+ entity registries
+            # consistently outlast any reasonable wait — HA processes
+            # them server-side but the response can't return cleanly
+            # because the entity_registry_updated event cascade resets
+            # the websocket mid-call. We fail fast and trust that HA
+            # will finish processing; a background task verifies.
             await ctx.ws_client.send_command(
                 "config/entity_registry/update", timeout=10.0, **update_kwargs
             )
             rename_results.append({"entity_id": entry.entity_id, "ok": True})
         except CommandTimeout:
-            verified = await _poll_for_rename(
-                ctx,
-                new_id=entry.new_entity_id or entry.entity_id,
-                poll_seconds=30.0,
+            # Optimistic success + background verify. Spawn a task that
+            # checks the registry in a minute and logs + notifies on
+            # failure. See apply_optimistic_reload_all for the same
+            # pattern around HA-reload timeouts.
+            new_id = entry.new_entity_id or entry.entity_id
+            task = asyncio.create_task(
+                _background_verify_rename(
+                    client=ctx.ws_client,
+                    audit=ctx.audit,
+                    conversation_id=ctx.conversation_id,
+                    old_id=entry.entity_id,
+                    new_id=new_id,
+                )
             )
-            if verified:
-                rename_results.append(
-                    {
-                        "entity_id": entry.entity_id,
-                        "ok": True,
-                        "note": (
-                            "command timed out; rename confirmed in "
-                            "registry after polling"
-                        ),
-                    }
-                )
-            else:
-                rename_results.append(
-                    {
-                        "entity_id": entry.entity_id,
-                        "ok": False,
-                        "error": (
-                            "timed out; new entity_id not in registry after "
-                            "30s of polling — verify manually in HA"
-                        ),
-                    }
-                )
+            _BACKGROUND_TASKS.add(task)
+            task.add_done_callback(_BACKGROUND_TASKS.discard)
+            rename_results.append(
+                {
+                    "entity_id": entry.entity_id,
+                    "ok": True,
+                    "note": (
+                        "rename dispatched; HA takes 30-90s to fully "
+                        "process on large registries. Verifying in "
+                        "background — you'll get an HA notification if "
+                        "it didn't take."
+                    ),
+                }
+            )
         except CommandError as exc:
             rename_results.append(
                 {
@@ -200,31 +212,146 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
     return ToolResult.ok(envelope)
 
 
-# ─── Post-timeout verification ──────────────────────────────────────────────
+# ─── Background verify (optimistic pattern) ────────────────────────────────
 
 
-async def _poll_for_rename(
-    ctx: ToolContext, *, new_id: str, poll_seconds: float
-) -> bool:
-    """Poll the entity registry for the new id after a rename timeout.
+async def _background_verify_rename(
+    *,
+    client: HaWsClient,
+    audit: AuditLogger | None,
+    conversation_id: str,
+    old_id: str,
+    new_id: str,
+    initial_wait: float = 60.0,
+    poll_seconds: float = 60.0,
+) -> None:
+    """After a rename command times out, verify server-side in the
+    background and surface an HA persistent_notification on failure.
 
-    HA may still be processing the rename when our send_command timed
-    out. Wait for the websocket to reconnect (common after registry
-    cascades), then refresh the registry every few seconds until the
-    new id appears or the deadline expires.
+    Approach:
+    1. Sleep ``initial_wait`` to let HA finish the registry cascade.
+    2. Ask for a SINGLE registry list with a short timeout; if that
+       call itself hangs (ws still processing), back off and retry.
+    3. If the new id appears before ``poll_seconds`` elapses: audit
+       success silently.
+    4. Otherwise: audit failure and send an HA notification.
     """
-    deadline = time.monotonic() + poll_seconds
-    while time.monotonic() < deadline:
+    try:
+        await asyncio.sleep(initial_wait)
         try:
-            await ctx.ws_client.wait_ready(timeout=5.0)
-            await ctx.registries.refresh(force=True)
+            await client.wait_ready(timeout=15.0)
+        except TimeoutError:
+            await _record_rename_failure(
+                client,
+                audit,
+                conversation_id,
+                old_id,
+                new_id,
+                "websocket did not reconnect after rename",
+            )
+            return
+
+        loop_deadline = asyncio.get_event_loop().time() + poll_seconds
+        while asyncio.get_event_loop().time() < loop_deadline:
+            try:
+                listing = await client.send_command(
+                    "config/entity_registry/list", timeout=10.0
+                )
+            except CommandTimeout:
+                await asyncio.sleep(5.0)
+                continue
+            except CommandError:
+                await asyncio.sleep(5.0)
+                continue
+
+            if isinstance(listing, list) and any(
+                isinstance(e, dict) and e.get("entity_id") == new_id
+                for e in listing
+            ):
+                await _record_rename_success(
+                    audit, conversation_id, old_id, new_id
+                )
+                return
+            await asyncio.sleep(5.0)
+
+        await _record_rename_failure(
+            client,
+            audit,
+            conversation_id,
+            old_id,
+            new_id,
+            "new entity_id did not appear in registry within poll window",
+        )
+    except Exception:
+        log.exception("background_verify_rename.unexpected_error")
+
+
+async def _record_rename_success(
+    audit: AuditLogger | None,
+    conversation_id: str,
+    old_id: str,
+    new_id: str,
+) -> None:
+    log.info("rename.background_verify_ok", old=old_id, new=new_id)
+    if audit is None:
+        return
+    entry = make_entry(
+        conversation_id=conversation_id,
+        tool_name="rename_entities",
+        tier=2,
+        params={"entity_id": old_id, "new_entity_id": new_id},
+        dry_run=False,
+        user_approved=True,
+        result="success",
+        details={"background_verify": f"{new_id} present in registry"},
+    )
+    try:
+        await audit.write(entry)
+    except Exception:
+        log.exception("rename.audit_write_failed")
+
+
+async def _record_rename_failure(
+    client: HaWsClient,
+    audit: AuditLogger | None,
+    conversation_id: str,
+    old_id: str,
+    new_id: str,
+    message: str,
+) -> None:
+    log.warning("rename.background_verify_failed", old=old_id, new=new_id, reason=message)
+    if audit is not None:
+        entry = make_entry(
+            conversation_id=conversation_id,
+            tool_name="rename_entities",
+            tier=2,
+            params={"entity_id": old_id, "new_entity_id": new_id},
+            dry_run=False,
+            user_approved=True,
+            result="failure",
+            details={"background_verify": message},
+        )
+        try:
+            await audit.write(entry)
         except Exception:
-            await asyncio.sleep(2.0)
-            continue
-        if new_id in ctx.registries.entities:
-            return True
-        await asyncio.sleep(2.0)
-    return False
+            log.exception("rename.audit_write_failed")
+    try:
+        await client.send_command(
+            "call_service",
+            domain="persistent_notification",
+            service="create",
+            service_data={
+                "title": "Mylo: rename verification failed",
+                "message": (
+                    f"Attempted to rename {old_id} → {new_id} but couldn't "
+                    f"confirm it took: {message}. Check Settings → Entities."
+                ),
+                "notification_id": f"mylo_rename_failed_{new_id}",
+            },
+            timeout=10.0,
+        )
+    except Exception:
+        log.exception("rename.notification_failed")
 
 
 # ─── Reference scanning ──────────────────────────────────────────────────────
