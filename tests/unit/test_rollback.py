@@ -52,11 +52,10 @@ async def test_apply_creates_file_and_reloads(tmp_path: Path) -> None:
     )
     assert result.ok
     assert target.read_text() == "automation: []\n"
-    # Loose match — the reload step passes timeout= among its kwargs.
     assert any(
         type_ == "call_service"
-        and kwargs.get("domain") == "homeassistant"
-        and kwargs.get("service") == "reload_automation"
+        and kwargs.get("domain") == "automation"
+        and kwargs.get("service") == "reload"
         for type_, kwargs in client.calls
     )
 
