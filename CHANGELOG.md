@@ -8,6 +8,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 4c — Four-layer context assembler.** Replaces the
+  always-inject-everything prompt with a selective, task-aware
+  assembler that scales to 2000+ entity homes without ballooning
+  token cost.
+  - `context.topology` (Layer 2): renders a compressed YAML summary
+    of the home from live registries — area → domain counts,
+    integration breakdown, device counts, automation/script totals.
+    Memory notes tagged with an area surface inline under that area
+    ("workshop conversion in progress" under `garage:`). Sorted by
+    entity density so the most important areas survive truncation.
+  - `context.selector` (Layer 3): keyword-based memory section
+    selection per spec §6.5. Always-on sections (household,
+    preferences, current time, scratchpad) + conditional gates for
+    known_issues / patterns / baselines / rejected. Pending
+    conflicts always included when present.
+  - `context.task_detector` (Layer 4): keyword-score classifier for
+    automation / dashboard / troubleshoot / entity_management.
+    Threshold-gated so casual state queries don't pull reference
+    packs. Returns None when no task is confidently detected.
+  - `context.references` (Layer 4): on-demand reference loader with
+    user overlay — shipped examples at `src/mylo/data/references/`
+    can be overridden by `{mylo_data_dir}/references/` for
+    house-specific conventions.
+  - Shipped starter references: automation_examples.yaml (5 common
+    patterns), dashboard_examples.yaml (mushroom + mini-graph +
+    conditional), common_issues.yaml (unavailable / offline /
+    broken triage), naming_conventions.yaml.
+  - `context.assembler.assemble_system_prompt` composes all four
+    layers into a final system block. Returns an `AssembledPrompt`
+    dataclass with the final text, prompt version, chosen task type,
+    and selected memory sections (debug/log surface).
+  - `memory_injection.build_memory_section` now accepts a `sections`
+    filter; default behavior unchanged.
+  - `server/routes_chat.py` and `scripts/chat.py` switched to the
+    assembler.
+  - 22 new unit tests covering topology counts, section selection,
+    task detection, reference overlay, and end-to-end assembler
+    composition. 312 total tests.
+  - Conversation summarization (§6.7) intentionally deferred — the
+    current trim-to-last-N policy works and bundling it here would
+    have expanded scope too much.
+
 - **Milestone 8c — Memory tab + review UI.** Closes out M8 — the user
   can now see, correct, and audit everything Mylo knows.
   - Panel now has **Chat / Memory** tabs in the header.

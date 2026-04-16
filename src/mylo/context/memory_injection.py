@@ -20,6 +20,10 @@ from mylo.memory.schema import Conflict, MemoryFile
 from mylo.memory.scratchpad import read_scratchpad, summarize_entries
 from mylo.validators.yaml_parser import dump_yaml
 
+_ALL_SECTIONS: frozenset[str] = frozenset(
+    {"now", "household", "preferences", "notes", "known_issues", "conflicts", "scratchpad"}
+)
+
 
 def build_memory_section(
     memory: MemoryFile,
@@ -27,46 +31,58 @@ def build_memory_section(
     mylo_data_dir: Path,
     scratchpad_limit: int = 50,
     timezone: str | None = None,
+    sections: set[str] | frozenset[str] | None = None,
 ) -> str:
     """Return a text block to splice into the system prompt after the
     static identity/security rules. Empty string when there's nothing
     to say so we don't burn tokens on blank structure.
+
+    ``sections`` filters which parts render. When None, everything
+    renders (backward compatible). The assembler passes the result
+    of :func:`mylo.context.selector.select_sections`.
     """
-    sections: list[str] = []
+    enabled = frozenset(sections) if sections is not None else _ALL_SECTIONS
 
-    # Always include current time so time-based memory rules ("don't
-    # turn on X after 8pm") can fire without a tool call. Uses the HA
-    # timezone if known, else the process's local tz.
-    sections.append(_render_now(timezone))
+    parts: list[str] = []
 
-    household_text = _render_household(memory)
-    if household_text:
-        sections.append(household_text)
+    if "now" in enabled:
+        # Always include current time so time-based memory rules ("don't
+        # turn on X after 8pm") can fire without a tool call.
+        parts.append(_render_now(timezone))
 
-    preferences_text = _render_preferences(memory)
-    if preferences_text:
-        sections.append(preferences_text)
+    if "household" in enabled:
+        household_text = _render_household(memory)
+        if household_text:
+            parts.append(household_text)
 
-    if memory.notes:
-        sections.append(_render_notes(memory))
+    if "preferences" in enabled:
+        preferences_text = _render_preferences(memory)
+        if preferences_text:
+            parts.append(preferences_text)
 
-    issues_text = _render_known_issues(memory)
-    if issues_text:
-        sections.append(issues_text)
+    if "notes" in enabled and memory.notes:
+        parts.append(_render_notes(memory))
 
-    pending = memory.pending_conflicts()
-    if pending:
-        sections.append(_render_conflicts(pending))
+    if "known_issues" in enabled:
+        issues_text = _render_known_issues(memory)
+        if issues_text:
+            parts.append(issues_text)
 
-    scratchpad = read_scratchpad(mylo_data_dir, limit=scratchpad_limit)
-    if scratchpad:
-        summary = summarize_entries(scratchpad)
-        sections.append("RECENT USER NOTES (not yet reconciled; treat as current):\n" + summary)
+    if "conflicts" in enabled:
+        pending = memory.pending_conflicts()
+        if pending:
+            parts.append(_render_conflicts(pending))
 
-    if not sections:
+    if "scratchpad" in enabled:
+        scratchpad = read_scratchpad(mylo_data_dir, limit=scratchpad_limit)
+        if scratchpad:
+            summary = summarize_entries(scratchpad)
+            parts.append("RECENT USER NOTES (not yet reconciled; treat as current):\n" + summary)
+
+    if not parts:
         return ""
 
-    return "YOUR MEMORY OF THIS HOME:\n\n" + "\n\n".join(sections)
+    return "YOUR MEMORY OF THIS HOME:\n\n" + "\n\n".join(parts)
 
 
 # ─── Renderers ──────────────────────────────────────────────────────────────

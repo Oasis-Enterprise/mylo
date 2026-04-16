@@ -1,0 +1,57 @@
+# Lovelace dashboard card examples. Mylo uses these as few-shot
+# references when building or modifying dashboards. Mushroom cards
+# appear heavily — they render well on mobile and are the common
+# choice for modern HA dashboards.
+
+# Entities card — simple list with secondary info.
+- type: entities
+  title: Kitchen
+  entities:
+    - entity: light.kitchen_overhead
+    - entity: light.kitchen_pendant
+    - entity: sensor.kitchen_temperature
+      secondary_info: last-changed
+
+# Grid of mushroom cards — compact at-a-glance view.
+- type: grid
+  columns: 2
+  square: false
+  cards:
+    - type: custom:mushroom-light-card
+      entity: light.living_room
+      show_brightness_control: true
+    - type: custom:mushroom-climate-card
+      entity: climate.living_room
+      show_temperature_control: true
+
+# Mini-graph for a single sensor's history.
+- type: custom:mini-graph-card
+  entities:
+    - entity: sensor.basement_humidity
+  hours_to_show: 24
+  points_per_hour: 4
+  line_width: 2
+  show:
+    labels: true
+    points: hover
+
+# Conditional card — only show when the garage door is open.
+- type: conditional
+  conditions:
+    - entity: cover.garage_door
+      state: open
+  card:
+    type: custom:mushroom-alert-card
+    entity: cover.garage_door
+    name: Garage door is open
+    icon: mdi:garage-open
+
+# Vertical stack pattern — one section per concern.
+- type: vertical-stack
+  cards:
+    - type: custom:mushroom-title-card
+      title: Office
+    - type: custom:mushroom-light-card
+      entity: light.office
+    - type: custom:mushroom-person-card
+      entity: person.resident

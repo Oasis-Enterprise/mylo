@@ -1,0 +1,43 @@
+# Known-shape troubleshooting scenarios Mylo should recognize.
+# Each entry is a (symptom, likely_causes, diagnostic_steps) triple.
+# Used as few-shot context when the user complains something's broken.
+
+- symptom: "Entity shows 'unavailable'"
+  likely_causes:
+    - "Integration disconnected (check Settings → Devices & Services)"
+    - "Zigbee/Z-Wave device out of mesh range"
+    - "Device powered off or batteries depleted"
+    - "Recent HA restart hasn't finished initializing the integration"
+  diagnostic_steps:
+    - "Call query_logs with severity=error for the integration's domain"
+    - "Check device_registry for disabled_by / via_device"
+    - "For Zigbee: confirm last_seen timestamp in Z2M/ZHA"
+
+- symptom: "Automation didn't fire"
+  likely_causes:
+    - "Trigger condition not actually satisfied"
+    - "Automation disabled or in a stopped mode"
+    - "Template errored silently"
+    - "Condition block blocked execution"
+  diagnostic_steps:
+    - "query_logs with severity=warning for automation domain"
+    - "Check last_triggered timestamp on the automation entity"
+    - "Review trace log: Developer Tools → Automations → trace"
+
+- symptom: "Light 'on' state is correct but brightness wrong"
+  likely_causes:
+    - "Scene or adaptive-lighting integration is overriding"
+    - "Automation triggered simultaneously"
+    - "Bulb reset to last on-state (Hue default)"
+  diagnostic_steps:
+    - "query_logs for light domain around the affected timestamp"
+    - "Check for automations referencing the entity with brightness actions"
+
+- symptom: "Sensor shows wrong value / spiky readings"
+  likely_causes:
+    - "Radio interference (Zigbee: channel 25 or 26 is usually clean)"
+    - "Sensor firmware bug (check manufacturer changelog)"
+    - "Template sensor dividing by zero when source is 'unknown'"
+  diagnostic_steps:
+    - "Pull long-term statistics for the sensor"
+    - "Compare against a neighboring sensor in the same area"

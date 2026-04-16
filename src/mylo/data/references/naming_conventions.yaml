@@ -1,0 +1,47 @@
+# Naming conventions Mylo uses when renaming entities or suggesting
+# names for new ones. These are defaults — the user's
+# memory.preferences.naming section overrides.
+
+# Entity IDs: snake_case, area-prefixed, domain-appropriate.
+entity_id_patterns:
+  - pattern: "<domain>.<area>_<purpose>"
+    examples:
+      - light.kitchen_overhead
+      - light.kitchen_under_cabinet
+      - sensor.basement_humidity
+      - switch.office_desk_strip
+      - binary_sensor.front_doorbell
+  - pattern: "<domain>.<area>_<device>_<sensor_type>"
+    examples:
+      - sensor.kitchen_ecobee_temperature
+      - sensor.kitchen_ecobee_humidity
+      - binary_sensor.front_door_ring_motion
+
+# Friendly names: Title Case, human-readable, don't repeat area if
+# the dashboard groups by area.
+friendly_name_patterns:
+  - "<Purpose>"  # when the area is already implied by context
+  - "<Area> <Purpose>"  # when shown in a mixed view
+  - examples:
+      - Kitchen Overhead
+      - Under Cabinet
+      - Basement Humidity
+      - Front Doorbell
+
+# Common mistakes to flag + correct during rename suggestions.
+anti_patterns:
+  - wrong: light.kitchen_light_1  # redundant "_light"
+    right: light.kitchen_overhead
+  - wrong: sensor.temp_sensor_kitchen  # trailing area, domain prefix redundant
+    right: sensor.kitchen_temperature
+  - wrong: switch.switch_office  # redundant "switch_"
+    right: switch.office
+
+# Labels follow kebab-case so they sort cleanly in the HA UI.
+label_patterns:
+  - kebab-case
+  - examples:
+      - critical
+      - needs-attention
+      - low-battery
+      - seasonal-summer

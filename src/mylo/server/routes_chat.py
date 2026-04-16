@@ -25,7 +25,7 @@ from typing import Any
 
 from aiohttp import web
 
-from mylo.context.basic_prompt import load_system_prompt
+from mylo.context.assembler import assemble_system_prompt
 from mylo.llm.tool_loop import (
     DoneEvent,
     LoopEvent,
@@ -117,22 +117,20 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     )
     tools = request.app[AppKeys.TOOLS_JSON]
     config = request.app[AppKeys.CONFIG]
-    prompt = load_system_prompt()
 
-    # Layer 3 memory injection. Reload scratchpad fresh each turn so the
-    # model sees notes the user just recorded. context.yaml is cached —
-    # only the reconciler writes to it, so no reload needed between turns.
+    # Full four-layer system prompt. The assembler reads live registries
+    # + memory + the latest user turn and picks which memory sections /
+    # task references to include. Scratchpad is re-read each turn so
+    # notes the user just recorded are available immediately.
     memory_store = request.app[AppKeys.MEMORY]
-    from mylo.context.memory_injection import build_memory_section
-
-    memory_section = build_memory_section(
-        memory_store.current(),
+    assembled = assemble_system_prompt(
+        registries=request.app.get(AppKeys.REGISTRIES),
+        memory=memory_store.current(),
+        conversation_text=message,
         mylo_data_dir=config.mylo_data_dir,
         timezone=request.app.get(AppKeys.HA_TIMEZONE),
     )
-    system_text = prompt.text
-    if memory_section:
-        system_text = f"{system_text}\n\n---\n\n{memory_section}"
+    system_text = assembled.system
 
     response = web.StreamResponse(
         status=200,
@@ -159,7 +157,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
             system=system_text,
             tools=tools,
             model=config.model,
-            prompt_version=prompt.version,
+            prompt_version=assembled.prompt_version,
         ):
             if isinstance(event, TextEvent):
                 await emit("text", {"text": event.text})

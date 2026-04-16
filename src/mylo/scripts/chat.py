@@ -26,7 +26,7 @@ import os
 import sys
 
 from mylo.config import load_config
-from mylo.context.basic_prompt import load_system_prompt
+from mylo.context.assembler import assemble_system_prompt
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.storage import ConversationStorage
 from mylo.ha.registries import Registries
@@ -40,6 +40,7 @@ from mylo.llm.tool_loop import (
     run_turn,
 )
 from mylo.logging_setup import configure_logging, get_logger
+from mylo.memory.store import MemoryStore
 from mylo.safety.audit import AuditLogger
 from mylo.safety.permissions import default_permissions
 from mylo.tools import registry as tool_registry
@@ -114,8 +115,9 @@ async def _run() -> int:
         return 2
 
     config = load_config()
-    prompt = load_system_prompt()
     provider = AnthropicProvider(api_key=api_key)
+    memory_store = MemoryStore(mylo_data_dir=config.mylo_data_dir)
+    await memory_store.load()
 
     tool_registry.load_all()
     tool_specs = [t.to_anthropic() for t in tool_registry.all_tools()]
@@ -156,7 +158,7 @@ async def _run() -> int:
         session_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
 
         print(
-            f"{_CYAN}Mylo{_RESET} ({config.model}, prompt v{prompt.version}, "
+            f"{_CYAN}Mylo{_RESET} ({config.model}, "
             f"{len(conv.history)} prior messages). Type /quit to exit.\n"
         )
 
@@ -185,15 +187,25 @@ async def _run() -> int:
                 continue
 
             try:
+                # Reload memory each turn so notes written via the tool
+                # during prior turns are visible. Cheap — YAML parse of a
+                # small file.
+                await memory_store.load()
+                assembled = assemble_system_prompt(
+                    registries=registries,
+                    memory=memory_store.current(),
+                    conversation_text=user_line,
+                    mylo_data_dir=config.mylo_data_dir,
+                )
                 async for event in run_turn(
                     user_message=user_line,
                     conversation=conv,
                     provider=provider,
                     ctx=ctx,
-                    system=prompt.text,
+                    system=assembled.system,
                     tools=tool_specs,
                     model=config.model,
-                    prompt_version=prompt.version,
+                    prompt_version=assembled.prompt_version,
                 ):
                     if isinstance(event, TextEvent):
                         _print_text(event)
