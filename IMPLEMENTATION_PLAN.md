@@ -445,6 +445,37 @@ Scheduler:
 
 Each milestone is independently runnable against a real HA instance. "Done" means the demo bullet is reproducible from a clean checkout.
 
+### Current Status (2026-04-15)
+
+**Shipped:**
+- M0 Repo scaffold
+- M1 HA websocket client
+- M2a/2b Tier-1 tools
+- M3 Safety & audit
+- M4a LLM loop + CLI chat
+- M4b Robustness pass (ws timeout, states cache, parallel auto fetch, prompt caching)
+- M4c Four-layer context assembler (topology, selector, task detector, references)
+- M5 Panel UI + SSE
+- M6 YAML validators, reference resolver, file manager
+- M7a Write path (tier-2 tools + rollback loop + tier-3 call_service + reload_config)
+- M7b Organizational tools (modify_areas, manage_labels, modify_dashboard, rename_entities)
+- M8a Memory foundation (schema, store, scratchpad, injection)
+- M8b Memory sync engine (pruner, reconciler, `/api/memory/sync`)
+- M8c Memory tab + review UI
+- M10 Signal theme (tactical UI refresh — moved up the queue per user ask)
+
+**Remaining:**
+- **M4c follow-ups:** conversation summarization (§6.7) — trim-to-last-N still in use
+- **M9** Nightly auto-sync: `monitor.scheduler` (APScheduler) runs reconciler on configured frequency. Manual trigger already works; this automates.
+- **M9+M10 dovetail:** chain-call checkpoint (pause after N tool calls vs silent max_iterations), daily rate counters surface in UI.
+- **M11** Background monitor: `monitor.hourly`, `monitor.baselines`, `monitor.anomaly`, `monitor.notifier` + proactive HA notifications. Shares scheduler with M9.
+- **M12** Activity tab + onboarding (cold-start flow §6.9, quick-wins).
+- **M13** HACS / add-on release: multi-arch build workflow, `repository.yaml`, docs on GitHub Pages.
+
+Test count: 312 passing. Live-tested against a 2200-entity HA instance.
+
+---
+
 ### Milestone 0 — Repo scaffold (0.5 day)
 - `pyproject.toml`, `uv.lock`, `.github/workflows/ci.yml` lint + typecheck.
 - Empty `src/mylo/__main__.py` that prints config and exits.

@@ -7,7 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- ApprovalCard buttons were disabled whenever the SSE stream was
+  still open — the trailing "click Apply to confirm" text kept
+  `sending` true and made REJECT/APPLY greyed out. REJECT is now
+  always clickable (local state only); APPLY clicks during an
+  in-flight stream queue a submit that fires once sending clears,
+  with an "Applying…" label for feedback. No overlapping POSTs.
+- `call_service` dry-run approvals now render as
+  "Call domain.service on \<target\>" with a data kv line instead of
+  the generic "call_service · dry run" summary. Tier label defaults
+  to TIER-3.
+- Root `.gitignore` `lib/` pattern silently dropped `ui/src/lib/`
+  (cost + format helpers) from the repo, breaking the ui-builder
+  Docker stage with "Could not resolve './lib/cost'". Negated for
+  the UI path.
+- Scratchpad wasn't drained after a successful sync — every sync
+  re-merged the same notes and the Memory tab's Pending section
+  never cleared. Drain runs only after `store.save` commits; a
+  mid-save crash or malformed-YAML response preserves the
+  scratchpad for retry. Archived to `history/scratchpad_<ts>.yaml`.
+- Haiku reconciler output occasionally copied the scratchpad
+  scope-as-dict shape (`{area: ..., entity: ...}`) into context.yaml
+  Notes, failing the `scope: str | None` schema. Pydantic
+  `model_validator(mode='before')` on Note lifts entity/area fields
+  out and coerces scope into the expected string. Tightened
+  reconciler prompt with an explicit Note shape example.
+
 ### Added
+- Scratchpad pending view: Memory tab renders live
+  `scratchpad.yaml` entries in a "Pending — not yet synced" section
+  at the top, so notes captured in chat are visible immediately
+  (they're already being used in conversations) without requiring
+  a manual Sync click. Backed by `GET /api/memory/scratchpad`.
+
 - **Milestone 10 — Signal theme (tactical green-on-black UI refresh).**
   Pure visual/component overhaul on top of the existing SSE, state,
   and tool-call plumbing — no behavioral changes.
