@@ -8,11 +8,21 @@ interface Props {
 export function ToolCallBlock({ call }: Props) {
   const [open, setOpen] = useState(false);
 
-  const indicator =
-    call.state === "pending" ? "·" : call.state === "ok" ? "✓" : "✗";
-  const color =
-    call.state === "pending"
-      ? "text-mute"
+  const isAwaitingApproval =
+    call.state === "error" && call.errorCode === "confirmation_required";
+
+  const indicator = call.state === "pending"
+    ? "·"
+    : isAwaitingApproval
+      ? "⏳"
+      : call.state === "ok"
+        ? "✓"
+        : "✗";
+
+  const color = call.state === "pending"
+    ? "text-mute"
+    : isAwaitingApproval
+      ? "text-amber-400"
       : call.state === "ok"
         ? "text-emerald-400"
         : "text-rose-400";
@@ -27,8 +37,11 @@ export function ToolCallBlock({ call }: Props) {
         <span className={color}>{indicator}</span>
         <span>{call.name}</span>
         {call.summary ? <span className="text-mute">— {call.summary}</span> : null}
-        {call.errorCode ? (
+        {call.errorCode && !isAwaitingApproval ? (
           <span className="text-rose-400">— {call.errorCode}</span>
+        ) : null}
+        {isAwaitingApproval ? (
+          <span className="text-amber-400">— awaiting approval</span>
         ) : null}
         <span className="ml-auto text-mute">{open ? "hide" : "details"}</span>
       </button>
