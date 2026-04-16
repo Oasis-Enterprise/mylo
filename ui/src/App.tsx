@@ -88,6 +88,10 @@ export default function App() {
         for await (const event of streamChat(message, { approved: approvedForThisTurn })) {
           if (_needsApproval(event)) {
             turnSawPreview = true;
+            // Show Apply bar immediately — don't wait for the turn to
+            // finish. The model will keep typing ("click Apply below")
+            // but the user can already see and click the button.
+            setPendingApproval(true);
           }
           applyEvent(event, assistantId, toolCallsById, setItems, setLastUsage, setError);
         }
