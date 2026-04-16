@@ -84,14 +84,20 @@ async def handler(params: CallServiceParams, ctx: ToolContext) -> ToolResult:
     warning = RESTRICTED_SERVICES.get(key)
     target = _target_payload(params.target)
 
+    # Only include target/service_data keys when non-empty. HA's websocket
+    # rejects service_data=null with "invalid_format" and some services
+    # choke on an empty target={}.
+    payload: dict[str, Any] = {
+        "domain": params.domain,
+        "service": params.service,
+    }
+    if target:
+        payload["target"] = target
+    if params.data:
+        payload["service_data"] = params.data
+
     try:
-        await ctx.ws_client.send_command(
-            "call_service",
-            domain=params.domain,
-            service=params.service,
-            target=target or None,
-            service_data=params.data or None,
-        )
+        await ctx.ws_client.send_command("call_service", **payload)
     except CommandTimeout as exc:
         return ToolResult.error("ha_timeout", str(exc))
     except CommandError as exc:
