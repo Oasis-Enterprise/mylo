@@ -121,7 +121,5 @@ class MemoryStore:
 def _rotate_history(root: Path, *, keep: int) -> None:
     files = sorted(root.iterdir(), key=lambda p: p.name, reverse=True)
     for stale in files[keep:]:
-        try:
+        with contextlib.suppress(OSError):
             stale.unlink()
-        except OSError:  # pragma: no cover — benign rotation failure
-            pass
