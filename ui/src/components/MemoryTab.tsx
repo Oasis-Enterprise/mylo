@@ -3,6 +3,7 @@ import {
   applyPrune,
   deleteMemoryItem,
   fetchMemoryFull,
+  fetchScratchpad,
   resolveConflict,
   syncMemory,
 } from "../api";
@@ -13,11 +14,13 @@ import type {
   MemoryNote,
   MemoryPattern,
   MemoryRejection,
+  ScratchpadEntry,
   SyncResult,
 } from "../types";
 
 export function MemoryTab() {
   const [memory, setMemory] = useState<MemoryFull | null>(null);
+  const [scratchpad, setScratchpad] = useState<ScratchpadEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -27,8 +30,9 @@ export function MemoryTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const mem = await fetchMemoryFull();
+      const [mem, pending] = await Promise.all([fetchMemoryFull(), fetchScratchpad()]);
       setMemory(mem);
+      setScratchpad(pending);
       setError(null);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : String(exc));
@@ -144,6 +148,18 @@ export function MemoryTab() {
 
       <main className="flex-1 overflow-y-auto p-4 space-y-6">
         {lastSync ? <SyncResultCard result={lastSync} onApplyPrune={handleApplyPrune} /> : null}
+
+        {scratchpad.length > 0 ? (
+          <Section title={`Pending — not yet synced (${scratchpad.length})`} accent="indigo">
+            <div className="py-2 text-xs text-mute">
+              These notes were captured in chat and are already used in conversations.
+              Hit "Sync now" to fold them into the sections below.
+            </div>
+            {scratchpad.map((e, i) => (
+              <ScratchpadRow key={i} entry={e} />
+            ))}
+          </Section>
+        ) : null}
 
         {pendingConflicts.length > 0 ? (
           <Section title={`Conflicts (${pendingConflicts.length} pending)`} accent="amber">
@@ -297,11 +313,15 @@ function Section({
   children,
 }: {
   title: string;
-  accent?: "amber";
+  accent?: "amber" | "indigo";
   children: React.ReactNode;
 }) {
   const border =
-    accent === "amber" ? "border-amber-500/40" : "border-border";
+    accent === "amber"
+      ? "border-amber-500/40"
+      : accent === "indigo"
+        ? "border-indigo-500/40"
+        : "border-border";
   return (
     <section className={`rounded border ${border} bg-elevated`}>
       <div className="border-b border-border px-3 py-2 text-xs font-semibold text-gray-200">
@@ -309,6 +329,25 @@ function Section({
       </div>
       <div className="divide-y divide-border px-3">{children}</div>
     </section>
+  );
+}
+
+function ScratchpadRow({ entry }: { entry: ScratchpadEntry }) {
+  const scope =
+    (entry.scope.entity as string | undefined) ||
+    (entry.scope.area as string | undefined) ||
+    (entry.scope.general ? "general" : undefined);
+  return (
+    <div className="py-2">
+      <div className="text-sm text-gray-100">{entry.content}</div>
+      <div className="mt-0.5 text-xs text-mute">
+        <span className="rounded bg-indigo-900/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-indigo-200">
+          {entry.type}
+        </span>
+        {scope ? <span className="ml-2">[{scope}]</span> : null}
+        {entry.recorded ? <span className="ml-2">{entry.recorded}</span> : null}
+      </div>
+    </div>
   );
 }
 

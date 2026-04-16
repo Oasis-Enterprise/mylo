@@ -686,3 +686,37 @@ async def test_resolve_conflict_404_for_unknown_id(
         "/api/memory/conflict/nope/resolve", json={"choice": "a"}
     )
     assert resp.status == 404
+
+
+async def test_get_scratchpad_endpoint_returns_pending_entries(
+    aiohttp_client, memory_app: web.Application
+) -> None:
+    from mylo.server.app import AppKeys
+
+    config = memory_app[AppKeys.CONFIG]
+    (config.mylo_data_dir / "scratchpad.yaml").write_text(
+        '- {type: "user_note", scope: {general: true}, '
+        'content: "sprinklers offline is fine", recorded: "2026-04-15", '
+        'confidence: 1.0, conversation_id: "c1"}\n'
+    )
+    await memory_app[AppKeys.MEMORY].load()
+
+    client = await aiohttp_client(memory_app)
+    resp = await client.get("/api/memory/scratchpad")
+    assert resp.status == 200
+    body = await resp.json()
+    assert len(body["entries"]) == 1
+    assert body["entries"][0]["content"] == "sprinklers offline is fine"
+
+
+async def test_get_scratchpad_endpoint_empty_when_missing(
+    aiohttp_client, memory_app: web.Application
+) -> None:
+    from mylo.server.app import AppKeys
+
+    await memory_app[AppKeys.MEMORY].load()
+    client = await aiohttp_client(memory_app)
+    resp = await client.get("/api/memory/scratchpad")
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["entries"] == []

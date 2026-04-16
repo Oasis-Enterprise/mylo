@@ -148,7 +148,7 @@ export async function fetchConversation(): Promise<RawMessage[]> {
 
 // ─── Memory API ───────────────────────────────────────────────────────────
 
-import type { MemoryFull, SyncResult } from "./types";
+import type { MemoryFull, ScratchpadEntry, SyncResult } from "./types";
 
 export async function fetchMemoryFull(): Promise<MemoryFull> {
   const response = await fetch(apiUrl("api/memory/full"), { method: "GET" });
@@ -156,6 +156,15 @@ export async function fetchMemoryFull(): Promise<MemoryFull> {
     throw new Error(`memory/full returned ${response.status}`);
   }
   return (await response.json()) as MemoryFull;
+}
+
+export async function fetchScratchpad(): Promise<ScratchpadEntry[]> {
+  const response = await fetch(apiUrl("api/memory/scratchpad"), { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`memory/scratchpad returned ${response.status}`);
+  }
+  const body = (await response.json()) as { entries: ScratchpadEntry[] };
+  return body.entries || [];
 }
 
 export async function syncMemory(options: { applyPrune?: boolean } = {}): Promise<SyncResult> {

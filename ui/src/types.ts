@@ -132,3 +132,12 @@ export interface SyncResult {
   conflicts_added: number;
   prune_candidates: PruneCandidate[];
 }
+
+export interface ScratchpadEntry {
+  type: string;
+  content: string;
+  scope: Record<string, unknown>;
+  recorded: string | null;
+  confidence: number | null;
+  conversation_id: string | null;
+}

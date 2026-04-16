@@ -19,6 +19,7 @@ from mylo.logging_setup import get_logger
 from mylo.memory.pruner import PruneReport, apply_prune, plan_prune
 from mylo.memory.reconciler import ReconcileProvider, run_sync
 from mylo.memory.schema import MemoryFile
+from mylo.memory.scratchpad import read_scratchpad
 
 log = get_logger(__name__)
 
@@ -26,6 +27,7 @@ log = get_logger(__name__)
 def register_memory_routes(app: web.Application) -> None:
     app.router.add_get("/api/memory", _handle_get_memory)
     app.router.add_get("/api/memory/full", _handle_get_full)
+    app.router.add_get("/api/memory/scratchpad", _handle_get_scratchpad)
     app.router.add_post("/api/memory/sync", _handle_sync)
     app.router.add_post("/api/memory/prune", _handle_prune)
     app.router.add_delete("/api/memory/item", _handle_delete_item)
@@ -53,6 +55,36 @@ async def _handle_get_memory(request: web.Request) -> web.Response:
                 "household_members": len(memory.household.members),
             },
             "pending_conflicts": len(memory.pending_conflicts()),
+        }
+    )
+
+
+async def _handle_get_scratchpad(request: web.Request) -> web.Response:
+    """Return pending scratchpad entries — notes captured in chat that
+    haven't been folded into ``context.yaml`` yet.
+
+    These are already visible to future chat turns (memory injection
+    reads scratchpad live), but they don't appear in the Memory tab's
+    main sections until the user runs Sync. We surface them as a
+    "pending" list so the user sees their notes land instantly.
+    """
+    from mylo.server.app import AppKeys
+
+    config = request.app[AppKeys.CONFIG]
+    entries = read_scratchpad(config.mylo_data_dir)
+    return web.json_response(
+        {
+            "entries": [
+                {
+                    "type": e.type,
+                    "content": e.content,
+                    "scope": e.scope,
+                    "recorded": e.recorded,
+                    "confidence": e.confidence,
+                    "conversation_id": e.conversation_id,
+                }
+                for e in entries
+            ]
         }
     )
 
