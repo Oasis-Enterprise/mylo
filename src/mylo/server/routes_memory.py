@@ -19,7 +19,7 @@ from mylo.logging_setup import get_logger
 from mylo.memory.pruner import PruneReport, apply_prune, plan_prune
 from mylo.memory.reconciler import ReconcileProvider, run_sync
 from mylo.memory.schema import MemoryFile
-from mylo.memory.scratchpad import read_scratchpad
+from mylo.memory.scratchpad import drain_scratchpad, read_scratchpad
 
 log = get_logger(__name__)
 
@@ -136,12 +136,17 @@ async def _handle_sync(request: web.Request) -> web.Response:
         )
 
     applied = False
+    drained = 0
     if result.updated is not None:
         memory_to_save = result.updated
         if should_apply_prune and result.prune_report.total > 0:
             memory_to_save = apply_prune(memory_to_save, result.prune_report)
             applied = True
         await store.save(memory_to_save, note=f"sync: {result.summary}")
+        # Only drain after the save committed — a crash mid-save
+        # would otherwise lose the scratchpad without the merge
+        # having landed on disk.
+        drained = drain_scratchpad(config.mylo_data_dir)
     elif should_apply_prune and result.prune_report.total > 0:
         current = store.current()
         pruned = apply_prune(current, result.prune_report)
@@ -159,6 +164,7 @@ async def _handle_sync(request: web.Request) -> web.Response:
             "summary": result.summary,
             "conflicts_added": result.conflicts_added,
             "prune_candidates": _serialize_prune(result.prune_report),
+            "scratchpad_drained": drained,
         }
     )
 

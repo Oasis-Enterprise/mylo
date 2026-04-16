@@ -66,6 +66,35 @@ def read_scratchpad(mylo_data_dir: Path, *, limit: int | None = None) -> list[Sc
     return entries
 
 
+def drain_scratchpad(mylo_data_dir: Path) -> int:
+    """Remove ``scratchpad.yaml`` after a successful reconciliation.
+
+    Per spec §3.9 the reconciler drains the scratchpad — otherwise
+    entries would re-merge on every sync and create duplicates. We
+    archive the drained contents to ``history/scratchpad_<ts>.yaml``
+    so a debug trail survives. Returns the number of entries drained.
+    """
+    path = mylo_data_dir / "scratchpad.yaml"
+    if not path.exists():
+        return 0
+    entries = read_scratchpad(mylo_data_dir)
+    history_dir = mylo_data_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    from datetime import UTC, datetime
+
+    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S")
+    dest = history_dir / f"scratchpad_{stamp}.yaml"
+    try:
+        dest.write_bytes(path.read_bytes())
+    except OSError as exc:
+        log.warning("memory.scratchpad_archive_failed", error=str(exc))
+    try:
+        path.unlink()
+    except OSError as exc:
+        log.warning("memory.scratchpad_drain_failed", error=str(exc))
+    return len(entries)
+
+
 def summarize_entries(entries: list[ScratchpadEntry]) -> str:
     """Render a compact plain-text summary for the system prompt."""
     if not entries:

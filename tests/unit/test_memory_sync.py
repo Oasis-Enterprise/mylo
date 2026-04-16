@@ -709,6 +709,31 @@ async def test_get_scratchpad_endpoint_returns_pending_entries(
     assert body["entries"][0]["content"] == "sprinklers offline is fine"
 
 
+async def test_sync_endpoint_drains_scratchpad_on_save(
+    aiohttp_client, memory_app: web.Application
+) -> None:
+    from mylo.server.app import AppKeys
+
+    config = memory_app[AppKeys.CONFIG]
+    scratch = config.mylo_data_dir / "scratchpad.yaml"
+    scratch.write_text(
+        '- {type: "user_note", scope: {general: true}, '
+        'content: "drained after sync", recorded: "2026-04-15", '
+        'confidence: 1.0, conversation_id: "c1"}\n'
+    )
+    await memory_app[AppKeys.MEMORY].load()
+
+    client = await aiohttp_client(memory_app)
+    resp = await client.post("/api/memory/sync", json={})
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["scratchpad_drained"] == 1
+    assert not scratch.exists()
+    # Archived to history.
+    archived = list((config.mylo_data_dir / "history").glob("scratchpad_*.yaml"))
+    assert len(archived) == 1
+
+
 async def test_get_scratchpad_endpoint_empty_when_missing(
     aiohttp_client, memory_app: web.Application
 ) -> None:
