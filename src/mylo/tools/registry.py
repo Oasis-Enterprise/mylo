@@ -34,6 +34,11 @@ _DEFAULT_MODULES: tuple[str, ...] = (
     "mylo.tools.write.modify_automation",
     "mylo.tools.action.call_service",
     "mylo.tools.action.reload_config",
+    # M7b: organizational + dashboard tools.
+    "mylo.tools.write.modify_areas",
+    "mylo.tools.write.manage_labels",
+    "mylo.tools.write.modify_dashboard",
+    "mylo.tools.write.rename_entities",
 )
 
 

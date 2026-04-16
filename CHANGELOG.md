@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Milestone 7b — Organizational & dashboard tools.**
+  - `modify_areas` (tier 2): create/rename/delete areas, assign
+    devices and entities between areas. Pure websocket — immediate
+    effect, no file ops or reload.
+  - `manage_labels` (tier 1 for list, handler-enforced approval for
+    mutations): create labels with optional color, assign/remove labels
+    on entities and devices. Computes label set diffs against the
+    current registry before updating.
+  - `modify_dashboard` (tier 2): create/update/delete Lovelace views
+    and cards in storage-mode dashboards via websocket. Dry-run returns
+    a structural diff; apply writes via `lovelace/config/save` —
+    immediate, no reload needed. YAML-mode dashboards flow through
+    write_config_file / patch_config_file.
+  - `rename_entities` (tier 2): rename entity_id and/or friendly_name
+    via the entity registry. Optional cascade: scans automations.yaml,
+    packages/agent.yaml, and all storage-mode dashboards for the old
+    entity_id, shows reference counts in dry-run, replaces on apply.
+    Most impactful write tool — the dry-run preview is critical here.
+  - 15 new unit tests covering all four tools: area CRUD + assignment,
+    label list/create/assign, dashboard view create/delete + dry-run,
+    rename with reference scanning + validation guards (nonexistent
+    entity, already-exists target). 249 total tests.
+  - 18 tools now registered (9 tier-1 read, 6 tier-2 write, 2 tier-3
+    action, 1 hybrid).
+
 - **Milestone 7a — Write path: tier-2 tools, rollback loop, tier-3
   service calls.** This is the big capability unlock — Mylo can now
   actually modify your HA.
