@@ -20,6 +20,8 @@ verify before committing.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -201,6 +203,33 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
             data=envelope,
         )
     return ToolResult.ok(envelope)
+
+
+# ─── Post-timeout verification ──────────────────────────────────────────────
+
+
+async def _poll_for_rename(
+    ctx: ToolContext, *, new_id: str, poll_seconds: float
+) -> bool:
+    """Poll the entity registry for the new id after a rename timeout.
+
+    HA may still be processing the rename when our send_command timed
+    out. Wait for the websocket to reconnect (common after registry
+    cascades), then refresh the registry every few seconds until the
+    new id appears or the deadline expires.
+    """
+    deadline = time.monotonic() + poll_seconds
+    while time.monotonic() < deadline:
+        try:
+            await ctx.ws_client.wait_ready(timeout=5.0)
+            await ctx.registries.refresh(force=True)
+        except Exception:
+            await asyncio.sleep(2.0)
+            continue
+        if new_id in ctx.registries.entities:
+            return True
+        await asyncio.sleep(2.0)
+    return False
 
 
 # ─── Reference scanning ──────────────────────────────────────────────────────
