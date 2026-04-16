@@ -86,7 +86,7 @@ export default function App() {
 
       try {
         for await (const event of streamChat(message, { approved: approvedForThisTurn })) {
-          if (event.type === "tool_result" && _isPreviewResult(event.data)) {
+          if (_needsApproval(event)) {
             turnSawPreview = true;
           }
           applyEvent(event, assistantId, toolCallsById, setItems, setLastUsage, setError);
@@ -233,12 +233,26 @@ export default function App() {
   );
 }
 
-function _isPreviewResult(data: unknown): boolean {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    (data as Record<string, unknown>).preview === true
-  );
+function _needsApproval(event: ServerEvent): boolean {
+  // Tier-2 dry-run preview completed successfully.
+  if (
+    event.type === "tool_result" &&
+    event.status === "ok" &&
+    typeof event.data === "object" &&
+    event.data !== null &&
+    (event.data as Record<string, unknown>).preview === true
+  ) {
+    return true;
+  }
+  // Tier-2/3 blocked without approval.
+  if (
+    event.type === "tool_result" &&
+    event.status === "error" &&
+    event.error_code === "confirmation_required"
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function applyEvent(
