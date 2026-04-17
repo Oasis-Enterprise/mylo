@@ -41,6 +41,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (they're already being used in conversations) without requiring
   a manual Sync click. Backed by `GET /api/memory/scratchpad`.
 
+- **Milestone 9 + 11 — Nightly scheduler, background monitor, anomaly
+  detection.** One shared `monitor.scheduler` serves both milestones.
+  - `monitor.scheduler`: APScheduler AsyncIOScheduler with two job
+    slots — nightly (reconciler + baseline recompute) and hourly
+    (availability sweep + anomaly check). Respects `sync_frequency`
+    config (nightly/weekly/manual); hourly jobs only when
+    `proactive_notifications` is enabled. Starts on app startup,
+    stops on cleanup. `misfire_grace_time` handles HA reboots that
+    miss the scheduled window.
+  - `monitor.notifier`: HA `persistent_notification.create` with
+    policy enforcement — quiet hours (overnight range, e.g.
+    22:00→07:00), daily cap (`max_daily_notifications`), and
+    `proactive_notifications` toggle. Critical severity bypasses
+    all three gates. Each notification gets a stable
+    `notification_id` so HA deduplicates.
+  - `monitor.hourly`: no-LLM availability sweep. Detects newly-
+    unavailable entities (only monitored domains; skips disabled/
+    hidden; de-duplicates across sweeps so a persistently-offline
+    device doesn't re-notify). Detects stale automations (enabled
+    but `last_triggered` > 48h ago). Returns finding dicts with
+    id/title/message/severity for the notifier.
+  - `monitor.baselines`: queries HA's
+    `recorder/statistics_during_period` for monitored sensor
+    entities, computes 7-day mean + stddev, stores as
+    `EntityBaseline` entries in `context.yaml → baselines`. Runs
+    as the second phase of the nightly job.
+  - `monitor.anomaly`: z-score detection against stored baselines
+    (threshold |z| > 2.5). Skips non-numeric / unavailable states.
+    Severity tiers: |z| >= 4.0 = high, >= 3.0 = normal, else low.
+    Runs during the hourly job when baselines exist.
+  - `AppKeys.SCHEDULER` stashed on the app; `_cleanup` calls
+    `stop_scheduler`.
+  - 14 new unit tests covering quiet-hours logic (overnight +
+    same-day), daily cap, critical bypass, unavailable-entity
+    detection, stale-automation detection, de-duplication across
+    sweeps, stats-point extraction, z-score spike + within-threshold
+    + non-numeric skip. 326 total tests.
+
 - **Milestone 10 — Signal theme (tactical green-on-black UI refresh).**
   Pure visual/component overhaul on top of the existing SSE, state,
   and tool-call plumbing — no behavioral changes.

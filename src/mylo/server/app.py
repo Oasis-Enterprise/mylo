@@ -26,6 +26,7 @@ from mylo.ha.ws_client import HaWsClient
 from mylo.llm.anthropic_provider import AnthropicProvider
 from mylo.logging_setup import get_logger
 from mylo.memory.store import MemoryStore
+from mylo.monitor.scheduler import start_scheduler, stop_scheduler
 from mylo.safety.audit import AuditLogger
 from mylo.safety.permissions import default_permissions
 from mylo.server.routes_chat import register_chat_routes
@@ -48,6 +49,7 @@ class AppKeys:
     TOOLS_JSON = web.AppKey("tools_json", list)
     MEMORY = web.AppKey("memory", MemoryStore)
     HA_TIMEZONE = web.AppKey("ha_timezone", str)
+    SCHEDULER = web.AppKey("scheduler", object)
 
 
 async def _startup(app: web.Application) -> None:
@@ -113,6 +115,10 @@ async def _startup(app: web.Application) -> None:
         conversation_id=conv.conversation_id,
     )
 
+    # Background scheduler (nightly reconciler + hourly availability).
+    scheduler = await start_scheduler(app)
+    app[AppKeys.SCHEDULER] = scheduler
+
     log.info(
         "server.started",
         entities=len(registries.entities),
@@ -122,6 +128,7 @@ async def _startup(app: web.Application) -> None:
 
 
 async def _cleanup(app: web.Application) -> None:
+    await stop_scheduler(app.get(AppKeys.SCHEDULER))
     client = app.get(AppKeys.HA_CLIENT)
     if client is not None:
         await client.close()
