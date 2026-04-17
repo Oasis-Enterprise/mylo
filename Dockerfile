@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 ARG BUILD_FROM
 
 # ─── UI build stage ──────────────────────────────────────────────────────────
