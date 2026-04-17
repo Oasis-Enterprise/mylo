@@ -101,6 +101,13 @@ def assemble_system_prompt(
                 f"few-shot patterns, not gospel:\n\n{references_text}"
             )
 
+    # Cold-start hints — lightweight nudges that help the model guide
+    # new users toward useful setup steps. Only surface when the
+    # relevant section is genuinely empty.
+    hints = _cold_start_hints(memory)
+    if hints:
+        parts.append("SETUP HINTS (mention naturally if relevant, don't force):\n" + hints)
+
     system = "\n\n---\n\n".join(parts)
 
     log.debug(
@@ -117,3 +124,24 @@ def assemble_system_prompt(
         task_type=task_type,
         sections=frozenset(sections),
     )
+
+
+def _cold_start_hints(memory: MemoryFile) -> str:
+    """Generate setup hints for sections the user hasn't configured yet."""
+    hints: list[str] = []
+    if not memory.monitored_entities:
+        hints.append(
+            "- No entities are being monitored yet. If the user asks about "
+            "monitoring, energy, anomalies, or baselines, suggest setting up "
+            "monitoring: use query_entities to find measurement sensors "
+            "(state_class=measurement, energy, climate, battery), present "
+            "candidates grouped by type, and use manage_monitored to add "
+            "the ones they confirm."
+        )
+    if not memory.household.members:
+        hints.append(
+            "- No household members recorded. If the user mentions people "
+            "by name or discusses presence/schedules, suggest recording "
+            "them via memory_note so future conversations are personalized."
+        )
+    return "\n".join(hints)
