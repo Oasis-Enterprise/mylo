@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatItem } from "../types";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ToolCallBlock } from "./ToolCallBlock";
 
 interface Props {
@@ -56,14 +57,7 @@ export function Message({ item }: Props) {
         }
         return <ToolCallBlock key={i} call={fragment.call} />;
       })}
-      {item.pending ? (
-        <div
-          className="mt-1 font-mono text-[10px]"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          <span className="dot-pulse">▍</span> typing
-        </div>
-      ) : null}
+      {item.pending ? <ThinkingIndicator /> : null}
     </div>
   );
 }
