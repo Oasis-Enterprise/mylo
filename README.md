@@ -1,64 +1,124 @@
 # Mylo
 
-A persistent, memory-aware AI agent that lives inside your Home Assistant instance.
+A persistent, memory-aware AI agent that lives inside your Home Assistant as a sidebar panel add-on.
 
-Mylo is accessed through a sidebar chat panel and has full context of your home — devices, areas, automations, dashboards, integrations, and learned preferences. It can read, create, and modify HA configurations, detect anomalies, and proactively surface issues.
+Mylo has full context of your home — devices, areas, automations, dashboards, integrations, and learned preferences. It can read, create, and modify HA configurations, detect anomalies, and proactively surface issues.
 
-> **Status:** pre-alpha. Under active development. Not yet suitable for production HA instances.
+> **Status:** Pre-release. Functional and tested against a 2200-entity production HA instance. Not yet published as a pre-built add-on — install from source (see below).
 
-## What it does
+## Features
 
-- Conversational home management — natural-language interface to query, control, and configure HA
-- Dashboard generation — build Lovelace dashboards from plain English descriptions
-- Automation authoring — create, modify, and debug automations with plain-English previews
-- Entity management — bulk rename, reorganize, clean up naming conventions
-- Anomaly detection — learn baseline patterns and flag unusual behavior
-- Proactive monitoring — surface issues and maintenance suggestions without being asked
-- Persistent memory — learn user preferences, home context, and behavioral patterns over time
+**Conversational home management**
+- Natural-language query, control, and configuration of Home Assistant
+- 19 registered tools across three tiers (read / modify / action)
+- Entity resolver with fuzzy matching — catches hallucinated entity IDs before they hit HA
 
-## Architecture
+**Write tools with safety**
+- Dashboard generation — build and modify Lovelace views from plain English
+- Automation authoring — create, update, enable/disable with YAML validation
+- Entity rename with reference cascade — scans automations + dashboards for old IDs
+- Area/label management — bulk organize via websocket
+- Every write is dry-run first → user previews the diff → clicks Apply to commit
+- Atomic writes with automatic rollback on failure
 
-See [`MYLO_SPEC.md`](MYLO_SPEC.md) for the full architecture specification and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the build plan.
+**Memory system**
+- Persistent memory in `context.yaml` — household, preferences, notes, known issues, patterns
+- Scratchpad for immediate in-conversation recall
+- Haiku-powered nightly reconciler merges scratchpad → context with conflict detection
+- Deterministic pruner (TTL, stale observations, low-confidence patterns)
+- Memory tab: browse, delete, sync, resolve conflicts — full transparency
+
+**Background monitoring**
+- Hourly availability sweep — detects newly-unavailable entities, stale automations
+- Nightly baseline recompute from HA long-term statistics (mean + stddev)
+- Z-score anomaly detection against baselines (threshold |z| > 2.5)
+- Proactive HA notifications with quiet hours + daily cap enforcement
+- `manage_monitored` tool — the AI helps users discover and select sensors to monitor
+
+**Four-layer context assembler**
+- Layer 1: Static identity + security rules
+- Layer 2: Compressed home topology from live registries
+- Layer 3: Selective memory injection (keyword-gated, not dump-everything)
+- Layer 4: Task-specific few-shot references (automation, dashboard, troubleshooting, entity management)
+
+**Panel UI (Signal theme)**
+- Tactical green-on-black with JetBrains Mono + Inter
+- Chat tab: SSE streaming, inline tool calls with status dots + duration, right-aligned user bubbles, approval cards with diff preview
+- Memory tab: browse/delete notes/issues/patterns/conflicts, sync button, scratchpad pending view
+- Activity tab: audit log timeline grouped by day, filterable by result
+- Session budget/cost tracking in the footer
+- Animated thinking indicator with rotating contextual phrases
 
 ## Installation
 
-_Coming soon._ Distribution will be via a Home Assistant **add-on repository** (not HACS). Once ready, you'll add this repo's URL in Supervisor → Add-on Store → ⋮ → Repositories.
+### As a Home Assistant add-on (recommended)
 
-## Development
+1. In Home Assistant, go to **Settings → Add-ons → Add-on Store**
+2. Click the three-dot menu (⋮) → **Repositories**
+3. Add: `https://github.com/Oasis-Enterprise/mylo`
+4. Find **Mylo** in the store and click **Install**
+5. In the add-on Configuration tab, set your `api_key` (Anthropic API key)
+6. Start the add-on — Mylo appears as a sidebar panel
 
-Requires Python 3.12+, Node 20+, and Docker (for integration tests against a real HA instance).
+> **Note:** The add-on currently builds from source on your machine. This takes a few minutes on x86 hardware. Pre-built multi-arch images (for Raspberry Pi 4/5 support) are planned for the M13 release.
 
-### One-time setup
+### Local development
+
+Requires Python 3.12+, Node 20+.
 
 ```bash
-python3.13 -m venv .venv
+# Clone
+git clone https://github.com/Oasis-Enterprise/mylo.git
+cd mylo
+
+# Python
+python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
-(cd ui && npm install)
+
+# UI
+cd ui && npm install && cd ..
+
+# Environment
 cp .env.example .env
-# then edit .env with HA_URL, HA_TOKEN, ANTHROPIC_API_KEY, MYLO_CONFIG_DIR
+# Edit .env: HA_URL, HA_TOKEN, ANTHROPIC_API_KEY, MYLO_CONFIG_DIR
 ```
 
-### Panel UI dev loop (recommended)
-
+**Run the server:**
 ```bash
-./scripts/dev.sh
+.venv/bin/python -m mylo
 ```
 
-Launches the Python server on `:8099` and Vite on `:5173` with HMR. Open <http://localhost:5173>. Vite proxies `/api/*` to the Python server so SSE streaming works.
-
-### CLI chat
-
+**CLI chat (debugging):**
 ```bash
 .venv/bin/python -m mylo.scripts.chat
 ```
 
-Interactive REPL — useful for debugging prompts without the UI layer in the way.
-
-### One-off tool calls
-
+**Tests:**
 ```bash
-.venv/bin/python -m mylo.scripts.call query_entities --filter.area kitchen
+.venv/bin/pytest tests/unit/
+.venv/bin/mypy src/
+.venv/bin/ruff check src/
 ```
+
+## Configuration
+
+Set in the add-on Configuration tab (or `options.json` for local dev):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `api_key` | — | Anthropic API key (required) |
+| `model` | `claude-sonnet-4-6` | Primary chat model |
+| `reconciliation_model` | `claude-haiku-4-5-20251001` | Model for nightly memory sync |
+| `sync_frequency` | `nightly` | Memory sync schedule: nightly / weekly / manual |
+| `memory_token_limit` | `8000` | Max tokens for the memory section |
+| `proactive_notifications` | `true` | Enable hourly monitoring + anomaly alerts |
+| `max_daily_notifications` | `3` | Cap on proactive notifications per day |
+| `quiet_hours_start` | `22:00` | Suppress non-critical notifications after this time |
+| `quiet_hours_end` | `07:00` | Resume notifications after this time |
+
+## Architecture
+
+See [`MYLO_SPEC.md`](MYLO_SPEC.md) for the full specification and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the build plan with current status.
 
 ## License
 
