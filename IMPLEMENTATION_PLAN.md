@@ -465,10 +465,11 @@ Each milestone is independently runnable against a real HA instance. "Done" mean
 - M10 Signal theme (tactical UI refresh — moved up the queue per user ask)
 - M9 + M11 Nightly scheduler, background monitor, anomaly detection (built together)
 
+- M12 Activity tab + onboarding
+
 **Remaining:**
 - **M4c follow-ups:** conversation summarization (§6.7) — trim-to-last-N still in use
 - **Chain-call checkpoint:** pause after N tool calls vs silent max_iterations (was M10 in original plan, deferred)
-- **M12** Activity tab + onboarding (cold-start flow §6.9, quick-wins).
 - **M13** HACS / add-on release: multi-arch build workflow, `repository.yaml`, docs on GitHub Pages.
 
 Test count: 326 passing. Live-tested against a 2200-entity HA instance.

@@ -5,6 +5,7 @@ import {
   streamChat,
   type ServerEvent,
 } from "./api";
+import { ActivityTab } from "./components/ActivityTab";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { Composer } from "./components/Composer";
 import { Header, type Tab } from "./components/Header";
@@ -238,7 +239,7 @@ export default function App() {
       ) : tab === "memory" ? (
         <MemoryTab />
       ) : (
-        <ActivityPlaceholder />
+        <ActivityTab />
       )}
     </div>
   );
@@ -482,45 +483,77 @@ function extractSummary(data: unknown): string | undefined {
 
 function EmptyState() {
   return (
-    <div
-      className="flex h-full items-center justify-center text-center"
-      style={{ color: "var(--color-text-muted)" }}
-    >
-      <div>
-        <div
-          className="font-mono text-[11px] uppercase tracking-label"
-          style={{ color: "var(--color-text-dim)" }}
-        >
-          Session empty
+    <div className="flex h-full items-center justify-center px-6">
+      <div className="max-w-md space-y-5">
+        <div className="text-center">
+          <div
+            className="font-mono text-[13px] font-extrabold tracking-wordmark"
+            style={{ color: "var(--color-accent)" }}
+          >
+            MYLO
+          </div>
+          <div
+            className="mt-1 font-sans text-[13px]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            Your AI home assistant. Ask me anything about your Home Assistant setup.
+          </div>
         </div>
         <div
-          className="mt-2 font-sans text-[13px]"
-          style={{ color: "var(--color-text-muted)" }}
+          className="rounded border p-4 space-y-3"
+          style={{
+            borderColor: "var(--color-border)",
+            backgroundColor: "var(--color-surface)",
+          }}
         >
-          Try: <em>what lights are on in the basement?</em>
+          <div
+            className="font-mono text-[10px] uppercase tracking-label"
+            style={{ color: "var(--color-text-dim)" }}
+          >
+            Quick starts
+          </div>
+          <QuickStart
+            label="Explore"
+            text="What lights are on right now?"
+          />
+          <QuickStart
+            label="Organize"
+            text="Help me rename and organize my kitchen entities"
+          />
+          <QuickStart
+            label="Automate"
+            text="Create an automation that turns off lights at bedtime"
+          />
+          <QuickStart
+            label="Monitor"
+            text="Set up sensor monitoring for my home"
+          />
         </div>
       </div>
     </div>
   );
 }
 
-function ActivityPlaceholder() {
+function QuickStart({ label, text }: { label: string; text: string }) {
   return (
-    <div className="flex-1 flex items-center justify-center px-4">
-      <div className="text-center">
-        <div
-          className="font-mono text-[11px] uppercase tracking-label"
-          style={{ color: "var(--color-text-dim)" }}
-        >
-          Activity
-        </div>
-        <div
-          className="mt-2 font-sans text-[13px]"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          Audit timeline view lands with M12.
-        </div>
-      </div>
+    <div className="flex items-start gap-2.5">
+      <span
+        className="mt-0.5 shrink-0 rounded-tag border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-label"
+        style={{
+          borderColor: "var(--color-border-accent)",
+          color: "var(--color-accent)",
+          backgroundColor: "var(--color-accent-soft)",
+        }}
+      >
+        {label}
+      </span>
+      <span
+        className="font-sans text-[12.5px]"
+        style={{ color: "var(--color-text)" }}
+      >
+        {text}
+      </span>
     </div>
   );
 }
+

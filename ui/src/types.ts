@@ -137,6 +137,20 @@ export interface SyncResult {
   prune_candidates: PruneCandidate[];
 }
 
+export interface AuditEntry {
+  timestamp: string;
+  conversation_id: string;
+  tool_name: string;
+  tier: number;
+  params: Record<string, unknown>;
+  dry_run: boolean;
+  user_approved: boolean;
+  result: "success" | "failure" | "rolled_back" | "denied";
+  details: Record<string, unknown>;
+  rollback_performed?: boolean;
+  file_backup_path?: string | null;
+}
+
 export interface ScratchpadEntry {
   type: string;
   content: string;

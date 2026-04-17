@@ -167,7 +167,7 @@ export async function fetchConversation(): Promise<RawMessage[]> {
 
 // ─── Memory API ───────────────────────────────────────────────────────────
 
-import type { MemoryFull, ScratchpadEntry, SyncResult } from "./types";
+import type { AuditEntry, MemoryFull, ScratchpadEntry, SyncResult } from "./types";
 
 export async function fetchMemoryFull(): Promise<MemoryFull> {
   const response = await fetch(apiUrl("api/memory/full"), { method: "GET" });
@@ -223,6 +223,26 @@ export async function deleteMemoryItem(section: string, id: string): Promise<voi
     const text = await response.text();
     throw new Error(`memory/item DELETE ${response.status}: ${text}`);
   }
+}
+
+export async function fetchActivity(options: {
+  limit?: number;
+  tool?: string;
+  result?: string;
+} = {}): Promise<AuditEntry[]> {
+  const params = new URLSearchParams();
+  if (options.limit) params.set("limit", String(options.limit));
+  if (options.tool) params.set("tool", options.tool);
+  if (options.result) params.set("result", options.result);
+  const qs = params.toString();
+  const response = await fetch(apiUrl(`api/activity${qs ? `?${qs}` : ""}`), {
+    method: "GET",
+  });
+  if (!response.ok) {
+    throw new Error(`activity returned ${response.status}`);
+  }
+  const body = (await response.json()) as { entries: AuditEntry[] };
+  return body.entries || [];
 }
 
 export async function resolveConflict(

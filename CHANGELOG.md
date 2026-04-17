@@ -41,6 +41,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (they're already being used in conversations) without requiring
   a manual Sync click. Backed by `GET /api/memory/scratchpad`.
 
+- **Milestone 12 — Activity tab + onboarding.**
+  - `GET /api/activity` — paginated audit log reader with filters
+    by tool name, result kind (success/failure/rolled_back/denied),
+    and tier level. Reads from the existing append-only JSON Lines
+    audit log via `AuditLogger.read_recent()`.
+  - `ActivityTab` component replacing the placeholder. Timeline
+    grouped by day ("today", "yesterday", date), each entry shows
+    status dot + tool name + result/dry-run tags + timestamp + tier.
+    Click-to-expand reveals full params + details JSON. Filter
+    buttons: All / Success / Failures.
+  - Onboarding welcome card: when no conversation history exists,
+    the chat area shows a branded MYLO card with four quick-start
+    suggestions (Explore, Organize, Automate, Monitor) styled with
+    the Signal theme.
+
 - **Milestone 9 + 11 — Nightly scheduler, background monitor, anomaly
   detection.** One shared `monitor.scheduler` serves both milestones.
   - `monitor.scheduler`: APScheduler AsyncIOScheduler with two job

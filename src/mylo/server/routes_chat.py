@@ -45,10 +45,48 @@ def register_chat_routes(app: web.Application) -> None:
     app.router.add_get("/api/conversation", _handle_get_conversation)
     app.router.add_get("/api/health", _handle_health)
     app.router.add_get("/api/status", _handle_status)
+    app.router.add_get("/api/activity", _handle_activity)
 
 
 async def _handle_health(_request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
+
+
+async def _handle_activity(request: web.Request) -> web.Response:
+    """Paginated audit log for the Activity tab.
+
+    Query params:
+    - ``limit`` (int, default 100): max entries to return.
+    - ``tool`` (str): filter to a specific tool name.
+    - ``result`` (str): filter to a result kind (success/failure/rolled_back/denied).
+    - ``tier`` (int): filter to a tier level.
+    """
+    from mylo.server.app import AppKeys
+
+    audit = AppKeys.TOOL_CONTEXT in request.app and request.app[AppKeys.TOOL_CONTEXT].audit
+
+    if not audit:
+        return web.json_response({"entries": [], "total": 0})
+
+    limit = int(request.query.get("limit", "200"))
+    tool_filter = request.query.get("tool")
+    result_filter = request.query.get("result")
+    tier_filter = request.query.get("tier")
+
+    entries = request.app[AppKeys.TOOL_CONTEXT].audit.read_recent(limit=limit)
+
+    if tool_filter:
+        entries = [e for e in entries if e.get("tool_name") == tool_filter]
+    if result_filter:
+        entries = [e for e in entries if e.get("result") == result_filter]
+    if tier_filter:
+        try:
+            tier_val = int(tier_filter)
+            entries = [e for e in entries if e.get("tier") == tier_val]
+        except ValueError:
+            pass
+
+    return web.json_response({"entries": entries, "total": len(entries)})
 
 
 async def _handle_status(request: web.Request) -> web.Response:
