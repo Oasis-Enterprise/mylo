@@ -144,7 +144,17 @@ export default function App() {
       try {
         const messages = await fetchConversation();
         const hydrated = hydrateFromMessages(messages);
-        if (hydrated.length > 0) setItems(hydrated);
+        if (hydrated.length > 0) {
+          setItems(hydrated);
+          // Restore approval state: if the last assistant turn has an
+          // unresolved confirmation_required or preview tool result,
+          // show the ApprovalCard again. This survives page refreshes
+          // and tab switches so the user doesn't lose the "Apply"
+          // button mid-flow.
+          if (detectPendingApproval(hydrated)) {
+            setPendingApproval(true);
+          }
+        }
       } catch {
         // Non-fatal — user can still start a new conversation.
       }
@@ -232,6 +242,35 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function detectPendingApproval(items: ChatItem[]): boolean {
+  // Walk backwards from the last assistant turn. If any tool fragment
+  // has confirmation_required or preview:true, the user hasn't applied
+  // yet (otherwise there'd be a follow-up user message with "Yes, apply").
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    // If the most recent message is a user message, the user already
+    // responded (either approved or moved on) — no pending approval.
+    if (item.role === "user") return false;
+    if (item.role !== "assistant") continue;
+    for (const frag of item.fragments) {
+      if (frag.kind !== "tool") continue;
+      const call = frag.call;
+      if (call.errorCode === "confirmation_required") return true;
+      if (
+        call.state === "ok" &&
+        typeof call.data === "object" &&
+        call.data !== null &&
+        (call.data as Record<string, unknown>).preview === true
+      ) {
+        return true;
+      }
+    }
+    // Only check the most recent assistant turn.
+    return false;
+  }
+  return false;
 }
 
 interface ApprovalContext {
