@@ -35,6 +35,7 @@ export default function App() {
   const endRef = useRef<HTMLDivElement>(null);
   const recordTurn = useSession((s) => s.recordTurn);
   const resetSession = useSession((s) => s.reset);
+  const sessionCost = useSession((s) => s.costUsd);
 
   useEffect(() => {
     if (tab === "chat") endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -94,7 +95,10 @@ export default function App() {
       let turnSawPreview = false;
 
       try {
-        for await (const event of streamChat(message, { approved: approvedForThisTurn })) {
+        for await (const event of streamChat(message, {
+          approved: approvedForThisTurn,
+          sessionCostUsd: sessionCost,
+        })) {
           if (_needsApproval(event)) {
             turnSawPreview = true;
             setPendingApproval(true);

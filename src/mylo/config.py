@@ -39,6 +39,8 @@ class AppConfig:
     max_daily_notifications: int
     quiet_hours_start: str
     quiet_hours_end: str
+    session_budget_usd: float
+    monthly_budget_usd: float
 
     # Runtime-only (not in user options)
     supervisor_token: str | None
@@ -95,6 +97,8 @@ def load_config() -> AppConfig:
         max_daily_notifications=int(_get(options, "max_daily_notifications", 3)),
         quiet_hours_start=str(_get(options, "quiet_hours_start", "22:00")),
         quiet_hours_end=str(_get(options, "quiet_hours_end", "07:00")),
+        session_budget_usd=float(_get(options, "session_budget_usd", 0.50)),
+        monthly_budget_usd=float(_get(options, "monthly_budget_usd", 15.00)),
         supervisor_token=os.environ.get("SUPERVISOR_TOKEN"),
         ha_config_dir=ha_config_dir,
         mylo_data_dir=mylo_data_dir,

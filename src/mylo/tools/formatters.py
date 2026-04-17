@@ -83,6 +83,32 @@ def _key_attributes(domain: str, attributes: dict[str, Any]) -> dict[str, Any]:
 # ─── Entity shaping ──────────────────────────────────────────────────────────
 
 
+def shape_entity_minimal(
+    entry: EntityEntry,
+    state: dict[str, Any] | None,
+    registries: Registries,
+) -> dict[str, Any]:
+    """~30 tokens per entity. Just enough to answer "what's on" questions."""
+    device: DeviceEntry | None = None
+    if entry.device_id:
+        device = registries.devices.get(entry.device_id)
+    area: AreaEntry | None = None
+    area_id = entry.area_id or (device.area_id if device else None)
+    if area_id:
+        area = registries.areas.get(area_id)
+
+    state_attrs = (state or {}).get("attributes") or {}
+    friendly = entry.name or state_attrs.get("friendly_name") or entry.original_name or entry.entity_id
+
+    return {
+        "entity_id": entry.entity_id,
+        "name": friendly,
+        "domain": entry.domain,
+        "state": (state or {}).get("state"),
+        "area": area.name if area else None,
+    }
+
+
 def shape_entity(
     entry: EntityEntry,
     state: dict[str, Any] | None,

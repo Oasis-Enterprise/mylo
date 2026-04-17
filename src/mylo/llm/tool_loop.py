@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mylo.conversation.manager import ConversationManager
+from mylo.conversation.summarize import compress_old_tool_results
 from mylo.llm.provider import Provider, ProviderMessage
 from mylo.logging_setup import get_logger
 from mylo.tools.context import ToolContext
@@ -147,5 +148,11 @@ async def run_turn(
         await conversation.append("user", result_blocks, prompt_version=prompt_version)
     else:
         log.warning("llm.tool_loop.max_iterations_hit", iterations=max_iterations)
+
+    # Compress old tool results in the in-memory history so subsequent
+    # turns don't re-pay for large payloads that the model already
+    # processed. Only modifies the in-memory list — the raw results
+    # stay in SQLite for debugging.
+    conversation.history = compress_old_tool_results(conversation.history)
 
     yield DoneEvent(stop_reason=stop_reason, usage=usage_total)

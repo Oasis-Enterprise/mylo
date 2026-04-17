@@ -176,6 +176,9 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     # seeing a dry-run preview. That flag travels on the next request,
     # authorizing tier-2/3 writes for this turn only. Default false.
     approved = bool(body.get("approved", False))
+    # The UI passes the running session cost so the assembler can inject
+    # a budget warning when we're approaching the configured cap.
+    session_cost = float(body.get("session_cost_usd", 0.0))
 
     provider = request.app.get(AppKeys.PROVIDER)
     if provider is None:
@@ -214,6 +217,8 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         conversation_text=message,
         mylo_data_dir=config.mylo_data_dir,
         timezone=request.app.get(AppKeys.HA_TIMEZONE),
+        session_cost_usd=session_cost,
+        session_budget_usd=config.session_budget_usd,
     )
     system_text = assembled.system
 

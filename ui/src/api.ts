@@ -24,6 +24,7 @@ export type ServerEvent =
 
 export interface SendOptions {
   approved?: boolean;
+  sessionCostUsd?: number;
   signal?: AbortSignal;
 }
 
@@ -41,7 +42,11 @@ export async function* streamChat(
   const response = await fetch(apiUrl("api/chat"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, approved: Boolean(options.approved) }),
+    body: JSON.stringify({
+      message,
+      approved: Boolean(options.approved),
+      session_cost_usd: options.sessionCostUsd ?? 0,
+    }),
     signal: options.signal,
   });
 

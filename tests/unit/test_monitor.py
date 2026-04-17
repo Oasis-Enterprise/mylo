@@ -32,6 +32,8 @@ def _make_config(**overrides: Any) -> AppConfig:
         max_daily_notifications=3,
         quiet_hours_start="22:00",
         quiet_hours_end="07:00",
+        session_budget_usd=0.50,
+        monthly_budget_usd=15.00,
         supervisor_token=None,
         ha_config_dir="/tmp",
         mylo_data_dir="/tmp/.mylo",

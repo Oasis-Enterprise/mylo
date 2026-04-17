@@ -16,6 +16,9 @@ independently.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import time
 from typing import Any
 
 from pydantic import ValidationError
@@ -24,10 +27,46 @@ from mylo.logging_setup import get_logger
 from mylo.safety.audit import make_entry
 from mylo.safety.permissions import PermissionDecision
 from mylo.tools import registry as tool_registry
-from mylo.tools.base import ToolResult
+from mylo.tools.base import Tier, ToolResult
 from mylo.tools.context import ToolContext
 
 log = get_logger(__name__)
+
+# ─── Read-only tool result cache ────────────────────────────────────────────
+# Caches tier-1 (READ) tool results for 120s. Cuts redundant queries
+# when the model asks "what lights are on" twice in a conversation or
+# fans out with multiple tools that internally call query_entities.
+
+_CACHE_TTL = 120.0
+_result_cache: dict[str, tuple[float, ToolResult]] = {}
+
+
+def _cache_key(tool_name: str, raw_params: dict[str, Any]) -> str:
+    canonical = json.dumps(raw_params or {}, sort_keys=True, default=str)
+    h = hashlib.md5(canonical.encode(), usedforsecurity=False).hexdigest()[:12]
+    return f"{tool_name}:{h}"
+
+
+def _cache_get(key: str) -> ToolResult | None:
+    entry = _result_cache.get(key)
+    if entry is None:
+        return None
+    ts, result = entry
+    if time.monotonic() - ts > _CACHE_TTL:
+        del _result_cache[key]
+        return None
+    log.debug("tools.cache_hit", key=key)
+    return result
+
+
+def _cache_put(key: str, result: ToolResult) -> None:
+    _result_cache[key] = (time.monotonic(), result)
+    # Evict stale entries periodically (keep cache bounded).
+    if len(_result_cache) > 100:
+        now = time.monotonic()
+        stale = [k for k, (ts, _) in _result_cache.items() if now - ts > _CACHE_TTL]
+        for k in stale:
+            del _result_cache[k]
 
 
 async def execute(
@@ -84,6 +123,15 @@ async def execute(
             decision.reason_message,
         )
 
+    # Cache check for read-only tools — same params within 120s reuse
+    # the prior result. Write/action tools are never cached.
+    cache_key: str | None = None
+    if tool.tier == Tier.READ:
+        cache_key = _cache_key(tool.name, raw_params)
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
     try:
         result = await tool.handler(params, ctx)
     except Exception as exc:  # surface as structured result
@@ -110,6 +158,11 @@ async def execute(
         result="success" if result.status.value == "ok" else "failure",
         details={"error_code": result.error_code} if result.error_code else {},
     )
+
+    # Store successful read results in cache.
+    if cache_key is not None and result.status.value == "ok":
+        _cache_put(cache_key, result)
+
     return result
 
 

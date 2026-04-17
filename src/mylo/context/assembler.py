@@ -57,6 +57,8 @@ def assemble_system_prompt(
     mylo_data_dir: Path,
     timezone: str | None = None,
     base_prompt: LoadedPrompt | None = None,
+    session_cost_usd: float = 0.0,
+    session_budget_usd: float = 0.50,
 ) -> AssembledPrompt:
     """Build the full system prompt for one turn.
 
@@ -107,6 +109,19 @@ def assemble_system_prompt(
     hints = _cold_start_hints(memory)
     if hints:
         parts.append("SETUP HINTS (mention naturally if relevant, don't force):\n" + hints)
+
+    # Budget warning — when session cost approaches the configured cap,
+    # tell the model so it can mention it naturally.
+    if session_budget_usd > 0 and session_cost_usd > 0:
+        ratio = session_cost_usd / session_budget_usd
+        if ratio >= 0.80:
+            parts.append(
+                f"COST NOTE: This session has used ${session_cost_usd:.2f} of "
+                f"the ${session_budget_usd:.2f} budget ({ratio:.0%}). "
+                "Mention this naturally if the user asks another complex "
+                "question. Prefer narrow queries and the topology summary "
+                "over broad entity scans to conserve tokens."
+            )
 
     system = "\n\n---\n\n".join(parts)
 

@@ -38,6 +38,8 @@ options:
   max_daily_notifications: 3
   quiet_hours_start: "22:00"
   quiet_hours_end: "07:00"
+  session_budget_usd: 0.50
+  monthly_budget_usd: 15.00
   log_level: INFO
 
 schema:
@@ -51,4 +53,6 @@ schema:
   max_daily_notifications: int(0,20)
   quiet_hours_start: match(^([01]\d|2[0-3]):[0-5]\d$)
   quiet_hours_end: match(^([01]\d|2[0-3]):[0-5]\d$)
+  session_budget_usd: "float(0,100)?"
+  monthly_budget_usd: "float(0,1000)?"
   log_level: list(DEBUG|INFO|WARNING|ERROR)

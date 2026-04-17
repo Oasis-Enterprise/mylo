@@ -8,15 +8,17 @@ for everything else. See spec §4.3 and §4.10.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.ha.registries import EntityEntry
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
-from mylo.tools.formatters import shape_entity, summarize_entities
+from mylo.tools.formatters import shape_entity, shape_entity_minimal, summarize_entities
 from mylo.tools.registry import register
+
+Detail = Literal["minimal", "standard", "full"]
 
 
 class Filter(BaseModel):
@@ -53,32 +55,31 @@ class Filter(BaseModel):
 class QueryEntitiesParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     filter: Filter = Field(default_factory=Filter)
-    include_attributes: bool = Field(
-        default=False,
+    detail: Detail = Field(
+        default="minimal",
         description=(
-            "Include domain-relevant attributes on each entity (brightness as "
-            "percent, climate current temp, etc)."
+            "Response depth. 'minimal': entity_id, friendly_name, state, area "
+            "(~30 tokens each — use for broad queries like 'what lights are on'). "
+            "'standard': + key attributes (brightness, temperature, etc). "
+            "'full': + all attributes, device info, integration (~150 tokens each — "
+            "only for targeted queries on a few entities)."
         ),
     )
     include_disabled: bool = Field(
         default=False,
-        description=(
-            "Include entities marked disabled by HA or by the integration. "
-            "These are typically diagnostic entities HA hides by default; "
-            "excluding them keeps results clean."
-        ),
+        description="Include entities disabled by HA or integration.",
     )
     include_hidden: bool = Field(
         default=False,
-        description="Include entities the user has marked hidden.",
+        description="Include user-hidden entities.",
     )
     limit: int = Field(
-        default=200,
+        default=50,
         ge=1,
         le=2000,
         description=(
-            "Maximum number of entities to return. Raise deliberately; default "
-            "handles typical homes."
+            "Max entities to return. Default 50 — enough for most queries. "
+            "Raise only if you specifically need more."
         ),
     )
 
@@ -179,15 +180,21 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
     truncated = len(matched) > params.limit
     entries = matched[: params.limit]
 
-    shaped = [
-        shape_entity(
-            e,
-            states.get(e.entity_id),
-            ctx.registries,
-            include_attributes=params.include_attributes,
-        )
-        for e in entries
-    ]
+    if params.detail == "minimal":
+        shaped = [
+            shape_entity_minimal(e, states.get(e.entity_id), ctx.registries)
+            for e in entries
+        ]
+    else:
+        shaped = [
+            shape_entity(
+                e,
+                states.get(e.entity_id),
+                ctx.registries,
+                include_attributes=params.detail == "full",
+            )
+            for e in entries
+        ]
 
     envelope = summarize_entities(shaped, area_name=area_name)
     envelope["total_before_limit"] = len(matched)
@@ -201,10 +208,14 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
 TOOL = ToolDefinition(
     name="query_entities",
     description=(
-        "Search and retrieve entity states, attributes, and metadata. "
-        "Supports filtering by area, domain, device_class, integration, or a "
-        "regex pattern on entity_id and friendly_name. Returns a compact "
-        "summary plus the matching entities."
+        "Search entities. ALWAYS use the narrowest filter possible — prefer "
+        "area + domain over broad scans. For 'what lights are on' use "
+        "domain=light + state=on, not a full entity dump. For area-specific "
+        "questions, always include the area filter. Default detail=minimal "
+        "returns entity_id + name + state + area (~30 tokens each). Only "
+        "use detail=standard or detail=full when you need attributes for "
+        "a small number of entities. Check the topology summary first — "
+        "it may already answer the question without a tool call."
     ),
     params_model=QueryEntitiesParams,
     tier=Tier.READ,

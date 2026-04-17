@@ -133,10 +133,10 @@ async def test_filter_by_state(_ctx: ToolContext) -> None:
     assert result.data["entities"][0]["entity_id"] == "light.kitchen_overhead"
 
 
-async def test_include_attributes_adds_key_attrs(_ctx: ToolContext) -> None:
+async def test_detail_full_adds_key_attrs(_ctx: ToolContext) -> None:
     result = await execute(
         "query_entities",
-        {"filter": {"domain": "light", "state": "on"}, "include_attributes": True},
+        {"filter": {"domain": "light", "state": "on"}, "detail": "full"},
         _ctx,
     )
     e = result.data["entities"][0]
@@ -218,7 +218,7 @@ async def test_friendly_name_prefers_state_attribute_over_registry_fallback(
 
     result = await execute(
         "query_entities",
-        {"filter": {"pattern": "hue_white_lamp_1"}},
+        {"filter": {"pattern": "hue_white_lamp_1"}, "detail": "standard"},
         _ctx,
     )
     e = result.data["entities"][0]
