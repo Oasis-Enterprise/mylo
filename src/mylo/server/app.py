@@ -15,6 +15,7 @@ its own auth — out of scope for v1.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from aiohttp import web
 
@@ -50,6 +51,32 @@ class AppKeys:
     MEMORY = web.AppKey("memory", MemoryStore)
     HA_TIMEZONE = web.AppKey("ha_timezone", str)
     SCHEDULER = web.AppKey("scheduler", object)
+
+
+def _create_provider(config: AppConfig) -> Any:
+    """Instantiate the LLM provider based on config.llm_provider."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or config.api_key
+
+    if config.llm_provider == "anthropic":
+        if not api_key:
+            return None
+        return AnthropicProvider(api_key=api_key)
+
+    if config.llm_provider == "openai":
+        openai_key = os.environ.get("OPENAI_API_KEY") or api_key
+        if not openai_key:
+            return None
+        from mylo.llm.openai_provider import OpenAIProvider
+
+        return OpenAIProvider(api_key=openai_key)
+
+    if config.llm_provider == "ollama":
+        from mylo.llm.ollama_provider import OllamaProvider
+
+        return OllamaProvider(model=config.model)
+
+    log.warning("server.unknown_llm_provider", provider=config.llm_provider)
+    return None
 
 
 async def _startup(app: web.Application) -> None:
@@ -94,18 +121,21 @@ async def _startup(app: web.Application) -> None:
     except Exception as exc:
         log.warning("server.timezone_fetch_failed", error=str(exc))
 
-    # LLM provider.
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or config.api_key
-    if not api_key:
-        log.warning("server.no_api_key — chat will be disabled until key is set")
-        # Still start server — UI can show a banner. Provider is optional.
-    provider = AnthropicProvider(api_key=api_key) if api_key else None
+    # LLM provider — selected by config.llm_provider.
+    provider = _create_provider(config)
     if provider is not None:
         app[AppKeys.PROVIDER] = provider
+    else:
+        log.warning("server.no_provider — chat will be disabled")
 
     # Tool context (shared across requests; per-request shims can wrap later).
     tool_registry.load_all()
-    app[AppKeys.TOOLS_JSON] = [t.to_anthropic() for t in tool_registry.all_tools()]
+    # Tool schemas differ by provider: Anthropic uses input_schema at
+    # the top level; OpenAI/Ollama wrap in {type: function, function: {...}}.
+    if config.llm_provider in ("openai", "ollama"):
+        app[AppKeys.TOOLS_JSON] = [t.to_openai() for t in tool_registry.all_tools()]
+    else:
+        app[AppKeys.TOOLS_JSON] = [t.to_anthropic() for t in tool_registry.all_tools()]
     app[AppKeys.TOOL_CONTEXT] = ToolContext(
         ws_client=client,
         registries=registries,
@@ -123,7 +153,8 @@ async def _startup(app: web.Application) -> None:
         "server.started",
         entities=len(registries.entities),
         devices=len(registries.devices),
-        api_key=bool(api_key),
+        llm_provider=config.llm_provider,
+        has_provider=AppKeys.PROVIDER in app,
     )
 
 
