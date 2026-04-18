@@ -22,32 +22,61 @@ from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.registry import register
 
-Action = Literal["create", "update", "delete"]
+Action = Literal["create", "update", "delete", "add_cards"]
 
 
 class ModifyDashboardParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Action = Field(
-        description="'create' a new view, 'update' an existing view/card, 'delete' a view."
+        description=(
+            "'create' a new view (pass title + path + cards in config). "
+            "'add_cards' appends cards to an existing view (pass view_path + cards). "
+            "'update' replaces the full dashboard config. "
+            "'delete' removes a view by view_path."
+        ),
     )
     dashboard_id: str | None = Field(
         default=None,
-        description=(
-            "Dashboard url_path. null = default Overview dashboard. Required for all operations."
-        ),
+        description="Dashboard url_path. null = default Overview dashboard.",
     )
     config: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "For 'create': a full view config {title, path, icon?, cards}. "
-            "For 'update': the complete replacement dashboard config "
-            "(all views). Use query_dashboard to read current, modify, pass "
-            "back. For 'delete': not needed (use view_path instead)."
+            "For 'create': a view config {title, path, icon?, cards: [...]}. "
+            "For 'update': the complete replacement dashboard config. "
+            "For 'add_cards': not needed (use cards instead). "
+            "For 'delete': not needed."
+        ),
+    )
+    cards: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "For 'add_cards': list of card configs to append to an existing "
+            "view. For 'create': alternative to putting cards inside config — "
+            "if both config.cards and this field are present, this field wins. "
+            "Build dashboards incrementally: create the view first with a few "
+            "cards, then add_cards in follow-up calls."
         ),
     )
     view_path: str | None = Field(
         default=None,
-        description="For 'delete': the view path to remove from the dashboard.",
+        description="For 'delete' and 'add_cards': the view path to target.",
+    )
+    title: str | None = Field(
+        default=None,
+        description="For 'create': view title. Shorthand — avoids nesting in config.",
+    )
+    path: str | None = Field(
+        default=None,
+        description="For 'create': view URL path slug. Shorthand — avoids nesting in config.",
+    )
+    icon: str | None = Field(
+        default=None,
+        description="For 'create': MDI icon. Shorthand — avoids nesting in config.",
+    )
+    theme: str | None = Field(
+        default=None,
+        description="For 'create': HA theme name to apply to the view.",
     )
     dry_run: bool = Field(default=True)
 
@@ -71,6 +100,8 @@ async def _save_dashboard(
 async def handler(params: ModifyDashboardParams, ctx: ToolContext) -> ToolResult:
     if params.action == "create":
         return await _create_view(ctx, params)
+    if params.action == "add_cards":
+        return await _add_cards(ctx, params)
     if params.action == "update":
         return await _update_dashboard(ctx, params)
     if params.action == "delete":
@@ -78,18 +109,54 @@ async def handler(params: ModifyDashboardParams, ctx: ToolContext) -> ToolResult
     return ToolResult.error("invalid_action", f"unknown action {params.action!r}")
 
 
+def _assemble_view(params: ModifyDashboardParams) -> dict[str, Any] | None:
+    """Build a view dict from either config or the shorthand fields.
+
+    The shorthand (title/path/icon/theme/cards as top-level params)
+    is much easier for the model to produce than nesting everything
+    inside a config dict — especially for large card lists that push
+    the model's output limit.
+    """
+    if params.config:
+        view = dict(params.config)
+    else:
+        if not params.title and not params.path:
+            return None
+        view = {}
+
+    if params.title:
+        view["title"] = params.title
+    if params.path:
+        view["path"] = params.path
+    if params.icon:
+        view["icon"] = params.icon
+    if params.theme:
+        view["theme"] = params.theme
+
+    # cards field wins over config.cards so the model can build
+    # incrementally without re-passing the view wrapper each time.
+    if params.cards is not None:
+        view["cards"] = params.cards
+    if "cards" not in view:
+        view["cards"] = []
+
+    return view
+
+
 async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolResult:
-    if not params.config:
-        return ToolResult.error("missing_param", "create requires 'config' (a view definition)")
+    new_view = _assemble_view(params)
+    if new_view is None:
+        return ToolResult.error(
+            "missing_param",
+            "create requires either 'config' or 'title'+'path' shorthand",
+        )
 
     current = await _fetch_dashboard(ctx, params.dashboard_id)
     if current is None:
         current = {"views": []}
 
-    new_view = params.config
     views = list(current.get("views") or [])
 
-    # Check for duplicate path.
     new_path = new_view.get("path")
     if new_path and any(v.get("path") == new_path for v in views if isinstance(v, dict)):
         return ToolResult.error(
@@ -107,6 +174,66 @@ async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
         "view_path": new_path,
         "view_title": new_view.get("title"),
         "card_count": len(new_view.get("cards") or []),
+        "diff": diff.to_dict(),
+    }
+
+    if params.dry_run:
+        preview["preview"] = True
+        return ToolResult.ok(preview)
+
+    try:
+        await _save_dashboard(ctx, params.dashboard_id, new_config)
+    except CommandError as exc:
+        return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
+
+    return ToolResult.ok({**preview, "preview": False})
+
+
+async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolResult:
+    """Append cards to an existing view — the incremental builder.
+
+    The model creates a view with a few cards first, then calls
+    add_cards in follow-up tool calls to fill in sections. This
+    keeps each tool_use block small enough that the model doesn't
+    hit its output limit.
+    """
+    if not params.view_path:
+        return ToolResult.error("missing_param", "add_cards requires 'view_path'")
+    if not params.cards:
+        return ToolResult.error("missing_param", "add_cards requires 'cards' (list of card configs)")
+
+    current = await _fetch_dashboard(ctx, params.dashboard_id)
+    if current is None:
+        return ToolResult.error("dashboard_not_found", "dashboard not found")
+
+    views = list(current.get("views") or [])
+    target_idx: int | None = None
+    for i, v in enumerate(views):
+        if isinstance(v, dict) and v.get("path") == params.view_path:
+            target_idx = i
+            break
+
+    if target_idx is None:
+        return ToolResult.error(
+            "view_not_found",
+            f"no view with path {params.view_path!r}",
+            data={"available": [v.get("path") for v in views if isinstance(v, dict)]},
+        )
+
+    target_view = dict(views[target_idx])
+    existing_cards = list(target_view.get("cards") or [])
+    existing_cards.extend(params.cards)
+    target_view["cards"] = existing_cards
+    views[target_idx] = target_view
+
+    new_config = {**current, "views": views}
+    diff = diff_structs(current, new_config)
+    preview: dict[str, Any] = {
+        "dashboard_id": params.dashboard_id,
+        "action": "add_cards",
+        "view_path": params.view_path,
+        "cards_added": len(params.cards),
+        "total_cards": len(existing_cards),
         "diff": diff.to_dict(),
     }
 
@@ -196,10 +323,13 @@ TOOL = ToolDefinition(
     name="modify_dashboard",
     description=(
         "Create, update, or delete Lovelace dashboard views and cards. "
-        "Storage-mode dashboards only (edited via HA's websocket API). "
-        "For YAML dashboards, use write_config_file / patch_config_file. "
-        "ALWAYS call with dry_run=true first, then apply after user "
-        "approval. Changes are immediate — no reload needed."
+        "Storage-mode dashboards only. For large views, build "
+        "incrementally: 1) 'create' the view with title/path/icon and "
+        "the first batch of cards, 2) 'add_cards' to append more cards "
+        "in follow-up calls. Use the shorthand fields (title, path, "
+        "icon, cards) instead of nesting everything in config — it's "
+        "easier and avoids output-limit issues. ALWAYS dry_run=true "
+        "first. Changes are immediate — no reload needed."
     ),
     params_model=ModifyDashboardParams,
     tier=Tier.MODIFY,
