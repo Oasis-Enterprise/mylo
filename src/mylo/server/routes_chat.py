@@ -42,7 +42,9 @@ log = get_logger(__name__)
 def register_chat_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", _handle_chat)
     app.router.add_post("/api/conversation/clear", _handle_clear)
+    app.router.add_post("/api/conversation/new", _handle_new_conversation)
     app.router.add_get("/api/conversation", _handle_get_conversation)
+    app.router.add_get("/api/catchup", _handle_catchup)
     app.router.add_get("/api/health", _handle_health)
     app.router.add_get("/api/status", _handle_status)
     app.router.add_get("/api/activity", _handle_activity)
@@ -50,6 +52,91 @@ def register_chat_routes(app: web.Application) -> None:
 
 async def _handle_health(_request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
+
+
+async def _handle_catchup(request: web.Request) -> web.Response:
+    """Lightweight status summary for the catch-up banner.
+
+    Returns what happened since the user's last interaction: memory
+    sync results, background monitor findings, automation errors.
+    Built from data we already have — no LLM call, no token cost.
+
+    The UI shows this as a divider banner when the gap since the last
+    message exceeds a threshold (default 2h).
+    """
+    from datetime import UTC, datetime
+
+    from mylo.server.app import AppKeys
+
+    conv = request.app[AppKeys.CONVERSATION]
+
+    # Find the timestamp of the last message.
+    last_ts: str | None = None
+    if conv.history:
+        for msg in reversed(conv.history):
+            ts = msg.get("created_at")
+            if isinstance(ts, str):
+                last_ts = ts
+                break
+
+    if last_ts is None:
+        # No conversation history — no gap to report.
+        return web.json_response({"show_banner": False})
+
+    try:
+        last_dt = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
+    except ValueError:
+        return web.json_response({"show_banner": False})
+
+    now = datetime.now(UTC)
+    gap_seconds = (now - last_dt).total_seconds()
+    gap_hours = gap_seconds / 3600
+
+    # Only show banner for gaps > 2 hours.
+    if gap_hours < 2:
+        return web.json_response({"show_banner": False, "gap_hours": round(gap_hours, 1)})
+
+    # Build summary from existing data sources.
+    lines: list[str] = []
+
+    # Memory changes since last interaction.
+    memory_store = request.app.get(AppKeys.MEMORY)
+    if memory_store is not None:
+        mem = memory_store.current()
+        if mem.last_sync and mem.last_sync > last_ts:
+            lines.append("Memory sync ran — context updated")
+
+    # Recent audit activity since last message.
+    if AppKeys.TOOL_CONTEXT in request.app:
+        audit = request.app[AppKeys.TOOL_CONTEXT].audit
+        recent = audit.read_recent(limit=50)
+        since_last = [
+            e for e in recent
+            if e.get("timestamp", "") > last_ts
+        ]
+        if since_last:
+            successes = sum(1 for e in since_last if e.get("result") == "success")
+            failures = sum(1 for e in since_last if e.get("result") == "failure")
+            if successes:
+                lines.append(f"{successes} background action(s) completed")
+            if failures:
+                lines.append(f"{failures} action(s) failed — check Activity tab")
+
+    if not lines:
+        lines.append("No new activity while you were away")
+
+    # Format the gap duration.
+    if gap_hours < 24:
+        gap_label = f"{int(gap_hours)} hours"
+    else:
+        days = int(gap_hours / 24)
+        gap_label = f"{days} day{'s' if days != 1 else ''}"
+
+    return web.json_response({
+        "show_banner": True,
+        "gap_label": f"{gap_label} since last message",
+        "lines": lines,
+    })
 
 
 async def _handle_activity(request: web.Request) -> web.Response:
@@ -141,6 +228,31 @@ async def _handle_clear(request: web.Request) -> web.Response:
     conv = request.app[AppKeys.CONVERSATION]
     await conv.clear()
     return web.json_response({"ok": True})
+
+
+async def _handle_new_conversation(request: web.Request) -> web.Response:
+    """Archive the current conversation and start fresh.
+
+    The old messages stay in SQLite under the old conversation_id.
+    A new conversation_id is generated so the LLM context starts
+    clean. The UI should clear its local items after this returns.
+    """
+    from datetime import UTC, datetime
+
+    from mylo.server.app import AppKeys
+
+    conv = request.app[AppKeys.CONVERSATION]
+    base_ctx = request.app[AppKeys.TOOL_CONTEXT]
+
+    old_id = conv.conversation_id
+    new_id = f"conv_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+
+    conv.conversation_id = new_id
+    conv.history = []
+    base_ctx.conversation_id = new_id
+
+    log.info("conversation.new", old_id=old_id, new_id=new_id)
+    return web.json_response({"ok": True, "old_id": old_id, "new_id": new_id})
 
 
 async def _handle_get_conversation(request: web.Request) -> web.Response:

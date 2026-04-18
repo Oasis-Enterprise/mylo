@@ -10,6 +10,7 @@ export type Tab = "chat" | "memory" | "activity";
 interface Props {
   tab: Tab;
   onChange: (tab: Tab) => void;
+  onNewConversation?: () => void;
   version?: string;
 }
 
@@ -18,7 +19,7 @@ interface Props {
 // memory sync age, and session-level token + turn counters. The
 // status endpoint is polled every 30s and right after mount so the
 // memory sync string stays fresh without a WebSocket.
-export function Header({ tab, onChange, version = "v0.0" }: Props) {
+export function Header({ tab, onChange, onNewConversation, version = "v0.0" }: Props) {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const turns = useSession((s) => s.turns);
   const inputTokens = useSession((s) => s.inputTokens);
@@ -67,6 +68,23 @@ export function Header({ tab, onChange, version = "v0.0" }: Props) {
           <TabButton active={tab === "activity"} onClick={() => onChange("activity")}>
             Activity
           </TabButton>
+          {onNewConversation ? (
+            <>
+              <span
+                className="mx-1 h-3 w-px"
+                style={{ backgroundColor: "var(--color-border)" }}
+              />
+              <button
+                type="button"
+                onClick={onNewConversation}
+                className="font-mono text-[10px] tracking-label px-2 py-1"
+                style={{ color: "var(--color-text-dim)" }}
+                title="Archive this conversation and start fresh"
+              >
+                + New
+              </button>
+            </>
+          ) : null}
         </nav>
       </div>
       <div className="px-4 pb-2">

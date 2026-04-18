@@ -161,6 +161,22 @@ export async function fetchStatus(): Promise<ServerStatus> {
   return (await response.json()) as ServerStatus;
 }
 
+export interface CatchupData {
+  show_banner: boolean;
+  gap_label?: string;
+  lines?: string[];
+}
+
+export async function fetchCatchup(): Promise<CatchupData> {
+  const response = await fetch(apiUrl("api/catchup"), { method: "GET" });
+  if (!response.ok) return { show_banner: false };
+  return (await response.json()) as CatchupData;
+}
+
+export async function newConversation(): Promise<void> {
+  await fetch(apiUrl("api/conversation/new"), { method: "POST" });
+}
+
 export async function fetchConversation(): Promise<RawMessage[]> {
   const response = await fetch(apiUrl("api/conversation"), { method: "GET" });
   if (!response.ok) {

@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  clearConversation,
+  fetchCatchup,
   fetchConversation,
+  newConversation,
   streamChat,
+  type CatchupData,
   type ServerEvent,
 } from "./api";
 import { ActivityTab } from "./components/ActivityTab";
 import { ApprovalCard } from "./components/ApprovalCard";
+import { CatchupBanner } from "./components/CatchupBanner";
 import { Composer } from "./components/Composer";
 import { Header, type Tab } from "./components/Header";
 import { MemoryTab } from "./components/MemoryTab";
@@ -28,10 +31,8 @@ export default function App() {
   // render the ApprovalCard inline at the tail of the conversation
   // and enable Apply. Approval is consumed per-turn.
   const [pendingApproval, setPendingApproval] = useState(false);
-  // If the user clicks APPLY while the previous SSE stream is still
-  // closing out its final text, queue the submit and fire it once
-  // sending clears. Prevents overlapping POSTs to /api/chat.
   const [queuedApply, setQueuedApply] = useState<string | null>(null);
+  const [catchup, setCatchup] = useState<CatchupData | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const recordTurn = useSession((s) => s.recordTurn);
   const resetSession = useSession((s) => s.reset);
@@ -41,19 +42,20 @@ export default function App() {
     if (tab === "chat") endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [items, tab]);
 
-  const handleClear = useCallback(async () => {
-    await clearConversation();
+  const handleNewConversation = useCallback(async () => {
+    await newConversation();
     setItems([]);
     setError(null);
     setPendingApproval(false);
+    setCatchup(null);
     resetSession();
   }, [resetSession]);
 
   const handleSubmit = useCallback(
     async (message: string) => {
       // Slash commands run locally against the server's REST endpoints.
-      if (message === "/clear") {
-        await handleClear();
+      if (message === "/clear" || message === "/new") {
+        await handleNewConversation();
         return;
       }
       if (message === "/help") {
@@ -78,6 +80,7 @@ export default function App() {
       }
 
       setError(null);
+      setCatchup(null);
       const approvedForThisTurn = pendingApproval;
       setPendingApproval(false);
 
@@ -119,7 +122,7 @@ export default function App() {
         if (turnSawPreview) setPendingApproval(true);
       }
     },
-    [handleClear, pendingApproval, recordTurn],
+    [handleNewConversation, pendingApproval, recordTurn],
   );
 
   const pollUntilTurnCompletes = useCallback(
@@ -147,18 +150,19 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const messages = await fetchConversation();
+        const [messages, catchupData] = await Promise.all([
+          fetchConversation(),
+          fetchCatchup(),
+        ]);
         const hydrated = hydrateFromMessages(messages);
         if (hydrated.length > 0) {
           setItems(hydrated);
-          // Restore approval state: if the last assistant turn has an
-          // unresolved confirmation_required or preview tool result,
-          // show the ApprovalCard again. This survives page refreshes
-          // and tab switches so the user doesn't lose the "Apply"
-          // button mid-flow.
           if (detectPendingApproval(hydrated)) {
             setPendingApproval(true);
           }
+        }
+        if (catchupData.show_banner) {
+          setCatchup(catchupData);
         }
       } catch {
         // Non-fatal — user can still start a new conversation.
@@ -199,7 +203,11 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col bg-bg">
-      <Header tab={tab} onChange={setTab} />
+      <Header
+        tab={tab}
+        onChange={setTab}
+        onNewConversation={() => void handleNewConversation()}
+      />
 
       {tab === "chat" ? (
         <>
@@ -209,6 +217,12 @@ export default function App() {
             ) : (
               items.map((item) => <Message key={item.id} item={item} />)
             )}
+            {catchup ? (
+              <CatchupBanner
+                data={catchup}
+                onDismiss={() => setCatchup(null)}
+              />
+            ) : null}
             {pendingApproval && approvalContext ? (
               <div style={{ paddingRight: 40 }}>
                 <ApprovalCard
