@@ -20,6 +20,7 @@ from mylo.files.diff import diff_structs
 from mylo.ha.ws_client import CommandError
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
+from mylo.tools.dashboard_refs import extract_entity_refs, validate_refs
 from mylo.tools.registry import register
 
 Action = Literal["create", "update", "delete", "add_cards"]
@@ -164,6 +165,21 @@ async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
             f"view with path {new_path!r} already exists in this dashboard",
         )
 
+    # Pre-flight: validate every entity reference in the card configs
+    # against the live registry. If any are invalid, return the full
+    # list with did_you_mean suggestions so the model self-corrects
+    # before the user ever sees a broken preview.
+    entity_refs = extract_entity_refs(new_view.get("cards") or [])
+    invalid = validate_refs(entity_refs, ctx.registries)
+    if invalid:
+        return ToolResult.error(
+            "invalid_entity_refs",
+            f"{len(invalid)} entity reference(s) in the cards don't exist in HA. "
+            "Fix them and retry. Use the EXACT entity_ids from query_entities or "
+            "query_dashboard — do NOT normalize or clean up entity names.",
+            data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
+        )
+
     views.append(new_view)
     new_config = {**current, "views": views}
 
@@ -174,6 +190,7 @@ async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
         "view_path": new_path,
         "view_title": new_view.get("title"),
         "card_count": len(new_view.get("cards") or []),
+        "entity_refs_validated": len(entity_refs),
         "diff": diff.to_dict(),
     }
 
@@ -220,6 +237,18 @@ async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolRes
             data={"available": [v.get("path") for v in views if isinstance(v, dict)]},
         )
 
+    # Validate entity refs in the new cards before merging.
+    entity_refs = extract_entity_refs(params.cards)
+    invalid = validate_refs(entity_refs, ctx.registries)
+    if invalid:
+        return ToolResult.error(
+            "invalid_entity_refs",
+            f"{len(invalid)} entity reference(s) in the cards don't exist in HA. "
+            "Fix them and retry. Use the EXACT entity_ids from query_entities or "
+            "query_dashboard — do NOT normalize or clean up entity names.",
+            data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
+        )
+
     target_view = dict(views[target_idx])
     existing_cards = list(target_view.get("cards") or [])
     existing_cards.extend(params.cards)
@@ -234,6 +263,7 @@ async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolRes
         "view_path": params.view_path,
         "cards_added": len(params.cards),
         "total_cards": len(existing_cards),
+        "entity_refs_validated": len(entity_refs),
         "diff": diff.to_dict(),
     }
 
