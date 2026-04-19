@@ -387,8 +387,11 @@ class HaWsClient:
         self._state = State.CONNECTING
         log.info("ha.ws.connecting", url=self._ws_url)
 
+        # max_msg_size=0 disables aiohttp's 4 MiB cap. HA registry list
+        # responses on large installs (10k+ entities) routinely exceed it
+        # and the connection dies with close code 1009 mid-startup.
         async with self._session.ws_connect(
-            self._ws_url, heartbeat=self._heartbeat, autoclose=True
+            self._ws_url, heartbeat=self._heartbeat, autoclose=True, max_msg_size=0
         ) as ws:
             self._ws = ws
             await self._authenticate(ws)
@@ -459,7 +462,14 @@ class HaWsClient:
                 log.info("ha.ws.server_closed")
                 return
             elif msg.type is aiohttp.WSMsgType.ERROR:
-                raise HaError(f"ws error: {ws.exception()!r}")
+                # ws.exception() is often None on protocol-level errors
+                # (e.g. MESSAGE_TOO_BIG); the actual WebSocketError is on
+                # msg.data. Surface all of it so failures are debuggable
+                # without an ad-hoc repro.
+                raise HaError(
+                    f"ws error: data={msg.data!r} extra={msg.extra!r} "
+                    f"exc={ws.exception()!r} close_code={ws.close_code!r}"
+                )
 
     async def _dispatch(self, data: dict[str, Any]) -> None:
         msg_type = data.get("type")
