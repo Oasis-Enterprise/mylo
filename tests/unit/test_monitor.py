@@ -289,7 +289,7 @@ async def test_anomaly_detects_spike() -> None:
     findings = await check_anomalies(ws_client=ws, baselines=baselines)
     assert len(findings) == 1
     assert findings[0]["z_score"] == 5.0
-    assert "above" in findings[0]["title"]
+    assert "high" in findings[0]["title"]
     assert findings[0]["severity"] == "high"
 
 

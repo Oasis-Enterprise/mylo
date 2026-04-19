@@ -92,11 +92,11 @@ async def check_anomalies(
         findings.append(
             {
                 "id": baseline.entity.replace(".", "_"),
-                "title": f"{friendly} is {abs_z:.1f}sd {direction} normal",
+                "title": f"{friendly}: unusually {'high' if z > 0 else 'low'}",
                 "message": (
                     f"Current: {value}{unit} · "
-                    f"Baseline: {baseline.avg:.1f}±{baseline.stddev:.1f}{unit} · "
-                    f"Z-score: {z:+.2f}"
+                    f"Baseline: {baseline.avg:.1f} ± {baseline.stddev:.1f}{unit} · "
+                    f"{abs_z:.1f} standard deviations {direction} normal"
                 ),
                 "severity": severity,
                 "entity_id": baseline.entity,
