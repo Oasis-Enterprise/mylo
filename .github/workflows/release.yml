@@ -75,4 +75,4 @@ jobs:
             org.opencontainers.image.description=AI agent for Home Assistant
             org.opencontainers.image.source=https://github.com/Oasis-Enterprise/mylo
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
-            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.licenses=Apache-2.0
