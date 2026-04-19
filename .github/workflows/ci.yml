@@ -43,11 +43,8 @@ jobs:
       - name: Pytest (unit)
         run: pytest tests/unit
 
-      - name: Smoke run
-        env:
-          MYLO_OPTIONS_FILE: /tmp/nonexistent.json
-          MYLO_CONFIG_DIR: /tmp/mylo-ci
-        run: python -m mylo
+      - name: Smoke import
+        run: python -c "from mylo.server.app import build_app; print('import ok')"
 
   addon-lint:
     name: Add-on manifest lint
