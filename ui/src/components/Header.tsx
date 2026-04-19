@@ -19,7 +19,7 @@ interface Props {
 // memory sync age, and session-level token + turn counters. The
 // status endpoint is polled every 30s and right after mount so the
 // memory sync string stays fresh without a WebSocket.
-export function Header({ tab, onChange, onNewConversation, version = "v0.0" }: Props) {
+export function Header({ tab, onChange, onNewConversation, version = "v1.0.0" }: Props) {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const turns = useSession((s) => s.turns);
   const inputTokens = useSession((s) => s.inputTokens);

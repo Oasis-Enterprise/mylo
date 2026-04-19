@@ -1,10 +1,11 @@
 # Home Assistant add-on manifest.
 # Docs: https://developers.home-assistant.io/docs/add-ons/configuration
 name: Mylo
-version: "0.1.0"
+version: "1.0.0"
 slug: mylo
 description: AI agent that lives inside Home Assistant — deep context, memory, and safe config editing.
 url: https://github.com/Oasis-Enterprise/mylo
+image: ghcr.io/oasis-enterprise/{arch}-addon-mylo
 arch:
   - amd64
   - aarch64

@@ -466,13 +466,13 @@ Each milestone is independently runnable against a real HA instance. "Done" mean
 - M9 + M11 Nightly scheduler, background monitor, anomaly detection (built together)
 
 - M12 Activity tab + onboarding
+- M13 Release — multi-arch builds, ghcr.io, v1.0.0
 
-**Remaining:**
-- **M4c follow-ups:** conversation summarization (§6.7) — trim-to-last-N still in use
-- **Chain-call checkpoint:** pause after N tool calls vs silent max_iterations (was M10 in original plan, deferred)
-- **M13** HACS / add-on release: multi-arch build workflow, `repository.yaml`, docs on GitHub Pages.
+**All milestones complete.** Post-release backlog:
+- Conversation summarization (§6.7) — trim-to-last-N still in use
+- Chain-call checkpoint — pause after N tool calls vs silent max_iterations
 
-Test count: 326 passing. Live-tested against a 2200-entity HA instance.
+Test count: 344 passing. Live-tested against a 2200-entity HA instance.
 
 ---
 

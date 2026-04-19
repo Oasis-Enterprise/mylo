@@ -4,13 +4,13 @@ A persistent, memory-aware AI agent that lives inside your Home Assistant as a s
 
 Mylo has full context of your home — devices, areas, automations, dashboards, integrations, and learned preferences. It can read, create, and modify HA configurations, detect anomalies, and proactively surface issues.
 
-> **Status:** Pre-release. Functional and tested against a 2200-entity production HA instance. Not yet published as a pre-built add-on — install from source (see below).
+> **Status:** v1.0.0. Functional and tested against a 2200-entity production HA instance. Pre-built images available for amd64 and aarch64.
 
 ## Features
 
 **Conversational home management**
 - Natural-language query, control, and configuration of Home Assistant
-- 19 registered tools across three tiers (read / modify / action)
+- 21 registered tools across three tiers (read / modify / action)
 - Entity resolver with fuzzy matching — catches hallucinated entity IDs before they hit HA
 
 **Write tools with safety**
@@ -60,7 +60,7 @@ Mylo has full context of your home — devices, areas, automations, dashboards, 
 5. In the add-on Configuration tab, set your `api_key` (Anthropic API key)
 6. Start the add-on — Mylo appears as a sidebar panel
 
-> **Note:** The add-on currently builds from source on your machine. This takes a few minutes on x86 hardware. Pre-built multi-arch images (for Raspberry Pi 4/5 support) are planned for the M13 release.
+> **Note:** Pre-built images are available for amd64 (x86 mini PCs, NUCs, Proxmox) and aarch64 (Raspberry Pi 4/5). If no pre-built image exists for your architecture, the add-on builds from source on install.
 
 ### Local development
 

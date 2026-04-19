@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-04-19
+
 ### Fixed
 - ApprovalCard buttons were disabled whenever the SSE stream was
   still open — the trailing "click Apply to confirm" text kept
