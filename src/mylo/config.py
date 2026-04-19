@@ -21,8 +21,11 @@ LLMProvider = Literal["anthropic", "openai", "ollama"]
 
 DEFAULT_OPTIONS_PATH = Path("/data/options.json")
 
-# Paths inside the HA /config share. In dev, overridable via MYLO_CONFIG_DIR.
-DEFAULT_HA_CONFIG_DIR = Path("/config")
+# Paths inside the HA config share. The new 'homeassistant_config' map
+# mounts at /homeassistant; the legacy 'config' map used /config. We
+# check both and prefer whichever exists, overridable via MYLO_CONFIG_DIR.
+DEFAULT_HA_CONFIG_DIR = Path("/homeassistant")
+LEGACY_HA_CONFIG_DIR = Path("/config")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +78,15 @@ def _get(options: dict[str, Any], key: str, default: Any) -> Any:
 def load_config() -> AppConfig:
     options = _read_options()
 
-    ha_config_dir = Path(os.environ.get("MYLO_CONFIG_DIR", str(DEFAULT_HA_CONFIG_DIR)))
+    ha_config_dir_env = os.environ.get("MYLO_CONFIG_DIR")
+    if ha_config_dir_env:
+        ha_config_dir = Path(ha_config_dir_env)
+    elif DEFAULT_HA_CONFIG_DIR.exists():
+        ha_config_dir = DEFAULT_HA_CONFIG_DIR
+    elif LEGACY_HA_CONFIG_DIR.exists():
+        ha_config_dir = LEGACY_HA_CONFIG_DIR
+    else:
+        ha_config_dir = DEFAULT_HA_CONFIG_DIR
     mylo_data_dir = ha_config_dir / ".mylo"
 
     llm_provider: LLMProvider = _get(options, "llm_provider", "anthropic")
