@@ -104,7 +104,9 @@ export default function App() {
         })) {
           if (_needsApproval(event)) {
             turnSawPreview = true;
-            setPendingApproval(true);
+            // Don't show the ApprovalCard yet — wait for the turn to
+            // finish so the model's trailing text ("please review and
+            // click Apply") has rendered before the card appears.
           }
           applyEvent(event, assistantId, toolCallsById, setItems, recordTurn, setError);
         }
