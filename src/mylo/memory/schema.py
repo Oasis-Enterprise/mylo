@@ -209,6 +209,32 @@ class Baselines(BaseModel):
     entities: list[EntityBaseline] = Field(default_factory=list)
 
 
+class NotificationSuppression(BaseModel):
+    """A rule that suppresses specific notification types.
+
+    Used by the notifier to skip alerts the user explicitly asked to
+    stop receiving. Checked before every send — pure Python, no LLM.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str = Field(
+        description=(
+            "Notification type to suppress: 'stale_automation', "
+            "'unavailable', 'anomaly', 'sync_conflict', or '*' for all."
+        ),
+    )
+    entity: str | None = Field(
+        default=None,
+        description="Specific entity_id to suppress. Null = suppress all of this type.",
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Why the user suppressed this (for Memory tab display).",
+    )
+    added: str | None = None
+
+
 class MemoryFile(BaseModel):
     """Root of ``context.yaml``. See spec §3.2."""
 
@@ -226,10 +252,24 @@ class MemoryFile(BaseModel):
     rejected: list[RejectedSuggestion] = Field(default_factory=list)
     conflicts: list[Conflict] = Field(default_factory=list)
     monitored_entities: list[str] = Field(default_factory=list)
+    notification_suppressions: list[NotificationSuppression] = Field(default_factory=list)
     baselines: Baselines = Field(default_factory=Baselines)
 
     def pending_conflicts(self) -> list[Conflict]:
         return [c for c in self.conflicts if c.status == "pending_review"]
+
+    def is_notification_suppressed(self, notification_type: str, entity_id: str | None = None) -> bool:
+        """Check if a notification should be suppressed."""
+        for rule in self.notification_suppressions:
+            if rule.type == "*":
+                return True
+            if rule.type != notification_type:
+                continue
+            if rule.entity is None:
+                return True
+            if entity_id and rule.entity == entity_id:
+                return True
+        return False
 
 
 def empty_memory() -> MemoryFile:

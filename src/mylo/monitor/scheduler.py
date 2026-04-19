@@ -118,6 +118,7 @@ async def _nightly_job(app: web.Application) -> None:
     notifier = Notifier(
         ws_client=app[AppKeys.HA_CLIENT],
         config=config,
+        memory=store.current(),
     )
 
     log.info("nightly.started")
@@ -154,6 +155,7 @@ async def _nightly_job(app: web.Application) -> None:
                 ),
                 notification_id="mylo_nightly_conflicts",
                 severity="normal",
+                notification_type="sync_conflict",
             )
         log.info("nightly.sync_done", summary=result.summary)
     except Exception:
@@ -188,7 +190,7 @@ async def _hourly_job(app: web.Application) -> None:
     ws_client = app[AppKeys.HA_CLIENT]
     registries = app.get(AppKeys.REGISTRIES)
     store = app[AppKeys.MEMORY]
-    notifier = Notifier(ws_client=ws_client, config=config)
+    notifier = Notifier(ws_client=ws_client, config=config, memory=store.current())
 
     log.info("hourly.started")
 
@@ -199,11 +201,14 @@ async def _hourly_job(app: web.Application) -> None:
             registries=registries,
         )
         for finding in findings:
+            # Map finding IDs to notification types for suppression.
+            ntype = "unavailable" if finding["id"] == "unavailable" else "stale_automation"
             await notifier.send(
                 title=finding["title"],
                 message=finding["message"],
                 notification_id=f"mylo_hourly_{finding['id']}",
                 severity=finding.get("severity", "normal"),
+                notification_type=ntype,
             )
         if findings:
             log.info("hourly.findings", count=len(findings))
@@ -224,6 +229,8 @@ async def _hourly_job(app: web.Application) -> None:
                     message=anomaly["message"],
                     notification_id=f"mylo_anomaly_{anomaly['id']}",
                     severity=anomaly.get("severity", "normal"),
+                    notification_type="anomaly",
+                    entity_id=anomaly.get("entity_id"),
                 )
             if anomalies:
                 log.info("hourly.anomalies", count=len(anomalies))

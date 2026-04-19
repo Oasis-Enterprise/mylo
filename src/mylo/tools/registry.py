@@ -40,6 +40,7 @@ _DEFAULT_MODULES: tuple[str, ...] = (
     "mylo.tools.write.modify_dashboard",
     "mylo.tools.write.rename_entities",
     "mylo.tools.write.manage_monitored",
+    "mylo.tools.write.manage_notification_filters",
 )
 
 

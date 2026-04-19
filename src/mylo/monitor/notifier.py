@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 
 from mylo.ha.ws_client import CommandError, HaWsClient
 from mylo.logging_setup import get_logger
+from mylo.memory.schema import MemoryFile
 
 if TYPE_CHECKING:
     from mylo.config import AppConfig
@@ -37,6 +38,7 @@ Severity = Literal["critical", "normal", "low"]
 class Notifier:
     ws_client: HaWsClient
     config: AppConfig
+    memory: MemoryFile | None = None
     _daily_count: int = 0
     _daily_date: str = ""
     _tz: ZoneInfo | None = field(default=None, init=False)
@@ -54,6 +56,8 @@ class Notifier:
         message: str,
         notification_id: str,
         severity: Severity = "normal",
+        notification_type: str | None = None,
+        entity_id: str | None = None,
     ) -> bool:
         """Send a persistent notification if policy allows.
 
@@ -61,6 +65,20 @@ class Notifier:
         """
         if not self.config.proactive_notifications and severity != "critical":
             log.debug("notifier.suppressed_disabled", title=title)
+            return False
+
+        # Check user-defined suppression rules from memory.
+        if (
+            notification_type
+            and self.memory is not None
+            and self.memory.is_notification_suppressed(notification_type, entity_id)
+        ):
+            log.debug(
+                "notifier.suppressed_by_filter",
+                title=title,
+                notification_type=notification_type,
+                entity_id=entity_id,
+            )
             return False
 
         now = datetime.now(self._tz) if self._tz else datetime.now().astimezone()

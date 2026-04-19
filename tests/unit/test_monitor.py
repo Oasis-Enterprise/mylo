@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 from mylo.config import AppConfig
-from mylo.memory.schema import Baselines, EntityBaseline
+from mylo.memory.schema import Baselines, EntityBaseline, NotificationSuppression, empty_memory
 from mylo.monitor.anomaly import check_anomalies
 from mylo.monitor.baselines import _extract_mean_values
 from mylo.monitor.hourly import reset_state, run_hourly_check
@@ -110,6 +110,64 @@ async def test_notifier_critical_bypasses_cap_and_quiet() -> None:
     )
     assert result is True
     assert ws.send_command.call_count == 1
+
+
+async def test_notifier_suppressed_by_memory_filter() -> None:
+    ws = AsyncMock()
+    ws.send_command = AsyncMock(return_value=None)
+    config = _make_config(quiet_hours_start="00:00", quiet_hours_end="00:00")
+    mem = empty_memory()
+    mem.notification_suppressions.append(
+        NotificationSuppression(type="stale_automation")
+    )
+    notifier = Notifier(ws_client=ws, config=config, memory=mem)
+
+    result = await notifier.send(
+        title="stale", message="stale", notification_id="x",
+        notification_type="stale_automation",
+    )
+    assert result is False
+    assert ws.send_command.call_count == 0
+
+
+async def test_notifier_suppression_entity_scoped() -> None:
+    ws = AsyncMock()
+    ws.send_command = AsyncMock(return_value=None)
+    config = _make_config(quiet_hours_start="00:00", quiet_hours_end="00:00")
+    mem = empty_memory()
+    mem.notification_suppressions.append(
+        NotificationSuppression(type="unavailable", entity="sensor.sprinkler")
+    )
+    notifier = Notifier(ws_client=ws, config=config, memory=mem)
+
+    # Suppressed: matches entity.
+    r1 = await notifier.send(
+        title="a", message="a", notification_id="a",
+        notification_type="unavailable", entity_id="sensor.sprinkler",
+    )
+    assert r1 is False
+
+    # Not suppressed: different entity.
+    r2 = await notifier.send(
+        title="b", message="b", notification_id="b",
+        notification_type="unavailable", entity_id="sensor.other",
+    )
+    assert r2 is True
+
+
+async def test_notifier_wildcard_suppresses_all() -> None:
+    ws = AsyncMock()
+    ws.send_command = AsyncMock(return_value=None)
+    config = _make_config(quiet_hours_start="00:00", quiet_hours_end="00:00")
+    mem = empty_memory()
+    mem.notification_suppressions.append(NotificationSuppression(type="*"))
+    notifier = Notifier(ws_client=ws, config=config, memory=mem)
+
+    result = await notifier.send(
+        title="any", message="any", notification_id="any",
+        notification_type="anomaly",
+    )
+    assert result is False
 
 
 async def test_notifier_suppressed_when_disabled() -> None:
