@@ -150,8 +150,7 @@ async def _nightly_job(app: web.Application) -> None:
             await notifier.send(
                 title="Memory sync: conflicts detected",
                 message=(
-                    f"{result.conflicts_added} conflict(s) found. "
-                    "Open the Memory tab to review."
+                    f"{result.conflicts_added} conflict(s) found. Open the Memory tab to review."
                 ),
                 notification_id="mylo_nightly_conflicts",
                 severity="normal",

@@ -98,7 +98,9 @@ def shape_entity_minimal(
         area = registries.areas.get(area_id)
 
     state_attrs = (state or {}).get("attributes") or {}
-    friendly = entry.name or state_attrs.get("friendly_name") or entry.original_name or entry.entity_id
+    friendly = (
+        entry.name or state_attrs.get("friendly_name") or entry.original_name or entry.entity_id
+    )
 
     return {
         "entity_id": entry.entity_id,

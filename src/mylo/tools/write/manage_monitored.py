@@ -54,10 +54,12 @@ async def handler(params: ManageMonitoredParams, ctx: ToolContext) -> ToolResult
     memory = store.current()
 
     if params.action == "list":
-        return ToolResult.ok({
-            "monitored_entities": memory.monitored_entities,
-            "count": len(memory.monitored_entities),
-        })
+        return ToolResult.ok(
+            {
+                "monitored_entities": memory.monitored_entities,
+                "count": len(memory.monitored_entities),
+            }
+        )
 
     if not ctx.user_approved:
         return ToolResult.error(
@@ -72,10 +74,7 @@ async def handler(params: ManageMonitoredParams, ctx: ToolContext) -> ToolResult
         )
 
     # Validate that the entity_ids exist in the registry.
-    invalid = [
-        eid for eid in params.entity_ids
-        if eid not in ctx.registries.entities
-    ]
+    invalid = [eid for eid in params.entity_ids if eid not in ctx.registries.entities]
     if invalid:
         return ToolResult.error(
             "entity_not_found",
@@ -102,11 +101,13 @@ async def handler(params: ManageMonitoredParams, ctx: ToolContext) -> ToolResult
     memory.monitored_entities = sorted(current)
     await store.save(memory, note=change_note)
 
-    return ToolResult.ok({
-        "action": params.action,
-        "monitored_entities": memory.monitored_entities,
-        "count": len(memory.monitored_entities),
-    })
+    return ToolResult.ok(
+        {
+            "action": params.action,
+            "monitored_entities": memory.monitored_entities,
+            "count": len(memory.monitored_entities),
+        }
+    )
 
 
 TOOL = ToolDefinition(

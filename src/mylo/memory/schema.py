@@ -258,7 +258,9 @@ class MemoryFile(BaseModel):
     def pending_conflicts(self) -> list[Conflict]:
         return [c for c in self.conflicts if c.status == "pending_review"]
 
-    def is_notification_suppressed(self, notification_type: str, entity_id: str | None = None) -> bool:
+    def is_notification_suppressed(
+        self, notification_type: str, entity_id: str | None = None
+    ) -> bool:
         """Check if a notification should be suppressed."""
         for rule in self.notification_suppressions:
             if rule.type == "*":

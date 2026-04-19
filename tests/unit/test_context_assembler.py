@@ -126,9 +126,7 @@ def test_topology_uses_device_area_when_entity_has_none() -> None:
 def test_topology_pulls_area_notes_from_memory() -> None:
     r = _fake_registries()
     mem = empty_memory()
-    mem.notes.append(
-        Note(id="n1", content="workshop conversion in progress", area="Garage")
-    )
+    mem.notes.append(Note(id="n1", content="workshop conversion in progress", area="Garage"))
     topology = build_topology(r, memory=mem)
     garage = topology["areas"]["Garage"]
     assert garage["notes"] == ["workshop conversion in progress"]
@@ -153,9 +151,7 @@ def test_selector_always_includes_core_sections() -> None:
 
 
 def test_selector_triggers_known_issues_on_problem_keyword() -> None:
-    sections = select_sections(
-        "my basement motion sensor is not working", empty_memory()
-    )
+    sections = select_sections("my basement motion sensor is not working", empty_memory())
     assert "known_issues" in sections
 
 

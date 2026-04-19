@@ -217,7 +217,9 @@ async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolRes
     if not params.view_path:
         return ToolResult.error("missing_param", "add_cards requires 'view_path'")
     if not params.cards:
-        return ToolResult.error("missing_param", "add_cards requires 'cards' (list of card configs)")
+        return ToolResult.error(
+            "missing_param", "add_cards requires 'cards' (list of card configs)"
+        )
 
     current = await _fetch_dashboard(ctx, params.dashboard_id)
     if current is None:

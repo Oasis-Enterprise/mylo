@@ -47,30 +47,22 @@ def _make_config(**overrides: Any) -> AppConfig:
 
 def test_quiet_hours_overnight_in_range() -> None:
     # 23:00 is inside 22:00→07:00.
-    assert _in_quiet_hours(
-        datetime(2026, 4, 15, 23, 0, tzinfo=UTC), "22:00", "07:00"
-    )
+    assert _in_quiet_hours(datetime(2026, 4, 15, 23, 0, tzinfo=UTC), "22:00", "07:00")
 
 
 def test_quiet_hours_overnight_before_range() -> None:
     # 21:00 is before 22:00→07:00.
-    assert not _in_quiet_hours(
-        datetime(2026, 4, 15, 21, 0, tzinfo=UTC), "22:00", "07:00"
-    )
+    assert not _in_quiet_hours(datetime(2026, 4, 15, 21, 0, tzinfo=UTC), "22:00", "07:00")
 
 
 def test_quiet_hours_overnight_after_range() -> None:
     # 08:00 is after 22:00→07:00.
-    assert not _in_quiet_hours(
-        datetime(2026, 4, 15, 8, 0, tzinfo=UTC), "22:00", "07:00"
-    )
+    assert not _in_quiet_hours(datetime(2026, 4, 15, 8, 0, tzinfo=UTC), "22:00", "07:00")
 
 
 def test_quiet_hours_same_day_range() -> None:
     # 14:00 is inside 13:00→15:00.
-    assert _in_quiet_hours(
-        datetime(2026, 4, 15, 14, 0, tzinfo=UTC), "13:00", "15:00"
-    )
+    assert _in_quiet_hours(datetime(2026, 4, 15, 14, 0, tzinfo=UTC), "13:00", "15:00")
 
 
 # ─── Notifier: daily cap + critical bypass ──────────────────────────────────
@@ -117,13 +109,13 @@ async def test_notifier_suppressed_by_memory_filter() -> None:
     ws.send_command = AsyncMock(return_value=None)
     config = _make_config(quiet_hours_start="00:00", quiet_hours_end="00:00")
     mem = empty_memory()
-    mem.notification_suppressions.append(
-        NotificationSuppression(type="stale_automation")
-    )
+    mem.notification_suppressions.append(NotificationSuppression(type="stale_automation"))
     notifier = Notifier(ws_client=ws, config=config, memory=mem)
 
     result = await notifier.send(
-        title="stale", message="stale", notification_id="x",
+        title="stale",
+        message="stale",
+        notification_id="x",
         notification_type="stale_automation",
     )
     assert result is False
@@ -142,15 +134,21 @@ async def test_notifier_suppression_entity_scoped() -> None:
 
     # Suppressed: matches entity.
     r1 = await notifier.send(
-        title="a", message="a", notification_id="a",
-        notification_type="unavailable", entity_id="sensor.sprinkler",
+        title="a",
+        message="a",
+        notification_id="a",
+        notification_type="unavailable",
+        entity_id="sensor.sprinkler",
     )
     assert r1 is False
 
     # Not suppressed: different entity.
     r2 = await notifier.send(
-        title="b", message="b", notification_id="b",
-        notification_type="unavailable", entity_id="sensor.other",
+        title="b",
+        message="b",
+        notification_id="b",
+        notification_type="unavailable",
+        entity_id="sensor.other",
     )
     assert r2 is True
 
@@ -164,7 +162,9 @@ async def test_notifier_wildcard_suppresses_all() -> None:
     notifier = Notifier(ws_client=ws, config=config, memory=mem)
 
     result = await notifier.send(
-        title="any", message="any", notification_id="any",
+        title="any",
+        message="any",
+        notification_id="any",
         notification_type="anomaly",
     )
     assert result is False
@@ -184,10 +184,12 @@ async def test_notifier_suppressed_when_disabled() -> None:
 async def test_hourly_detects_newly_unavailable() -> None:
     reset_state()
     ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=[
-        {"entity_id": "sensor.temp", "state": "unavailable", "attributes": {}},
-        {"entity_id": "light.kitchen", "state": "on", "attributes": {}},
-    ])
+    ws.send_command = AsyncMock(
+        return_value=[
+            {"entity_id": "sensor.temp", "state": "unavailable", "attributes": {}},
+            {"entity_id": "light.kitchen", "state": "on", "attributes": {}},
+        ]
+    )
 
     findings = await run_hourly_check(ws_client=ws, registries=None)
     assert len(findings) == 1
@@ -197,9 +199,11 @@ async def test_hourly_detects_newly_unavailable() -> None:
 async def test_hourly_does_not_re_report_known_unavailable() -> None:
     reset_state()
     ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=[
-        {"entity_id": "sensor.temp", "state": "unavailable", "attributes": {}},
-    ])
+    ws.send_command = AsyncMock(
+        return_value=[
+            {"entity_id": "sensor.temp", "state": "unavailable", "attributes": {}},
+        ]
+    )
 
     await run_hourly_check(ws_client=ws, registries=None)
     findings = await run_hourly_check(ws_client=ws, registries=None)
@@ -210,16 +214,18 @@ async def test_hourly_detects_stale_automation() -> None:
     reset_state()
     ws = AsyncMock()
     old_date = (datetime.now(UTC) - timedelta(days=5)).isoformat()
-    ws.send_command = AsyncMock(return_value=[
-        {
-            "entity_id": "automation.morning",
-            "state": "on",
-            "attributes": {
-                "friendly_name": "Morning routine",
-                "last_triggered": old_date,
+    ws.send_command = AsyncMock(
+        return_value=[
+            {
+                "entity_id": "automation.morning",
+                "state": "on",
+                "attributes": {
+                    "friendly_name": "Morning routine",
+                    "last_triggered": old_date,
+                },
             },
-        },
-    ])
+        ]
+    )
 
     findings = await run_hourly_check(ws_client=ws, registries=None)
     stale = [f for f in findings if "hasn't fired" in f["title"]]
@@ -247,20 +253,24 @@ def test_extract_mean_values_filters_nulls() -> None:
 
 async def test_anomaly_detects_spike() -> None:
     ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=[
-        {
-            "entity_id": "sensor.power",
-            "state": "450.0",
-            "attributes": {
-                "friendly_name": "Power usage",
-                "unit_of_measurement": "W",
+    ws.send_command = AsyncMock(
+        return_value=[
+            {
+                "entity_id": "sensor.power",
+                "state": "450.0",
+                "attributes": {
+                    "friendly_name": "Power usage",
+                    "unit_of_measurement": "W",
+                },
             },
-        },
-    ])
+        ]
+    )
 
-    baselines = Baselines(entities=[
-        EntityBaseline(entity="sensor.power", metric="mean", avg=200.0, stddev=50.0),
-    ])
+    baselines = Baselines(
+        entities=[
+            EntityBaseline(entity="sensor.power", metric="mean", avg=200.0, stddev=50.0),
+        ]
+    )
 
     findings = await check_anomalies(ws_client=ws, baselines=baselines)
     assert len(findings) == 1
@@ -271,13 +281,17 @@ async def test_anomaly_detects_spike() -> None:
 
 async def test_anomaly_no_finding_within_threshold() -> None:
     ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=[
-        {"entity_id": "sensor.power", "state": "210.0", "attributes": {}},
-    ])
+    ws.send_command = AsyncMock(
+        return_value=[
+            {"entity_id": "sensor.power", "state": "210.0", "attributes": {}},
+        ]
+    )
 
-    baselines = Baselines(entities=[
-        EntityBaseline(entity="sensor.power", metric="mean", avg=200.0, stddev=50.0),
-    ])
+    baselines = Baselines(
+        entities=[
+            EntityBaseline(entity="sensor.power", metric="mean", avg=200.0, stddev=50.0),
+        ]
+    )
 
     findings = await check_anomalies(ws_client=ws, baselines=baselines)
     assert len(findings) == 0
@@ -285,13 +299,17 @@ async def test_anomaly_no_finding_within_threshold() -> None:
 
 async def test_anomaly_skips_non_numeric_state() -> None:
     ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=[
-        {"entity_id": "sensor.power", "state": "unavailable", "attributes": {}},
-    ])
+    ws.send_command = AsyncMock(
+        return_value=[
+            {"entity_id": "sensor.power", "state": "unavailable", "attributes": {}},
+        ]
+    )
 
-    baselines = Baselines(entities=[
-        EntityBaseline(entity="sensor.power", metric="mean", avg=200.0, stddev=50.0),
-    ])
+    baselines = Baselines(
+        entities=[
+            EntityBaseline(entity="sensor.power", metric="mean", avg=200.0, stddev=50.0),
+        ]
+    )
 
     findings = await check_anomalies(ws_client=ws, baselines=baselines)
     assert len(findings) == 0

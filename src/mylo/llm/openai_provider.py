@@ -99,12 +99,14 @@ class OpenAIProvider:
                 args = json.loads(tc.function.arguments) if tc.function.arguments else {}
             except json.JSONDecodeError:
                 args = {}
-            content_blocks.append({
-                "type": "tool_use",
-                "id": tc.id,
-                "name": tc.function.name,
-                "input": args,
-            })
+            content_blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "input": args,
+                }
+            )
             tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, input=args))
 
         # Map OpenAI finish_reason to Anthropic stop_reason.
@@ -130,9 +132,7 @@ class OpenAIProvider:
         )
 
 
-def _convert_messages(
-    system: str, messages: list[ProviderMessage]
-) -> list[dict[str, Any]]:
+def _convert_messages(system: str, messages: list[ProviderMessage]) -> list[dict[str, Any]]:
     """Convert Anthropic-shaped messages to OpenAI format.
 
     Key differences:
@@ -163,14 +163,16 @@ def _convert_messages(
                 if block.get("type") == "text":
                     text_parts.append(block.get("text", ""))
                 elif block.get("type") == "tool_use":
-                    tool_calls_list.append({
-                        "id": block.get("id", ""),
-                        "type": "function",
-                        "function": {
-                            "name": block.get("name", ""),
-                            "arguments": json.dumps(block.get("input", {})),
-                        },
-                    })
+                    tool_calls_list.append(
+                        {
+                            "id": block.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": block.get("name", ""),
+                                "arguments": json.dumps(block.get("input", {})),
+                            },
+                        }
+                    )
             assistant_msg: dict[str, Any] = {"role": "assistant"}
             if text_parts:
                 assistant_msg["content"] = "\n".join(text_parts)
@@ -188,11 +190,13 @@ def _convert_messages(
                 if not isinstance(block, dict):
                     continue
                 if block.get("type") == "tool_result":
-                    oai.append({
-                        "role": "tool",
-                        "tool_call_id": block.get("tool_use_id", ""),
-                        "content": block.get("content", ""),
-                    })
+                    oai.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": block.get("tool_use_id", ""),
+                            "content": block.get("content", ""),
+                        }
+                    )
                 elif block.get("type") == "text":
                     text_parts_user.append(block.get("text", ""))
             if text_parts_user:
@@ -205,12 +209,14 @@ def _convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert Anthropic tool schema to OpenAI function format."""
     oai_tools: list[dict[str, Any]] = []
     for tool in tools:
-        oai_tools.append({
-            "type": "function",
-            "function": {
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "parameters": tool.get("input_schema", {}),
-            },
-        })
+        oai_tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("input_schema", {}),
+                },
+            }
+        )
     return oai_tools

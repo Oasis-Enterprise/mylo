@@ -88,11 +88,13 @@ def compress_old_tool_results(
                 new_blocks.append(block)
                 continue
 
-            new_blocks.append({
-                "type": "tool_result",
-                "tool_use_id": block.get("tool_use_id"),
-                "content": summary,
-            })
+            new_blocks.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.get("tool_use_id"),
+                    "content": summary,
+                }
+            )
             changed = True
 
         if changed:

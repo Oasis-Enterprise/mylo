@@ -181,10 +181,7 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
     entries = matched[: params.limit]
 
     if params.detail == "minimal":
-        shaped = [
-            shape_entity_minimal(e, states.get(e.entity_id), ctx.registries)
-            for e in entries
-        ]
+        shaped = [shape_entity_minimal(e, states.get(e.entity_id), ctx.registries) for e in entries]
     else:
         shaped = [
             shape_entity(

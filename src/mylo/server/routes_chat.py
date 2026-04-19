@@ -110,10 +110,7 @@ async def _handle_catchup(request: web.Request) -> web.Response:
     if AppKeys.TOOL_CONTEXT in request.app:
         audit = request.app[AppKeys.TOOL_CONTEXT].audit
         recent = audit.read_recent(limit=50)
-        since_last = [
-            e for e in recent
-            if e.get("timestamp", "") > last_ts
-        ]
+        since_last = [e for e in recent if e.get("timestamp", "") > last_ts]
         if since_last:
             successes = sum(1 for e in since_last if e.get("result") == "success")
             failures = sum(1 for e in since_last if e.get("result") == "failure")
@@ -132,11 +129,13 @@ async def _handle_catchup(request: web.Request) -> web.Response:
         days = int(gap_hours / 24)
         gap_label = f"{days} day{'s' if days != 1 else ''}"
 
-    return web.json_response({
-        "show_banner": True,
-        "gap_label": f"{gap_label} since last message",
-        "lines": lines,
-    })
+    return web.json_response(
+        {
+            "show_banner": True,
+            "gap_label": f"{gap_label} since last message",
+            "lines": lines,
+        }
+    )
 
 
 async def _handle_activity(request: web.Request) -> web.Response:
@@ -193,9 +192,7 @@ async def _handle_status(request: web.Request) -> web.Response:
     automation_count = 0
     if registries is not None:
         entity_count = sum(
-            1
-            for e in registries.entities.values()
-            if not e.disabled_by and not e.hidden_by
+            1 for e in registries.entities.values() if not e.disabled_by and not e.hidden_by
         )
         automation_count = sum(
             1

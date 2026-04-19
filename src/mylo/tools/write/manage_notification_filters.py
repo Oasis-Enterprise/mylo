@@ -61,17 +61,19 @@ async def handler(params: ManageNotificationFiltersParams, ctx: ToolContext) -> 
     memory = store.current()
 
     if params.action == "list":
-        return ToolResult.ok({
-            "filters": [
-                {
-                    "type": s.type,
-                    "entity": s.entity,
-                    "reason": s.reason,
-                }
-                for s in memory.notification_suppressions
-            ],
-            "count": len(memory.notification_suppressions),
-        })
+        return ToolResult.ok(
+            {
+                "filters": [
+                    {
+                        "type": s.type,
+                        "entity": s.entity,
+                        "reason": s.reason,
+                    }
+                    for s in memory.notification_suppressions
+                ],
+                "count": len(memory.notification_suppressions),
+            }
+        )
 
     if not ctx.user_approved:
         return ToolResult.error(
@@ -86,12 +88,14 @@ async def handler(params: ManageNotificationFiltersParams, ctx: ToolContext) -> 
         # Check for duplicates.
         for existing in memory.notification_suppressions:
             if existing.type == params.type and existing.entity == params.entity:
-                return ToolResult.ok({
-                    "action": "add",
-                    "already_exists": True,
-                    "type": params.type,
-                    "entity": params.entity,
-                })
+                return ToolResult.ok(
+                    {
+                        "action": "add",
+                        "already_exists": True,
+                        "type": params.type,
+                        "entity": params.entity,
+                    }
+                )
 
         memory.notification_suppressions.append(
             NotificationSuppression(
@@ -102,28 +106,35 @@ async def handler(params: ManageNotificationFiltersParams, ctx: ToolContext) -> 
             )
         )
         await store.save(memory, note=f"suppress {params.type} notifications")
-        return ToolResult.ok({
-            "action": "add",
-            "type": params.type,
-            "entity": params.entity,
-            "total_filters": len(memory.notification_suppressions),
-        })
+        return ToolResult.ok(
+            {
+                "action": "add",
+                "type": params.type,
+                "entity": params.entity,
+                "total_filters": len(memory.notification_suppressions),
+            }
+        )
 
     if params.action == "remove":
         before = len(memory.notification_suppressions)
         memory.notification_suppressions = [
-            s for s in memory.notification_suppressions
+            s
+            for s in memory.notification_suppressions
             if not (s.type == params.type and s.entity == params.entity)
         ]
         removed = before - len(memory.notification_suppressions)
         if removed == 0:
-            return ToolResult.error("not_found", f"no filter matching type={params.type} entity={params.entity}")
+            return ToolResult.error(
+                "not_found", f"no filter matching type={params.type} entity={params.entity}"
+            )
         await store.save(memory, note=f"unsuppress {params.type} notifications")
-        return ToolResult.ok({
-            "action": "remove",
-            "removed": removed,
-            "total_filters": len(memory.notification_suppressions),
-        })
+        return ToolResult.ok(
+            {
+                "action": "remove",
+                "removed": removed,
+                "total_filters": len(memory.notification_suppressions),
+            }
+        )
 
     return ToolResult.error("invalid_action", f"unknown action {params.action!r}")
 

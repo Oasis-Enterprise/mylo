@@ -75,18 +75,20 @@ async def check_anomalies(
         else:
             severity = "low"
 
-        findings.append({
-            "id": baseline.entity.replace(".", "_"),
-            "title": f"{friendly} is {abs_z:.1f}sd {direction} normal",
-            "message": (
-                f"Current: {value}{unit} · "
-                f"Baseline: {baseline.avg:.1f}±{baseline.stddev:.1f}{unit} · "
-                f"Z-score: {z:+.2f}"
-            ),
-            "severity": severity,
-            "entity_id": baseline.entity,
-            "z_score": round(z, 2),
-        })
+        findings.append(
+            {
+                "id": baseline.entity.replace(".", "_"),
+                "title": f"{friendly} is {abs_z:.1f}sd {direction} normal",
+                "message": (
+                    f"Current: {value}{unit} · "
+                    f"Baseline: {baseline.avg:.1f}±{baseline.stddev:.1f}{unit} · "
+                    f"Z-score: {z:+.2f}"
+                ),
+                "severity": severity,
+                "entity_id": baseline.entity,
+                "z_score": round(z, 2),
+            }
+        )
 
     if findings:
         log.info("anomaly.findings", count=len(findings))

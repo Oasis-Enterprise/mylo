@@ -127,12 +127,8 @@ def test_pruner_never_drops_user_confirmed_or_critical() -> None:
 
 def test_pruner_archives_resolved_issues() -> None:
     mem = empty_memory()
-    mem.known_issues.append(
-        KnownIssue(id="i_resolved", description="fixed", status="resolved")
-    )
-    mem.known_issues.append(
-        KnownIssue(id="i_active", description="still broken", status="active")
-    )
+    mem.known_issues.append(KnownIssue(id="i_resolved", description="fixed", status="resolved"))
+    mem.known_issues.append(KnownIssue(id="i_active", description="still broken", status="active"))
     report = plan_prune(mem, now=NOW)
     reasons = {c.item_id: c.reason for c in report.candidates}
     assert reasons.get("i_resolved") == "resolved_issue"
@@ -174,12 +170,8 @@ def test_pruner_drops_low_confidence_old_patterns() -> None:
 
 def test_pruner_drops_old_rejections() -> None:
     mem = empty_memory()
-    mem.rejected.append(
-        RejectedSuggestion(id="r_old", suggestion="no thanks", date=iso(200))
-    )
-    mem.rejected.append(
-        RejectedSuggestion(id="r_new", suggestion="still relevant", date=iso(30))
-    )
+    mem.rejected.append(RejectedSuggestion(id="r_old", suggestion="no thanks", date=iso(200)))
+    mem.rejected.append(RejectedSuggestion(id="r_new", suggestion="still relevant", date=iso(30)))
     report = plan_prune(mem, now=NOW)
     ids = {c.item_id for c in report.candidates}
     assert "r_old" in ids
@@ -481,9 +473,7 @@ async def test_sync_endpoint_without_provider_is_graceful(
     assert body["changed"] is True  # fallback merge landed the scratchpad note
 
 
-async def test_sync_endpoint_apply_prune_flag(
-    aiohttp_client, memory_app: web.Application
-) -> None:
+async def test_sync_endpoint_apply_prune_flag(aiohttp_client, memory_app: web.Application) -> None:
     from mylo.server.app import AppKeys
 
     store = memory_app[AppKeys.MEMORY]
@@ -533,9 +523,7 @@ async def test_get_memory_full_returns_whole_document(
     assert [m["name"] for m in body["household"]["members"]] == ["Alice"]
 
 
-async def test_delete_memory_item_removes_note(
-    aiohttp_client, memory_app: web.Application
-) -> None:
+async def test_delete_memory_item_removes_note(aiohttp_client, memory_app: web.Application) -> None:
     from mylo.server.app import AppKeys
 
     store = memory_app[AppKeys.MEMORY]
@@ -545,9 +533,7 @@ async def test_delete_memory_item_removes_note(
     await store.save(mem, note="seed")
 
     client = await aiohttp_client(memory_app)
-    resp = await client.delete(
-        "/api/memory/item", json={"section": "notes", "id": "n_drop"}
-    )
+    resp = await client.delete("/api/memory/item", json={"section": "notes", "id": "n_drop"})
     assert resp.status == 200
     body = await resp.json()
     assert body["ok"] is True
@@ -563,9 +549,7 @@ async def test_delete_memory_item_rejects_unknown_section(
 
     await memory_app[AppKeys.MEMORY].load()
     client = await aiohttp_client(memory_app)
-    resp = await client.delete(
-        "/api/memory/item", json={"section": "household", "id": "anyone"}
-    )
+    resp = await client.delete("/api/memory/item", json={"section": "household", "id": "anyone"})
     assert resp.status == 400
 
 
@@ -610,9 +594,7 @@ async def test_prune_only_endpoint_drops_expired(
     assert {n.id for n in reloaded.notes} == {"n_keep"}
 
 
-async def test_prune_only_honors_ids_filter(
-    aiohttp_client, memory_app: web.Application
-) -> None:
+async def test_prune_only_honors_ids_filter(aiohttp_client, memory_app: web.Application) -> None:
     from mylo.server.app import AppKeys
 
     store = memory_app[AppKeys.MEMORY]
@@ -663,9 +645,7 @@ async def test_resolve_conflict_marks_status_resolved(
     await store.save(mem, note="seed")
 
     client = await aiohttp_client(memory_app)
-    resp = await client.post(
-        "/api/memory/conflict/conflict_abc/resolve", json={"choice": "b"}
-    )
+    resp = await client.post("/api/memory/conflict/conflict_abc/resolve", json={"choice": "b"})
     assert resp.status == 200
 
     reloaded = await MemoryStore(mylo_data_dir=store.mylo_data_dir).load()
@@ -682,9 +662,7 @@ async def test_resolve_conflict_404_for_unknown_id(
 
     await memory_app[AppKeys.MEMORY].load()
     client = await aiohttp_client(memory_app)
-    resp = await client.post(
-        "/api/memory/conflict/nope/resolve", json={"choice": "a"}
-    )
+    resp = await client.post("/api/memory/conflict/nope/resolve", json={"choice": "a"})
     assert resp.status == 404
 
 

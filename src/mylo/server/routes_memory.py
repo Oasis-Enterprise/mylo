@@ -201,9 +201,7 @@ async def _handle_prune(request: web.Request) -> web.Response:
         report.candidates = [c for c in report.candidates if c.item_id in allow]
 
     if report.total == 0:
-        return web.json_response(
-            {"ok": True, "applied": 0, "prune_candidates": []}
-        )
+        return web.json_response({"ok": True, "applied": 0, "prune_candidates": []})
 
     pruned = apply_prune(memory, report)
     await store.save(pruned, note=f"manual prune: {report.total} items")

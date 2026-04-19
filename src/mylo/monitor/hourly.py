@@ -32,20 +32,22 @@ log = get_logger(__name__)
 
 # Only sweep these domains — no point flagging input_booleans or
 # scenes as unavailable.
-_MONITORED_DOMAINS = frozenset({
-    "sensor",
-    "binary_sensor",
-    "light",
-    "switch",
-    "cover",
-    "lock",
-    "climate",
-    "fan",
-    "media_player",
-    "camera",
-    "vacuum",
-    "weather",
-})
+_MONITORED_DOMAINS = frozenset(
+    {
+        "sensor",
+        "binary_sensor",
+        "light",
+        "switch",
+        "cover",
+        "lock",
+        "climate",
+        "fan",
+        "media_player",
+        "camera",
+        "vacuum",
+        "weather",
+    }
+)
 
 # Mutable module-level set tracking entities that were already
 # unavailable on the last sweep so we don't re-notify.
@@ -94,12 +96,14 @@ async def run_hourly_check(
             entity_list = ", ".join(sorted_new[:3]) + f" and {count - 3} more"
             title = f"{count} entities unavailable"
 
-        findings.append({
-            "id": "unavailable",
-            "title": title,
-            "message": f"Newly unavailable: {entity_list}",
-            "severity": "normal" if count < 10 else "high",
-        })
+        findings.append(
+            {
+                "id": "unavailable",
+                "title": title,
+                "message": f"Newly unavailable: {entity_list}",
+                "severity": "normal" if count < 10 else "high",
+            }
+        )
 
     _previously_unavailable = currently_unavailable
 
@@ -121,15 +125,17 @@ async def run_hourly_check(
             delta = datetime.now(UTC) - triggered_dt
             if delta.total_seconds() > 48 * 3600:
                 friendly = attrs.get("friendly_name", entity_id)
-                findings.append({
-                    "id": f"stale_{entity_id}",
-                    "title": f"Automation hasn't fired in {delta.days}d",
-                    "message": (
-                        f"{friendly} last triggered {delta.days} days ago. "
-                        "It may be misconfigured or no longer needed."
-                    ),
-                    "severity": "low",
-                })
+                findings.append(
+                    {
+                        "id": f"stale_{entity_id}",
+                        "title": f"Automation hasn't fired in {delta.days}d",
+                        "message": (
+                            f"{friendly} last triggered {delta.days} days ago. "
+                            "It may be misconfigured or no longer needed."
+                        ),
+                        "severity": "low",
+                    }
+                )
         except (ValueError, TypeError):
             continue
 

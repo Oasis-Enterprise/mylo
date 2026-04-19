@@ -37,13 +37,15 @@ _JINJA_ENTITY_RE = re.compile(
 )
 
 # Keys in card configs that hold entity references.
-_ENTITY_KEYS = frozenset({
-    "entity",
-    "entity_id",
-    "camera_entity",
-    "media_player_entity",
-    "state_of",
-})
+_ENTITY_KEYS = frozenset(
+    {
+        "entity",
+        "entity_id",
+        "camera_entity",
+        "media_player_entity",
+        "state_of",
+    }
+)
 
 # Domains that are valid HA entity prefixes.
 _ENTITY_DOMAIN_RE = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
@@ -107,10 +109,12 @@ def validate_refs(
             continue
         # Fuzzy match.
         suggestions = _fuzzy_suggestions(ref, all_entity_ids, limit=max_suggestions)
-        invalid.append({
-            "entity_id": ref,
-            "did_you_mean": suggestions,
-        })
+        invalid.append(
+            {
+                "entity_id": ref,
+                "did_you_mean": suggestions,
+            }
+        )
 
     return invalid
 
