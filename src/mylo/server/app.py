@@ -67,9 +67,59 @@ class AppKeys:
     SCHEDULER = web.AppKey("scheduler", object)
 
 
+_DEFAULT_MODELS: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-4o",
+    "ollama": "llama3.1",
+}
+
+
+def _resolve_model(config: AppConfig) -> str:
+    """Return the configured model, falling back to a sensible default
+    when the user switches providers but forgets to update the model.
+
+    If the model field contains a provider-specific name that doesn't
+    match the selected provider, swap it for the default.
+    """
+    model = config.model
+    provider = config.llm_provider
+
+    # Detect mismatched provider/model combos.
+    if provider == "openai" and model.startswith("claude"):
+        default = _DEFAULT_MODELS["openai"]
+        log.warning(
+            "server.model_mismatch",
+            configured=model,
+            provider=provider,
+            using=default,
+        )
+        return default
+    if provider == "anthropic" and model.startswith(("gpt-", "o1-")):
+        default = _DEFAULT_MODELS["anthropic"]
+        log.warning(
+            "server.model_mismatch",
+            configured=model,
+            provider=provider,
+            using=default,
+        )
+        return default
+    if provider == "ollama" and (model.startswith("claude") or model.startswith("gpt-")):
+        default = _DEFAULT_MODELS["ollama"]
+        log.warning(
+            "server.model_mismatch",
+            configured=model,
+            provider=provider,
+            using=default,
+        )
+        return default
+
+    return model
+
+
 def _create_provider(config: AppConfig) -> Any:
     """Instantiate the LLM provider based on config.llm_provider."""
     api_key = os.environ.get("ANTHROPIC_API_KEY") or config.api_key
+    model = _resolve_model(config)
 
     if config.llm_provider == "anthropic":
         if not api_key:
@@ -79,16 +129,20 @@ def _create_provider(config: AppConfig) -> Any:
     if config.llm_provider == "openai":
         openai_key = os.environ.get("OPENAI_API_KEY") or api_key
         if not openai_key:
+            log.warning(
+                "server.openai_no_key",
+                hint="Set api_key in the Configuration tab to your OpenAI API key",
+            )
             return None
         from mylo.llm.openai_provider import OpenAIProvider
 
-        return OpenAIProvider(api_key=openai_key)
+        return OpenAIProvider(api_key=openai_key, default_model=model)
 
     if config.llm_provider == "ollama":
         from mylo.llm.ollama_provider import OllamaProvider
 
         url = config.ollama_url or os.environ.get("OLLAMA_URL") or None
-        return OllamaProvider(base_url=url, model=config.model)
+        return OllamaProvider(base_url=url, model=model)
 
     log.warning("server.unknown_llm_provider", provider=config.llm_provider)
     return None
