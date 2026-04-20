@@ -87,7 +87,8 @@ def _create_provider(config: AppConfig) -> Any:
     if config.llm_provider == "ollama":
         from mylo.llm.ollama_provider import OllamaProvider
 
-        return OllamaProvider(model=config.model)
+        url = config.ollama_url or os.environ.get("OLLAMA_URL") or None
+        return OllamaProvider(base_url=url, model=config.model)
 
     log.warning("server.unknown_llm_provider", provider=config.llm_provider)
     return None

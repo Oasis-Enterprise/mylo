@@ -34,6 +34,7 @@ options:
   max_daily_notifications: 3
   quiet_hours_start: "22:00"
   quiet_hours_end: "07:00"
+  ollama_url: ""
   session_budget_usd: 0.50
   monthly_budget_usd: 15.00
   log_level: INFO
@@ -43,6 +44,7 @@ schema:
   llm_provider: list(anthropic|openai|ollama)
   model: str
   reconciliation_model: str
+  ollama_url: "str?"
   sync_frequency: list(nightly|weekly|manual)
   memory_token_limit: int(1000,64000)
   proactive_notifications: bool

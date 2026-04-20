@@ -40,6 +40,7 @@ def _make_config(**overrides: Any) -> AppConfig:
         llm_provider="anthropic",
         model="x",
         reconciliation_model="y",
+        ollama_url="",
         sync_frequency="nightly",
         memory_token_limit=8000,
         proactive_notifications=True,

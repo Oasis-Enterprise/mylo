@@ -50,6 +50,7 @@ class AppConfig:
     llm_provider: LLMProvider
     model: str
     reconciliation_model: str
+    ollama_url: str
     sync_frequency: SyncFrequency
     memory_token_limit: int
     proactive_notifications: bool
@@ -116,6 +117,7 @@ def load_config() -> AppConfig:
         llm_provider=llm_provider,
         model=_get(options, "model", "claude-sonnet-4-6"),
         reconciliation_model=_get(options, "reconciliation_model", "claude-haiku-4-5-20251001"),
+        ollama_url=str(_get(options, "ollama_url", "")),
         sync_frequency=sync_frequency,
         memory_token_limit=int(_get(options, "memory_token_limit", 8000)),
         proactive_notifications=bool(_get(options, "proactive_notifications", True)),
