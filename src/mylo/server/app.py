@@ -199,12 +199,11 @@ async def _startup(app: web.Application) -> None:
 
     # Tool context (shared across requests; per-request shims can wrap later).
     tool_registry.load_all()
-    # Tool schemas differ by provider: Anthropic uses input_schema at
-    # the top level; OpenAI/Ollama wrap in {type: function, function: {...}}.
-    if config.llm_provider in ("openai", "ollama"):
-        app[AppKeys.TOOLS_JSON] = [t.to_openai() for t in tool_registry.all_tools()]
-    else:
-        app[AppKeys.TOOLS_JSON] = [t.to_anthropic() for t in tool_registry.all_tools()]
+    # Always store Anthropic format. Each provider's message() method
+    # converts internally — _convert_tools in openai_provider handles
+    # the Anthropic→OpenAI translation. Storing pre-converted tools
+    # caused a double-conversion KeyError for OpenAI/Ollama users.
+    app[AppKeys.TOOLS_JSON] = [t.to_anthropic() for t in tool_registry.all_tools()]
     app[AppKeys.TOOL_CONTEXT] = ToolContext(
         ws_client=client,
         registries=registries,
