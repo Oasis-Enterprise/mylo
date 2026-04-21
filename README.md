@@ -4,7 +4,7 @@ A persistent, memory-aware AI agent that lives inside your Home Assistant as a s
 
 Mylo connects deeply to your HA instance over websocket — it knows your entities, devices, areas, automations, dashboards, integrations, and learned preferences. It can read, create, and modify your HA configuration, control devices, detect anomalies, and proactively surface issues. It remembers across sessions.
 
-> **Status:** v1.0.0. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
+> **Status:** v1.0.3. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
 
 ## Install
 
@@ -15,7 +15,7 @@ Mylo connects deeply to your HA instance over websocket — it knows your entiti
 
 Pre-built images available for **amd64** (x86 mini PCs, NUCs, Proxmox) and **aarch64** (Raspberry Pi 4/5). If no pre-built image exists for your architecture, the add-on builds from source on install.
 
-The add-on is **free and open source**. You bring your own API key — Anthropic (Claude), OpenAI, or Ollama (fully local, $0).
+The add-on is **free and open source**. You bring your own API key — Anthropic (Claude), OpenAI, Google Gemini, or Ollama (fully local, $0).
 
 ---
 
@@ -78,9 +78,9 @@ Create and modify Lovelace views through conversation. Supports mushroom cards, 
 - "Create a card that shows my energy usage for the last 24 hours"
 - "Add a conditional card that only shows when the garage door is open"
 
-**Tools used:** `modify_dashboard` (create, add_cards, update, delete), `query_dashboard`
+**Tools used:** `modify_dashboard` (create, add_cards, update_view, replace_card, remove_card, delete), `query_dashboard`
 
-Dashboard creation works incrementally — Mylo creates the view with an initial batch of cards, then adds more in follow-up calls. This handles complex views without hitting output limits.
+Dashboard operations are surgical — Mylo can replace a single view by path, swap one card by index, or remove a card without touching the rest of your dashboard. For new views, it builds incrementally: creates the view with an initial batch of cards, then adds more in follow-up calls.
 
 **Entity validation:** Every entity reference in card configs (including inside Jinja templates like `states('sensor.temp')`) is validated against the live registry before preview. If Mylo hallucinates an entity ID, it gets caught and corrected with fuzzy-match suggestions before you ever see a broken card.
 
@@ -202,13 +202,16 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 
 ## LLM providers
 
-| Provider | Config value | API key env var | Cost | Notes |
-|----------|-------------|----------------|------|-------|
-| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` | ~$3–15/Mtok | Default. Best tool calling quality. |
-| **OpenAI** | `openai` | `OPENAI_API_KEY` | ~$2.50–10/Mtok | GPT-4o, GPT-4-turbo, etc. |
-| **Ollama** | `ollama` | none | $0 | Local models. Needs Ollama running on host. |
+| Provider | Config value | API key | Default model | Cost | Notes |
+|----------|-------------|---------|---------------|------|-------|
+| **Anthropic** | `anthropic` | Anthropic key | `claude-sonnet-4-6` | ~$3–15/Mtok | Default. Best tool calling quality. |
+| **OpenAI** | `openai` | OpenAI key | `gpt-4o` | ~$2.50–10/Mtok | GPT-4o, GPT-4-turbo, etc. |
+| **Gemini** | `gemini` | Google AI Studio key | `gemini-2.5-flash` | ~$0.15–10/Mtok | Via Google's OpenAI-compatible endpoint. |
+| **Ollama** | `ollama` | none | `llama3.1` | $0 | Local models. Needs Ollama running on host. |
 
-For Ollama: set `llm_provider: ollama` and `model: llama3.1` in the add-on config. The add-on connects to `host.docker.internal:11434` by default — set the `OLLAMA_URL` environment variable to override.
+All providers use the same `api_key` field in the Configuration tab — just put the right key for your chosen provider. If you switch providers but forget to update the `model` field, Mylo auto-detects the mismatch and falls back to the provider's default model.
+
+For Ollama: set `ollama_url` in the Configuration tab to your Ollama server's address (e.g. `http://192.168.1.50:11434/v1`). Default is `http://host.docker.internal:11434/v1` which works if Ollama runs on the same machine as HA.
 
 ---
 
@@ -218,10 +221,11 @@ Set in the add-on **Configuration** tab:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `api_key` | — | API key for your chosen provider (required for Anthropic/OpenAI) |
-| `llm_provider` | `anthropic` | LLM backend: `anthropic`, `openai`, or `ollama` |
-| `model` | `claude-sonnet-4-6` | Primary chat model |
+| `api_key` | — | API key for your chosen provider (required for Anthropic/OpenAI/Gemini) |
+| `llm_provider` | `anthropic` | LLM backend: `anthropic`, `openai`, `gemini`, or `ollama` |
+| `model` | `claude-sonnet-4-6` | Primary chat model (auto-corrects if mismatched with provider) |
 | `reconciliation_model` | `claude-haiku-4-5-20251001` | Model for nightly memory sync (use a cheap model) |
+| `ollama_url` | — | Ollama server URL (e.g. `http://192.168.1.50:11434/v1`) |
 | `sync_frequency` | `nightly` | Memory sync schedule: `nightly` / `weekly` / `manual` |
 | `memory_token_limit` | `8000` | Max tokens for the memory section of the system prompt |
 | `proactive_notifications` | `true` | Enable hourly monitoring + anomaly alerts |
@@ -307,7 +311,7 @@ cp .env.example .env
 ```bash
 .venv/bin/python -m mylo              # run server
 .venv/bin/python -m mylo.scripts.chat # CLI chat (debugging)
-.venv/bin/pytest tests/unit/          # 344 tests
+.venv/bin/pytest tests/unit/          # tests
 .venv/bin/mypy src/                   # type check
 .venv/bin/ruff check src/             # lint
 ```
