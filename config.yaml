@@ -41,7 +41,7 @@ options:
 
 schema:
   api_key: password
-  llm_provider: list(anthropic|openai|ollama)
+  llm_provider: list(anthropic|openai|gemini|ollama)
   model: str
   reconciliation_model: str
   ollama_url: "str?"

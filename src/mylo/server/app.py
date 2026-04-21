@@ -70,6 +70,7 @@ class AppKeys:
 _DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-4o",
+    "gemini": "gemini-2.5-flash",
     "ollama": "llama3.1",
 }
 
@@ -103,7 +104,18 @@ def _resolve_model(config: AppConfig) -> str:
             using=default,
         )
         return default
-    if provider == "ollama" and (model.startswith("claude") or model.startswith("gpt-")):
+    if provider == "gemini" and not model.startswith("gemini"):
+        default = _DEFAULT_MODELS["gemini"]
+        log.warning(
+            "server.model_mismatch",
+            configured=model,
+            provider=provider,
+            using=default,
+        )
+        return default
+    if provider == "ollama" and (
+        model.startswith("claude") or model.startswith("gpt-") or model.startswith("gemini")
+    ):
         default = _DEFAULT_MODELS["ollama"]
         log.warning(
             "server.model_mismatch",
@@ -137,6 +149,18 @@ def _create_provider(config: AppConfig) -> Any:
         from mylo.llm.openai_provider import OpenAIProvider
 
         return OpenAIProvider(api_key=openai_key, default_model=model)
+
+    if config.llm_provider == "gemini":
+        gemini_key = os.environ.get("GEMINI_API_KEY") or api_key
+        if not gemini_key:
+            log.warning(
+                "server.gemini_no_key",
+                hint="Set api_key in the Configuration tab to your Gemini API key",
+            )
+            return None
+        from mylo.llm.gemini_provider import GeminiProvider
+
+        return GeminiProvider(api_key=gemini_key, model=model)
 
     if config.llm_provider == "ollama":
         from mylo.llm.ollama_provider import OllamaProvider

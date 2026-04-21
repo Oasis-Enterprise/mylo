@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 SyncFrequency = Literal["nightly", "weekly", "manual"]
-LLMProvider = Literal["anthropic", "openai", "ollama"]
+LLMProvider = Literal["anthropic", "openai", "gemini", "ollama"]
 
 DEFAULT_OPTIONS_PATH = Path("/data/options.json")
 
@@ -107,7 +107,7 @@ def load_config() -> AppConfig:
     llm_provider: LLMProvider = _get(options, "llm_provider", "anthropic")
     sync_frequency: SyncFrequency = _get(options, "sync_frequency", "nightly")
 
-    if llm_provider not in ("anthropic", "openai", "ollama"):
+    if llm_provider not in ("anthropic", "openai", "gemini", "ollama"):
         raise ValueError(f"invalid llm_provider: {llm_provider}")
     if sync_frequency not in ("nightly", "weekly", "manual"):
         raise ValueError(f"invalid sync_frequency: {sync_frequency}")
