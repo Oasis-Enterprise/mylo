@@ -25,7 +25,6 @@ interface Props {
   tab: Tab;
   onChange: (tab: Tab) => void;
   onNewConversation?: () => void;
-  version?: string;
 }
 
 // Top row: status dot, MYLO wordmark, version, right-aligned tabs.
@@ -33,7 +32,7 @@ interface Props {
 // memory sync age, and session-level token + turn counters. The
 // status endpoint is polled every 30s and right after mount so the
 // memory sync string stays fresh without a WebSocket.
-export function Header({ tab, onChange, onNewConversation, version = "v1.0.0" }: Props) {
+export function Header({ tab, onChange, onNewConversation }: Props) {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const turns = useSession((s) => s.turns);
   const inputTokens = useSession((s) => s.inputTokens);
@@ -70,7 +69,7 @@ export function Header({ tab, onChange, onNewConversation, version = "v1.0.0" }:
           >
             MYLO
           </span>
-          <Tag tone="muted">{version.toUpperCase()}</Tag>
+          <Tag tone="muted">V{status?.version ?? "..."}</Tag>
         </div>
         <nav className="flex items-center gap-1">
           <TabButton active={tab === "chat"} onClick={() => onChange("chat")}>

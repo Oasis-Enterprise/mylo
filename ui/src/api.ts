@@ -158,6 +158,7 @@ export type RawContentBlock =
 
 export interface ServerStatus {
   ok: boolean;
+  version: string;
   entities: number;
   automations: number;
   memory: {

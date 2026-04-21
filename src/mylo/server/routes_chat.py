@@ -222,9 +222,12 @@ async def _handle_status(request: web.Request) -> web.Response:
             "pending_conflicts": len(mem.pending_conflicts()),
         }
 
+    from mylo import __version__
+
     return web.json_response(
         {
             "ok": True,
+            "version": __version__,
             "entities": entity_count,
             "automations": automation_count,
             "memory": memory_payload,
