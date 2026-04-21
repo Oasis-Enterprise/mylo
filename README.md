@@ -206,7 +206,7 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 |----------|-------------|---------|---------------|------|-------|
 | **Anthropic** | `anthropic` | Anthropic key | `claude-sonnet-4-6` | ~$3–15/Mtok | Default. Best tool calling quality. |
 | **OpenAI** | `openai` | OpenAI key | `gpt-4o` | ~$2.50–10/Mtok | GPT-4o, GPT-4-turbo, etc. |
-| **Gemini** | `gemini` | Google AI Studio key | `gemini-2.5-flash` | ~$0.15–10/Mtok | Via Google's OpenAI-compatible endpoint. |
+| **Gemini** | `gemini` | Google AI Studio key | `gemini-2.5-flash` | ~$0.15–10/Mtok | Coming soon in v1.0.4. |
 | **Ollama** | `ollama` | none | `llama3.1` | $0 | Local models. Needs Ollama running on host. |
 
 All providers use the same `api_key` field in the Configuration tab — just put the right key for your chosen provider. If you switch providers but forget to update the `model` field, Mylo auto-detects the mismatch and falls back to the provider's default model.
@@ -263,9 +263,9 @@ Mylo uses a three-tier permission system:
 ## Things you might not know you can do
 
 **Tell Mylo about your household:**
-- "Maxwell works from home most days"
-- "Lincoln and Berkley go to bed at 7pm"
-- "Mary prefers warm lighting"
+- "I work from home most days"
+- "The kids go to bed at 7pm"
+- "My wife prefers warm lighting"
 
 This gets stored in the household section of memory and influences future behavior — Mylo won't suggest turning on kids' lights after bedtime.
 
