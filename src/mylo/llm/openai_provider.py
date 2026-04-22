@@ -72,10 +72,14 @@ class OpenAIProvider:
         oai_messages = _convert_messages(system, messages)
         oai_tools = _convert_tools(tools)
 
+        resolved_model = self._default_model or model
+        # OpenAI's newer models (gpt-5.x, o1, o3, etc.) require
+        # max_completion_tokens instead of max_tokens. Use the new
+        # parameter for all models — it's forward-compatible.
         kwargs: dict[str, Any] = {
-            "model": self._default_model or model,
+            "model": resolved_model,
             "messages": oai_messages,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_tokens,
         }
         if oai_tools:
             kwargs["tools"] = oai_tools
