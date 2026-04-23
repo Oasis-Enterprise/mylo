@@ -8,11 +8,6 @@ A living document. Priorities shift based on user feedback and what surfaces fro
 
 Features actively being worked on for upcoming releases.
 
-### Conversation Agent Registration
-Register Mylo as a Home Assistant conversation agent. Once connected, Assist, voice satellites, and the companion app all route through Mylo — full tool access, memory, and context from any voice interface. "Hey Mylo, lock the front door" works from your phone, Google Home, or any HA voice satellite.
-
-This is the single highest-impact feature on the roadmap. It turns Mylo from a sidebar panel into the voice of the home.
-
 ### Helper Entity Creation
 Create and manage HA helper entities through conversation — input_booleans, input_numbers, input_selects, timers, counters, input_datetimes. Currently users have to go to Settings → Helpers manually for each one.
 
