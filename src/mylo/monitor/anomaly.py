@@ -40,6 +40,16 @@ log = get_logger(__name__)
 
 Z_THRESHOLD = 2.5
 
+# Sensors with very low natural variance (batteries, stable temps)
+# produce tiny stddevs where any small change looks like a spike.
+# Clamp stddev to at least this fraction of the baseline mean so
+# stable sensors don't fire on noise.
+MIN_STDDEV_FRACTION = 0.02  # 2% of the mean
+
+# Even if the z-score is high, ignore changes smaller than this
+# absolute amount. A 0.6% battery drop isn't worth a notification.
+MIN_ABSOLUTE_CHANGE = 5.0
+
 
 async def check_anomalies(
     *,
@@ -70,10 +80,18 @@ async def check_anomalies(
         if baseline.stddev <= 0:
             continue
 
-        z = (value - baseline.avg) / baseline.stddev
+        # Clamp stddev so stable sensors (batteries, slow-changing
+        # temps) don't trigger on tiny fluctuations.
+        effective_stddev = max(baseline.stddev, abs(baseline.avg) * MIN_STDDEV_FRACTION)
+
+        z = (value - baseline.avg) / effective_stddev
         abs_z = abs(z)
 
         if abs_z < threshold:
+            continue
+
+        # Skip if the absolute change is too small to matter.
+        if abs(value - baseline.avg) < MIN_ABSOLUTE_CHANGE:
             continue
 
         direction = "above" if z > 0 else "below"

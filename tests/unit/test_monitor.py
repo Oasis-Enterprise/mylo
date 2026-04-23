@@ -312,6 +312,59 @@ async def test_anomaly_no_finding_within_threshold() -> None:
     assert len(findings) == 0
 
 
+async def test_anomaly_ignores_tiny_battery_fluctuation() -> None:
+    """A battery at 96% with baseline 96.6±0.2 is technically 3σ but
+    the absolute change (0.6%) is meaningless. Should NOT fire."""
+    ws = AsyncMock()
+    ws.send_command = AsyncMock(
+        return_value=[
+            {
+                "entity_id": "sensor.motion_battery",
+                "state": "96.0",
+                "attributes": {"unit_of_measurement": "%"},
+            },
+        ]
+    )
+
+    baselines = Baselines(
+        entities=[
+            EntityBaseline(
+                entity="sensor.motion_battery", metric="mean", avg=96.6, stddev=0.2
+            ),
+        ]
+    )
+
+    findings = await check_anomalies(ws_client=ws, baselines=baselines)
+    assert len(findings) == 0
+
+
+async def test_anomaly_fires_on_real_battery_drop() -> None:
+    """Jerome vacuum at 62% with baseline 96±10 is a real drop (34%).
+    Should fire."""
+    ws = AsyncMock()
+    ws.send_command = AsyncMock(
+        return_value=[
+            {
+                "entity_id": "sensor.vacuum_battery",
+                "state": "62.0",
+                "attributes": {"unit_of_measurement": "%"},
+            },
+        ]
+    )
+
+    baselines = Baselines(
+        entities=[
+            EntityBaseline(
+                entity="sensor.vacuum_battery", metric="mean", avg=96.2, stddev=9.9
+            ),
+        ]
+    )
+
+    findings = await check_anomalies(ws_client=ws, baselines=baselines)
+    assert len(findings) == 1
+    assert findings[0]["entity_id"] == "sensor.vacuum_battery"
+
+
 async def test_anomaly_skips_non_numeric_state() -> None:
     ws = AsyncMock()
     ws.send_command = AsyncMock(
