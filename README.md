@@ -19,6 +19,29 @@ The add-on is **free and open source**. You bring your own API key — Anthropic
 
 ---
 
+## Roadmap
+
+Actively maintained. Full details in [`ROADMAP.md`](ROADMAP.md).
+
+**Now** — actively building:
+- **Conversation Agent registration** — register Mylo as an HA conversation agent so Assist, voice satellites, and the companion app all route through Mylo. Voice control with full tool access and memory.
+- **Helper entity creation** — create input_booleans, input_numbers, timers, counters through conversation instead of clicking through Settings → Helpers.
+- **Scene management** — create, edit, and activate scenes. "Save the current living room lighting as movie night."
+
+**Soon:**
+- Script management (create/edit/trigger scripts)
+- Template tester (test Jinja without Developer Tools)
+- Past conversation browser (search archived sessions)
+- Entity history queries (trends and historical state, not just current)
+
+**Later:**
+- Weekly health digest notifications
+- Automation conflict detection
+- Proactive automation suggestions from usage patterns
+- Multi-user support with per-person permissions and memory
+
+---
+
 ## What Mylo can do
 
 ### Query your home
