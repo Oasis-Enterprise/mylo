@@ -313,7 +313,7 @@ async def test_anomaly_no_finding_within_threshold() -> None:
 
 
 async def test_anomaly_ignores_tiny_battery_fluctuation() -> None:
-    """A battery at 96% with baseline 96.6±0.2 is technically 3σ but
+    """A battery at 96% with baseline 96.6+/-0.2 is technically 3 SD but
     the absolute change (0.6%) is meaningless. Should NOT fire."""
     ws = AsyncMock()
     ws.send_command = AsyncMock(
