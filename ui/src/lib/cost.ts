@@ -34,6 +34,12 @@ const RATES: Record<string, ModelRates> = {
   "gpt-4o-mini": { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite: 0.15 },
   "gemini-2.5-flash": { input: 0.15, output: 0.6, cacheRead: 0.015, cacheWrite: 0.15 },
   "gemini-2.5-pro": { input: 1.25, output: 10, cacheRead: 0.31, cacheWrite: 1.25 },
+  // Ollama models — $0 local inference. Explicit zeros so the UI
+  // shows "$0.00" instead of falling back to Sonnet rates.
+  "llama3.1": { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  "qwen2": { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  "mistral": { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  "deepseek-r1": { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
 const FALLBACK: ModelRates = RATES["claude-sonnet-4-6"];

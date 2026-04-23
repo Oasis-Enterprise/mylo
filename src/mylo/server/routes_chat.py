@@ -345,6 +345,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         timezone=request.app.get(AppKeys.HA_TIMEZONE),
         session_cost_usd=session_cost,
         session_budget_usd=config.session_budget_usd,
+        is_local_provider=config.llm_provider == "ollama",
     )
     system_text = assembled.system
 

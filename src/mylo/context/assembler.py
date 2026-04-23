@@ -73,6 +73,7 @@ def assemble_system_prompt(
     base_prompt: LoadedPrompt | None = None,
     session_cost_usd: float = 0.0,
     session_budget_usd: float = 0.50,
+    is_local_provider: bool = False,
 ) -> AssembledPrompt:
     """Build the full system prompt for one turn.
 
@@ -125,8 +126,9 @@ def assemble_system_prompt(
         parts.append("SETUP HINTS (mention naturally if relevant, don't force):\n" + hints)
 
     # Budget warning — when session cost approaches the configured cap,
-    # tell the model so it can mention it naturally.
-    if session_budget_usd > 0 and session_cost_usd > 0:
+    # tell the model so it can mention it naturally. Skipped for local
+    # providers (Ollama) where cost is $0.
+    if not is_local_provider and session_budget_usd > 0 and session_cost_usd > 0:
         ratio = session_cost_usd / session_budget_usd
         if ratio >= 0.80:
             parts.append(
