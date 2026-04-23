@@ -328,9 +328,7 @@ async def test_anomaly_ignores_tiny_battery_fluctuation() -> None:
 
     baselines = Baselines(
         entities=[
-            EntityBaseline(
-                entity="sensor.motion_battery", metric="mean", avg=96.6, stddev=0.2
-            ),
+            EntityBaseline(entity="sensor.motion_battery", metric="mean", avg=96.6, stddev=0.2),
         ]
     )
 
@@ -354,9 +352,7 @@ async def test_anomaly_fires_on_real_battery_drop() -> None:
 
     baselines = Baselines(
         entities=[
-            EntityBaseline(
-                entity="sensor.vacuum_battery", metric="mean", avg=96.2, stddev=9.9
-            ),
+            EntityBaseline(entity="sensor.vacuum_battery", metric="mean", avg=96.2, stddev=9.9),
         ]
     )
 
