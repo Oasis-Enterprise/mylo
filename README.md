@@ -211,7 +211,18 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 
 All providers use the same `api_key` field in the Configuration tab — just put the right key for your chosen provider. If you switch providers but forget to update the `model` field, Mylo auto-detects the mismatch and falls back to the provider's default model.
 
-For Ollama: set `ollama_url` in the Configuration tab to your Ollama server's address (e.g. `http://192.168.1.50:11434/v1`). Default is `http://host.docker.internal:11434/v1` which works if Ollama runs on the same machine as HA.
+For Ollama: set `ollama_url` in the Configuration tab to your Ollama server's address (e.g. `http://192.168.1.50:11434/v1`). Default is `http://host.docker.internal:11434/v1` which works if Ollama runs on the same machine as HA. Leave `api_key` empty — Ollama doesn't use one. Budget warnings are automatically disabled since cost is $0.
+
+**Ollama model sizing guide:** Mylo has 21 tools with complex schemas. Smaller models struggle to produce valid tool calls reliably.
+
+| Size | Examples | Experience |
+|------|----------|-----------|
+| **7B** | llama3.1:7b, mistral:7b | Not recommended. Struggles with complex tool parameters, frequently produces malformed JSON, and hallucinates entity IDs. May not self-correct after errors. |
+| **14B** | qwen2.5:14b | Usable for simple queries (lights, sensors, basic automations). Will struggle with multi-step tasks like dashboard building or entity rename cascades. |
+| **32B** | qwen2.5:32b, deepseek-r1:32b | Good. Handles most Mylo features reliably. Best balance of quality vs hardware requirements. |
+| **70B+** | llama3.1:70b | Near cloud-API quality. Requires significant hardware (64GB+ RAM or a dedicated GPU). |
+
+**Minimum recommended: 14B.** For the best local experience: **32B.**
 
 ---
 
