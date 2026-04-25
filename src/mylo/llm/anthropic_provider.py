@@ -37,9 +37,11 @@ repeated questions in the same session stop burning tokens on the same
 
 from __future__ import annotations
 
+import asyncio
+import random
 from typing import Any
 
-from anthropic import APIConnectionError, AsyncAnthropic
+from anthropic import APIConnectionError, AsyncAnthropic, RateLimitError
 
 from mylo.llm.provider import ProviderMessage, ProviderResponse, ToolCall
 from mylo.logging_setup import get_logger
@@ -89,25 +91,37 @@ class AnthropicProvider:
                 entry["cache_control"] = {"type": "ephemeral"}
             cached_tools.append(entry)
 
-        try:
-            response = await self._client.messages.create(
+        async def _call() -> Any:
+            return await self._client.messages.create(
                 model=model,
                 system=system_blocks,  # type: ignore[arg-type]
                 messages=messages,  # type: ignore[arg-type]
                 tools=cached_tools,  # type: ignore[arg-type]
                 max_tokens=max_tokens,
             )
-        except APIConnectionError:
-            # Pool may have a half-dead connection. Rebuild and retry once.
-            log.warning("anthropic.connection_error_rebuilding_pool")
-            self._rebuild_client()
-            response = await self._client.messages.create(
-                model=model,
-                system=system_blocks,  # type: ignore[arg-type]
-                messages=messages,  # type: ignore[arg-type]
-                tools=cached_tools,  # type: ignore[arg-type]
-                max_tokens=max_tokens,
-            )
+
+        _BACKOFF_DELAYS = (2.0, 5.0, 15.0)
+
+        for attempt in range(len(_BACKOFF_DELAYS) + 1):
+            try:
+                response = await _call()
+                break
+            except APIConnectionError:
+                log.warning("anthropic.connection_error_rebuilding_pool")
+                self._rebuild_client()
+                response = await _call()
+                break
+            except RateLimitError:
+                if attempt >= len(_BACKOFF_DELAYS):
+                    log.error("anthropic.rate_limit_exhausted_retries")
+                    raise
+                delay = _BACKOFF_DELAYS[attempt] + random.uniform(0, 1)
+                log.warning(
+                    "anthropic.rate_limited",
+                    attempt=attempt + 1,
+                    backoff_seconds=round(delay, 1),
+                )
+                await asyncio.sleep(delay)
 
         content_blocks: list[dict[str, Any]] = []
         text_parts: list[str] = []

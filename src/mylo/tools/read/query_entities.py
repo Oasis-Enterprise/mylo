@@ -27,10 +27,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.ha.registries import EntityEntry
+from mylo.logging_setup import get_logger
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.formatters import shape_entity, shape_entity_minimal, summarize_entities
 from mylo.tools.registry import register
+
+log = get_logger(__name__)
 
 Detail = Literal["minimal", "standard", "full"]
 
@@ -152,6 +155,17 @@ def _match(
 
 
 async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
+    # Hard cap: detail=standard or full with limit>100 would return
+    # 10K-15K tokens in one result. Force minimal to prevent history
+    # bloat and rate-limit spikes.
+    if params.detail != "minimal" and params.limit > 100:
+        params = params.model_copy(update={"detail": "minimal"})
+        log.info(
+            "query_entities.detail_downgraded",
+            reason="limit > 100 with non-minimal detail",
+            limit=params.limit,
+        )
+
     filt = params.filter
 
     target_area_id: str | None = None

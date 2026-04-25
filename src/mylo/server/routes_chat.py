@@ -40,6 +40,7 @@ from typing import Any
 from aiohttp import web
 
 from mylo.context.assembler import assemble_system_prompt
+from mylo.context.memory_injection import render_current_time
 from mylo.llm.tool_loop import (
     DoneEvent,
     LoopEvent,
@@ -348,6 +349,13 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         is_local_provider=config.llm_provider == "ollama",
     )
     system_text = assembled.system
+
+    # Prefix the user message with a compact timestamp so the model
+    # knows the current time without it being in the system prompt.
+    # This keeps the system block stable across turns, enabling
+    # Anthropic's prompt cache (~5,500 tokens saved per cache hit).
+    time_prefix = render_current_time(request.app.get(AppKeys.HA_TIMEZONE))
+    message = f"[{time_prefix}] {message}"
 
     response = web.StreamResponse(
         status=200,

@@ -106,6 +106,28 @@ async def run_turn(
 
     for _iteration in range(max_iterations):
         messages: list[ProviderMessage] = conversation.as_provider_messages()
+
+        # Token-size guard: if the serialized history is too large,
+        # force aggressive compression before calling the provider.
+        # Prevents 30K+ token histories from blowing the rate limit.
+        history_chars = sum(
+            len(json.dumps(m["content"], default=str))
+            if not isinstance(m["content"], str)
+            else len(m["content"])
+            for m in messages
+        )
+        estimated_tokens = history_chars // 4  # rough char-to-token ratio
+        if estimated_tokens > 12_000:
+            log.info(
+                "llm.history_too_large",
+                estimated_tokens=estimated_tokens,
+                compressing=True,
+            )
+            conversation.history = compress_old_tool_results(
+                conversation.history, keep_last_n_turns=1
+            )
+            messages = conversation.as_provider_messages()
+
         response = await provider.message(
             system=system,
             messages=messages,
@@ -160,13 +182,16 @@ async def run_turn(
             for call, envelope in zip(response.tool_calls, tool_results, strict=True)
         ]
         await conversation.append("user", result_blocks, prompt_version=prompt_version)
+
+        # Compress after EACH iteration, not after the whole turn.
+        # Without this, iteration 2 pays full price for iteration 1's
+        # raw result (~8K tokens for a query_entities), and iteration 3
+        # pays for both. On a 3-tool turn this saves 10-15K tokens.
+        conversation.history = compress_old_tool_results(conversation.history, keep_last_n_turns=1)
     else:
         log.warning("llm.tool_loop.max_iterations_hit", iterations=max_iterations)
 
-    # Compress old tool results in the in-memory history so subsequent
-    # turns don't re-pay for large payloads that the model already
-    # processed. Only modifies the in-memory list — the raw results
-    # stay in SQLite for debugging.
+    # Final compression with the standard window for between-turn savings.
     conversation.history = compress_old_tool_results(conversation.history)
 
     yield DoneEvent(stop_reason=stop_reason, usage=usage_total)

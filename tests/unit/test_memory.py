@@ -160,11 +160,19 @@ def test_summarize_entries_renders_human_readable(tmp_path: Path) -> None:
 # ─── System prompt integration ──────────────────────────────────────────────
 
 
-def test_build_memory_section_always_includes_current_time(tmp_path: Path) -> None:
-    # Even with an empty memory, we include CURRENT TIME so time-based
-    # rules can fire without tool calls.
+def test_build_memory_section_empty_memory_returns_empty(tmp_path: Path) -> None:
+    # Current time moved to user message prefix (Method 2 token
+    # optimization). Empty memory with no household/prefs/notes
+    # returns empty string to avoid wasting tokens.
     section = build_memory_section(empty_memory(), mylo_data_dir=tmp_path)
-    assert "CURRENT TIME:" in section
+    assert section == ""
+
+
+def test_render_current_time_returns_timestamp() -> None:
+    from mylo.context.memory_injection import render_current_time
+
+    result = render_current_time(None)
+    assert "CURRENT TIME:" in result
 
 
 def test_build_memory_section_includes_notes(tmp_path: Path) -> None:

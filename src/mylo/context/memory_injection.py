@@ -35,7 +35,7 @@ from mylo.memory.scratchpad import read_scratchpad, summarize_entries
 from mylo.validators.yaml_parser import dump_yaml
 
 _ALL_SECTIONS: frozenset[str] = frozenset(
-    {"now", "household", "preferences", "notes", "known_issues", "conflicts", "scratchpad"}
+    {"household", "preferences", "notes", "known_issues", "conflicts", "scratchpad"}
 )
 
 
@@ -58,11 +58,6 @@ def build_memory_section(
     enabled = frozenset(sections) if sections is not None else _ALL_SECTIONS
 
     parts: list[str] = []
-
-    if "now" in enabled:
-        # Always include current time so time-based memory rules ("don't
-        # turn on X after 8pm") can fire without a tool call.
-        parts.append(_render_now(timezone))
 
     if "household" in enabled:
         household_text = _render_household(memory)
@@ -100,6 +95,16 @@ def build_memory_section(
 
 
 # ─── Renderers ──────────────────────────────────────────────────────────────
+
+
+def render_current_time(timezone: str | None) -> str:
+    """Render a compact timestamp for prefixing onto the user message.
+
+    Moved out of the system prompt so the system block stays stable
+    across turns, enabling Anthropic's prompt cache (~5,500 tokens
+    saved per cache hit). The model still gets the time on every turn.
+    """
+    return _render_now(timezone)
 
 
 def _render_now(timezone: str | None) -> str:
