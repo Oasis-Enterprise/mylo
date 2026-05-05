@@ -349,17 +349,62 @@ def _parse_reconciler_output(text: str) -> MemoryFile:
 
     Haiku follows "no code fences" instructions most of the time but
     occasionally wraps output anyway — strip the fence if present.
+
+    LLM-generated YAML frequently has unquoted strings containing
+    colons (e.g. ``content: specs (cold): 36 psi``) which break the
+    parser. If the first parse fails, we retry with a best-effort
+    fix-up that quotes lines with ambiguous colons.
     """
     stripped = text.strip()
     fence_match = _CODE_FENCE_RE.match(stripped)
     if fence_match:
         stripped = fence_match.group(1)
 
-    parsed = load_yaml(stripped)
+    try:
+        parsed = load_yaml(stripped)
+    except Exception:
+        # Best-effort: try to fix unquoted strings with colons.
+        fixed = _fix_unquoted_colons(stripped)
+        parsed = load_yaml(fixed)
+
     if not isinstance(parsed, dict):
         raise ValueError(f"expected YAML mapping, got {type(parsed).__name__}")
 
     return MemoryFile.model_validate(parsed)
+
+
+# Matches a YAML line like `    content: some text (cold): more text`
+# where the value portion contains an unquoted colon. The first colon
+# after the key is the legitimate key:value separator; subsequent
+# colons in the value need the whole value quoted.
+_YAML_VALUE_RE = re.compile(r"^(\s*\w[\w\s]*:\s*)(.+)$")
+
+
+def _fix_unquoted_colons(text: str) -> str:
+    """Wrap YAML string values that contain colons in double quotes.
+
+    LLMs frequently produce lines like:
+        content: Tire specs (cold): Front 36 psi, Rear 42 psi.
+    which YAML parsers reject because the second colon looks like a
+    nested mapping. This wraps the value portion in quotes so the
+    parser sees a single string value.
+    """
+    lines = text.split("\n")
+    fixed: list[str] = []
+    for line in lines:
+        match = _YAML_VALUE_RE.match(line)
+        if match:
+            key_part = match.group(1)  # e.g. "    content: "
+            value_part = match.group(2)  # e.g. "Tire specs (cold): ..."
+            # Only fix if the value has an additional colon AND isn't
+            # already quoted AND isn't a YAML structure (list/dict).
+            if ":" in value_part and not value_part.startswith(("'", '"', "[", "{", "|", ">")):
+                # Escape any existing double quotes in the value.
+                escaped = value_part.replace('"', '\\"')
+                fixed.append(f'{key_part}"{escaped}"')
+                continue
+        fixed.append(line)
+    return "\n".join(fixed)
 
 
 # ─── Merge safeguards ────────────────────────────────────────────────────────
