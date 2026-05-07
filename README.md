@@ -4,7 +4,7 @@ A persistent, memory-aware AI agent that lives inside your Home Assistant as a s
 
 Mylo connects deeply to your HA instance over websocket — it knows your entities, devices, areas, automations, dashboards, integrations, and learned preferences. It can read, create, and modify your HA configuration, control devices, detect anomalies, and proactively surface issues. It remembers across sessions.
 
-> **Status:** v1.0.3. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
+> **Status:** v1.0.6. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
 
 ## Install
 
@@ -16,6 +16,10 @@ Mylo connects deeply to your HA instance over websocket — it knows your entiti
 Pre-built images available for **amd64** (x86 mini PCs, NUCs, Proxmox) and **aarch64** (Raspberry Pi 4/5). If no pre-built image exists for your architecture, the add-on builds from source on install.
 
 The add-on is **free and open source**. You bring your own API key — Anthropic (Claude), OpenAI, Google Gemini, or Ollama (fully local, $0).
+
+### Running without HAOS (Docker, Kubernetes)
+
+Mylo also runs as a standalone container outside the HA Supervisor — Docker Compose, Kubernetes, or any container runtime. See the [**Standalone Container Guide**](docs/standalone-container.md) for full setup instructions including Docker Compose and Kubernetes examples with secrets management. Community-contributed by [@mossholderm](https://github.com/mossholderm).
 
 ---
 
@@ -210,7 +214,11 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 | **Default limit 50** | Entity queries return max 50 results by default instead of dumping everything | Prevents 200-entity payloads |
 | **Read-only result cache** | Identical read-only tool calls within 120 seconds return cached results | Eliminates redundant HA queries |
 | **Topology routing** | The home topology in the system prompt often answers questions without a tool call at all | Saves entire tool call round trips |
-| **Budget warnings** | When session cost hits 80% of the configured cap, Mylo mentions it naturally | Prevents surprise bills |
+| **Intra-turn compression** | Tool results are compressed after each iteration in multi-tool turns, not after the whole turn | 5–15K tokens saved per complex turn |
+| **Prompt cache optimization** | System prompt stays stable across turns (timestamp moved to user message) so Anthropic's cache hits reliably | ~5,500 tokens at 90% discount per turn |
+| **Rate limit retry** | Anthropic 429 errors retry with exponential backoff instead of crashing | Prevents panic-retry amplification |
+| **History size guard** | Conversation history over ~12K tokens triggers aggressive compression before the API call | Prevents rate limit saturation |
+| **Budget warnings** | When session cost hits 80% of the configured cap, Mylo mentions it naturally (disabled for Ollama) | Prevents surprise bills |
 
 **Session budget:** Configurable per-session cap (default $0.50). The UI footer shows running cost and token budget.
 
@@ -228,7 +236,7 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 |----------|-------------|---------|---------------|------|-------|
 | **Anthropic** | `anthropic` | Anthropic key | `claude-sonnet-4-6` | ~$3–15/Mtok | Default. Best tool calling quality. |
 | **OpenAI** | `openai` | OpenAI key | `gpt-4o` | ~$2.50–10/Mtok | GPT-4o, GPT-4-turbo, etc. |
-| **Gemini** | `gemini` | Google AI Studio key | `gemini-2.5-flash` | ~$0.15–10/Mtok | Coming soon in v1.0.4. |
+| **Gemini** | `gemini` | Google AI Studio key | `gemini-2.5-flash` | ~$0.15–10/Mtok | Via Google's OpenAI-compatible endpoint. |
 | **Ollama** | `ollama` | none | `llama3.1` | $0 | Local models. Needs Ollama running on host. |
 
 All providers use the same `api_key` field in the Configuration tab — just put the right key for your chosen provider. If you switch providers but forget to update the `model` field, Mylo auto-detects the mismatch and falls back to the provider's default model.

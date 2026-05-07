@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] — 2026-05-04
+
+### Fixed
+- Sync crash on notes containing colons (e.g. "Tire specs (cold): Front 36 psi"). The YAML parser now auto-quotes values with embedded colons when the initial parse fails.
+- Anomaly detection: ignore tiny battery fluctuations. Added minimum stddev floor (2% of baseline mean) and minimum absolute change threshold (5 units).
+- Ollama: budget warnings disabled since cost is $0.
+
+## [1.0.5] — 2026-04-24
+
+### Added
+- Intra-turn compression: tool results compressed after each iteration, not after the whole turn. Saves 5–15K tokens per multi-tool turn.
+- Prompt cache optimization: timestamp moved from system prompt to user message prefix so the system block stays stable across turns. Restores ~5,500 tokens of cache savings.
+- Rate limit retry with exponential backoff (2s/5s/15s with jitter) for Anthropic 429 errors.
+- History size guard: forces aggressive compression when conversation history exceeds ~12K tokens.
+- Hard cap: query_entities with detail=standard and limit>100 auto-downgrades to detail=minimal.
+
+## [1.0.4] — 2026-04-21
+
+### Added
+- Gemini provider via Google's OpenAI-compatible endpoint. Default model: gemini-2.5-flash.
+- Surgical dashboard operations: update_view, replace_card, remove_card — modify single views or cards without touching the rest of the dashboard.
+- ollama_url config option — set Ollama server URL from the Configuration tab.
+- Cleaner anomaly notification text ("unusually low" instead of "2.6sd").
+- Version tag in UI header now reads from the server instead of hardcoded.
+
+### Fixed
+- OpenAI GPT-5.x models: use max_completion_tokens instead of deprecated max_tokens.
+
+## [1.0.3] — 2026-04-20
+
+### Fixed
+- OpenAI and Ollama provider crash: tool schemas were double-converted (KeyError: 'name'). Now stored in one canonical format.
+
+## [1.0.2] — 2026-04-19
+
+### Fixed
+- OpenAI users with default model claude-sonnet-4-6 got errors. Auto-detects provider/model mismatches and falls back to gpt-4o.
+- Better error message when no API key found for OpenAI.
+
+### Added
+- ollama_url config option for UI-based Ollama setup.
+
+## [1.0.1] — 2026-04-19
+
+### Fixed
+- Crash-loop on large HA installs (10k+ entities) from aiohttp's 4 MiB WebSocket message cap. Thanks @weirded (#1).
+- Improved WS error logging.
+
 ## [1.0.0] — 2026-04-19
 
 ### Fixed
