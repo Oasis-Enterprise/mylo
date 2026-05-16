@@ -250,4 +250,46 @@ async def _hourly_job(app: web.Application) -> None:
     except Exception:
         log.exception("hourly.anomaly_failed")
 
+    # 3. Proactive suggestions (lights on while away, locks unlocked, etc).
+    try:
+        from mylo.monitor.suggestions import record_suggestion, run_suggestions
+
+        memory = store.current()
+        suggestion_actions = await run_suggestions(
+            ws_client=ws_client,
+            memory=memory,
+        )
+        for action in suggestion_actions:
+            # Record that we suggested this.
+            record_suggestion(
+                memory,
+                action.suggestion_id,
+                action.type,
+                action.entity_id,
+                action.message,
+            )
+
+            # Build the notification message.
+            message = action.message
+            if action.offer_automation:
+                message += (
+                    " (I've suggested this multiple times — "
+                    "open Mylo and ask me to create an automation for this.)"
+                )
+
+            await notifier.send(
+                title=action.title,
+                message=message,
+                notification_id=f"mylo_suggestion_{action.suggestion_id}",
+                severity="normal",
+                notification_type=action.type,
+                entity_id=action.entity_id,
+            )
+
+        if suggestion_actions:
+            await store.save(memory, note=f"suggestions: {len(suggestion_actions)} made")
+            log.info("hourly.suggestions", count=len(suggestion_actions))
+    except Exception:
+        log.exception("hourly.suggestions_failed")
+
     log.info("hourly.finished")

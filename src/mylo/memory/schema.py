@@ -249,6 +249,29 @@ class NotificationSuppression(BaseModel):
     added: str | None = None
 
 
+class Suggestion(BaseModel):
+    """A proactive suggestion Mylo made, with outcome tracking.
+
+    Used by the suggestion engine to decide when to stop suggesting
+    (user keeps rejecting) vs when to propose an automation (user
+    keeps accepting the same manual action).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    type: str  # on_while_away, unlocked_too_long, device_running_long
+    entity_id: str
+    description: str
+    times_suggested: int = 0
+    times_accepted: int = 0
+    times_rejected: int = 0
+    times_ignored: int = 0
+    last_suggested: str | None = None
+    automated: bool = False  # True once an automation was created for this
+    automation_id: str | None = None
+
+
 class MemoryFile(BaseModel):
     """Root of ``context.yaml``. See spec §3.2."""
 
@@ -267,6 +290,7 @@ class MemoryFile(BaseModel):
     conflicts: list[Conflict] = Field(default_factory=list)
     monitored_entities: list[str] = Field(default_factory=list)
     notification_suppressions: list[NotificationSuppression] = Field(default_factory=list)
+    suggestions: list[Suggestion] = Field(default_factory=list)
     baselines: Baselines = Field(default_factory=Baselines)
 
     def pending_conflicts(self) -> list[Conflict]:

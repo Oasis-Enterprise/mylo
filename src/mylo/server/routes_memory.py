@@ -46,6 +46,8 @@ def register_memory_routes(app: web.Application) -> None:
     app.router.add_post("/api/memory/prune", _handle_prune)
     app.router.add_delete("/api/memory/item", _handle_delete_item)
     app.router.add_post("/api/memory/conflict/{conflict_id}/resolve", _handle_resolve_conflict)
+    app.router.add_get("/api/suggestions", _handle_get_suggestions)
+    app.router.add_post("/api/suggestions/{suggestion_id}/respond", _handle_suggestion_respond)
 
 
 # ─── Read endpoints ─────────────────────────────────────────────────────────
@@ -322,6 +324,85 @@ async def _handle_resolve_conflict(request: web.Request) -> web.Response:
     await store.save(updated, note=f"resolve conflict {conflict_id}: {choice}")
 
     return web.json_response({"ok": True, "id": conflict_id, "choice": choice})
+
+
+# ─── Suggestions ────────────────────────────────────────────────────────────
+
+
+async def _handle_get_suggestions(request: web.Request) -> web.Response:
+    """Return current suggestion state from memory."""
+    from mylo.server.app import AppKeys
+
+    store = request.app[AppKeys.MEMORY]
+    memory = store.current()
+    return web.json_response(
+        {
+            "suggestions": [
+                {
+                    "id": s.id,
+                    "type": s.type,
+                    "entity_id": s.entity_id,
+                    "description": s.description,
+                    "times_suggested": s.times_suggested,
+                    "times_accepted": s.times_accepted,
+                    "times_rejected": s.times_rejected,
+                    "automated": s.automated,
+                }
+                for s in memory.suggestions
+            ],
+            "count": len(memory.suggestions),
+        }
+    )
+
+
+async def _handle_suggestion_respond(request: web.Request) -> web.Response:
+    """Record the user's response to a suggestion.
+
+    Body: ``{"outcome": "accepted" | "rejected" | "ignored"}``.
+    If accepted with an ``accept_service``, the service is called
+    to take the suggested action.
+    """
+    from mylo.monitor.suggestions import record_outcome
+    from mylo.server.app import AppKeys
+
+    suggestion_id = request.match_info["suggestion_id"]
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+
+    outcome = body.get("outcome")
+    if outcome not in ("accepted", "rejected", "ignored"):
+        return web.json_response(
+            {"ok": False, "error": "outcome must be 'accepted', 'rejected', or 'ignored'"},
+            status=400,
+        )
+
+    store = request.app[AppKeys.MEMORY]
+    memory = store.current()
+    record_outcome(memory, suggestion_id, outcome)
+
+    # If accepted with a service call, execute it.
+    if outcome == "accepted":
+        service = body.get("service")
+        target = body.get("target")
+        if service and target:
+            try:
+                domain, svc = service.split(".", 1)
+                ws_client = request.app[AppKeys.HA_CLIENT]
+                await ws_client.send_command(
+                    "call_service",
+                    domain=domain,
+                    service=svc,
+                    target=target,
+                    timeout=10.0,
+                )
+            except Exception as exc:
+                log.warning("suggestion.service_call_failed", error=str(exc))
+
+    await store.save(memory, note=f"suggestion {suggestion_id}: {outcome}")
+
+    return web.json_response({"ok": True, "id": suggestion_id, "outcome": outcome})
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
