@@ -48,6 +48,7 @@ def register_memory_routes(app: web.Application) -> None:
     app.router.add_post("/api/memory/conflict/{conflict_id}/resolve", _handle_resolve_conflict)
     app.router.add_get("/api/suggestions", _handle_get_suggestions)
     app.router.add_post("/api/suggestions/{suggestion_id}/respond", _handle_suggestion_respond)
+    app.router.add_post("/api/suggestions/{suggestion_id}/automated", _handle_suggestion_automated)
 
 
 # ─── Read endpoints ─────────────────────────────────────────────────────────
@@ -403,6 +404,36 @@ async def _handle_suggestion_respond(request: web.Request) -> web.Response:
     await store.save(memory, note=f"suggestion {suggestion_id}: {outcome}")
 
     return web.json_response({"ok": True, "id": suggestion_id, "outcome": outcome})
+
+
+async def _handle_suggestion_automated(request: web.Request) -> web.Response:
+    """Mark a suggestion as automated after the user created an automation.
+
+    Body: ``{"automation_id": "mylo_kitchen_off_when_away"}``.
+    """
+    from mylo.server.app import AppKeys
+
+    suggestion_id = request.match_info["suggestion_id"]
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        body = {}
+
+    automation_id = body.get("automation_id")
+
+    store = request.app[AppKeys.MEMORY]
+    memory = store.current()
+
+    for s in memory.suggestions:
+        if s.id == suggestion_id:
+            s.automated = True
+            s.automation_id = automation_id
+            await store.save(
+                memory, note=f"suggestion {suggestion_id} automated as {automation_id}"
+            )
+            return web.json_response({"ok": True, "id": suggestion_id, "automated": True})
+
+    return web.json_response({"ok": False, "error": "suggestion_not_found"}, status=404)
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────

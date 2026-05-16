@@ -42,7 +42,7 @@ from mylo.context.task_detector import detect_task_type
 from mylo.context.topology import build_topology, format_topology
 from mylo.ha.registries import Registries
 from mylo.logging_setup import get_logger
-from mylo.memory.schema import MemoryFile
+from mylo.memory.schema import MemoryFile, Suggestion
 
 log = get_logger(__name__)
 
@@ -125,6 +125,12 @@ def assemble_system_prompt(
     if hints:
         parts.append("SETUP HINTS (mention naturally if relevant, don't force):\n" + hints)
 
+    # Automation proposals — suggestions that have been accepted
+    # enough times that we should offer to create an automation.
+    proposals = _automation_proposals(memory)
+    if proposals:
+        parts.append(proposals)
+
     # Budget warning — when session cost approaches the configured cap,
     # tell the model so it can mention it naturally. Skipped for local
     # providers (Ollama) where cost is $0.
@@ -176,3 +182,48 @@ def _cold_start_hints(memory: MemoryFile) -> str:
             "them via memory_note so future conversations are personalized."
         )
     return "\n".join(hints)
+
+
+def _automation_proposals(memory: MemoryFile) -> str:
+    """Surface suggestions that are ready to become automations.
+
+    When a proactive suggestion has been accepted 3+ times (the user
+    keeps manually doing the same thing), inject a hint so the model
+    offers to create an automation. The model uses modify_automation
+    which it already knows how to do — this just tells it WHEN to
+    offer.
+    """
+    ready = [s for s in memory.suggestions if not s.automated and s.times_accepted >= 3]
+    if not ready:
+        return ""
+
+    lines = [
+        "AUTOMATION PROPOSALS (the user has accepted these suggestions "
+        "multiple times — proactively offer to create an automation so "
+        "it happens automatically. If they agree, use modify_automation "
+        "to build it, then tell the user it's done):"
+    ]
+    for s in ready:
+        desc = _proposal_description(s)
+        lines.append(f"- {desc}")
+
+    return "\n".join(lines)
+
+
+def _proposal_description(s: Suggestion) -> str:
+    """Build a human-readable proposal from a suggestion."""
+    if s.type == "on_while_away":
+        entity = s.entity_id
+        return (
+            f"Turn off {entity} when everyone leaves home. "
+            f"(You've accepted this {s.times_accepted} times.)"
+        )
+    if s.type == "unlocked_too_long":
+        entity = s.entity_id
+        return (
+            f"Auto-lock {entity} after 30 minutes. (You've accepted this {s.times_accepted} times.)"
+        )
+    if s.type == "device_running_long":
+        entity = s.entity_id
+        return f"Turn off {entity} after 4 hours. (You've accepted this {s.times_accepted} times.)"
+    return f"{s.description} (accepted {s.times_accepted} times)"
