@@ -189,6 +189,25 @@ async def _nightly_job(app: web.Application) -> None:
     except Exception:
         log.exception("nightly.baselines_failed")
 
+    # 3. Behavioral pattern detection.
+    try:
+        from mylo.monitor.behavioral import detect_patterns
+        from mylo.monitor.transitions import TransitionLogger
+
+        raw_logger = app.get(AppKeys.TRANSITIONS)
+        transition_logger = raw_logger if isinstance(raw_logger, TransitionLogger) else None
+        if transition_logger is not None:
+            mem = store.current()
+            new_patterns = detect_patterns(transition_logger, mem)
+            if new_patterns:
+                mem.patterns.extend(new_patterns)
+                await store.save(
+                    mem, note=f"nightly: {len(new_patterns)} behavioral patterns detected"
+                )
+                log.info("nightly.behavioral_patterns", count=len(new_patterns))
+    except Exception:
+        log.exception("nightly.behavioral_failed")
+
     log.info("nightly.finished")
 
 
