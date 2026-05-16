@@ -65,6 +65,7 @@ class AppKeys:
     MEMORY = web.AppKey("memory", MemoryStore)
     HA_TIMEZONE = web.AppKey("ha_timezone", str)
     SCHEDULER = web.AppKey("scheduler", object)
+    TRANSITIONS = web.AppKey("transitions", object)
 
 
 _DEFAULT_MODELS: dict[str, str] = {
@@ -204,6 +205,19 @@ async def _startup(app: web.Application) -> None:
     memory_store = MemoryStore(mylo_data_dir=config.mylo_data_dir)
     await memory_store.load()
     app[AppKeys.MEMORY] = memory_store
+
+    # State transition logger — subscribes to state_changed events
+    # and records on/off transitions for behavioral pattern detection.
+    from mylo.monitor.transitions import TransitionLogger
+
+    transition_logger = TransitionLogger(mylo_data_dir=config.mylo_data_dir)
+
+    async def _on_state_changed(event: dict[str, Any]) -> None:
+        data = event.get("data") or event
+        transition_logger.record(data)
+
+    await client.subscribe_events("state_changed", _on_state_changed)
+    app[AppKeys.TRANSITIONS] = transition_logger
 
     # HA timezone — cached at startup so the memory section renders
     # the current time in the user's local tz on every chat turn.

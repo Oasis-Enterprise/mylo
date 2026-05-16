@@ -153,6 +153,45 @@ async def run_hourly_check(
         except (ValueError, TypeError):
             continue
 
+    # 3. Presence-aware: lights/switches on while nobody is home.
+    #    Check person.* entities — if ALL are "not_home", flag lights
+    #    and switches that are "on".
+    person_states = {
+        eid: s.get("state", "") for eid, s in states.items() if eid.startswith("person.")
+    }
+    if person_states:
+        anyone_home = any(s == "home" for s in person_states.values())
+        if not anyone_home:
+            on_while_away: list[str] = []
+            for entity_id, state in states.items():
+                domain = entity_id.split(".", 1)[0]
+                if domain not in ("light", "switch"):
+                    continue
+                if state.get("state") != "on":
+                    continue
+                # Skip disabled/hidden entities.
+                if registries is not None:
+                    entry = registries.entities.get(entity_id)
+                    if entry and (entry.disabled_by or entry.hidden_by):
+                        continue
+                friendly = state.get("attributes", {}).get("friendly_name", entity_id)
+                on_while_away.append(friendly)
+
+            if on_while_away:
+                count = len(on_while_away)
+                if count <= 5:
+                    entity_list = ", ".join(on_while_away)
+                else:
+                    entity_list = ", ".join(on_while_away[:5]) + f" and {count - 5} more"
+                findings.append(
+                    {
+                        "id": "on_while_away",
+                        "title": f"{count} {'light' if count == 1 else 'lights/switches'} on while away",
+                        "message": f"Nobody is home but these are on: {entity_list}",
+                        "severity": "normal",
+                    }
+                )
+
     return findings
 
 
