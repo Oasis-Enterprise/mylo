@@ -118,7 +118,7 @@ async def handler(params: QueryHistoryParams, ctx: ToolContext) -> ToolResult:
             "states": [
                 {
                     "state": s.get("s") or s.get("state", ""),
-                    "last_changed": s.get("lc") or s.get("last_changed", ""),
+                    "last_changed": _parse_timestamp(s),
                 }
                 for s in capped
             ],
@@ -172,14 +172,40 @@ def _summarize(entity_id: str, states: list[dict[str, Any]], hours: int) -> dict
         summary["state_distribution"] = state_counts
 
     # First and last timestamps.
-    first_ts = states[0].get("lc") or states[0].get("last_changed", "")
-    last_ts = states[-1].get("lc") or states[-1].get("last_changed", "")
+    first_ts = _parse_timestamp(states[0])
+    last_ts = _parse_timestamp(states[-1])
     if first_ts:
         summary["first_change"] = first_ts
     if last_ts:
         summary["last_change"] = last_ts
 
     return summary
+
+
+def _parse_timestamp(state_entry: dict[str, Any]) -> str:
+    """Extract a human-readable timestamp from a history entry.
+
+    HA's minimal_response=True returns ``lc`` as a Unix timestamp
+    (float). The non-minimal format returns ``last_changed`` as an
+    ISO string. Handle both.
+    """
+    lc = state_entry.get("lc")
+    if lc is not None:
+        try:
+            dt = datetime.fromtimestamp(float(lc), tz=UTC)
+            return dt.isoformat(timespec="seconds")
+        except (TypeError, ValueError, OSError):
+            pass
+
+    last_changed = state_entry.get("last_changed", "")
+    if isinstance(last_changed, (int, float)):
+        try:
+            dt = datetime.fromtimestamp(float(last_changed), tz=UTC)
+            return dt.isoformat(timespec="seconds")
+        except (TypeError, ValueError, OSError):
+            pass
+
+    return str(last_changed) if last_changed else ""
 
 
 TOOL = ToolDefinition(
