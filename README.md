@@ -4,7 +4,7 @@ A persistent, memory-aware AI agent that lives inside your Home Assistant as a s
 
 Mylo connects deeply to your HA instance over websocket — it knows your entities, devices, areas, automations, dashboards, integrations, and learned preferences. It can read, create, and modify your HA configuration, control devices, detect anomalies, and proactively surface issues. It remembers across sessions.
 
-> **Status:** v1.0.6. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
+> **Status:** v1.1.0. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
 
 ## Install
 
@@ -20,28 +20,6 @@ The add-on is **free and open source**. You bring your own API key — Anthropic
 ### Running without HAOS (Docker, Kubernetes)
 
 Mylo also runs as a standalone container outside the HA Supervisor — Docker Compose, Kubernetes, or any container runtime. See the [**Standalone Container Guide**](docs/standalone-container.md) for full setup instructions including Docker Compose and Kubernetes examples with secrets management. Community-contributed by [@mossholderm](https://github.com/mossholderm).
-
----
-
-## Roadmap
-
-Actively maintained. Full details in [`ROADMAP.md`](ROADMAP.md).
-
-**Now** — actively building:
-- **Helper entity creation** — create input_booleans, input_numbers, timers, counters through conversation instead of clicking through Settings → Helpers.
-- **Scene management** — create, edit, and activate scenes. "Save the current living room lighting as movie night."
-
-**Soon:**
-- Script management (create/edit/trigger scripts)
-- Template tester (test Jinja without Developer Tools)
-- Past conversation browser (search archived sessions)
-- Entity history queries (trends and historical state, not just current)
-
-**Later:**
-- Weekly health digest notifications
-- Automation conflict detection
-- Proactive automation suggestions from usage patterns
-- Multi-user support with per-person permissions and memory
 
 ---
 
@@ -110,6 +88,43 @@ Dashboard operations are surgical — Mylo can replace a single view by path, sw
 
 **Entity validation:** Every entity reference in card configs (including inside Jinja templates like `states('sensor.temp')`) is validated against the live registry before preview. If Mylo hallucinates an entity ID, it gets caught and corrected with fuzzy-match suggestions before you ever see a broken card.
 
+### Create helper entities
+
+Create HA helpers through conversation instead of clicking through Settings → Helpers.
+
+- "Create a toggle helper called guest mode"
+- "Add an input_number for target temperature with a range of 60-80"
+- "Create a timer called laundry with a 45 minute duration"
+- "Delete the old sleep mode toggle"
+
+**Tools used:** `manage_helpers`
+
+Supports all 7 helper types: input_boolean, input_number, input_select, input_text, input_datetime, timer, and counter. All type-specific options (min/max, step, options, duration, etc.) are available. Immediate via websocket — no file writes or reload needed.
+
+### Build scripts
+
+Create, update, and delete reusable action sequences — scripts that can be called from automations, dashboards, or via `call_service`.
+
+- "Build a script that flashes the porch light 3 times"
+- "Create a script that announces dinner is ready on all speakers"
+- "Delete the old welcome home script"
+
+**Tools used:** `modify_script`
+
+Scripts are stored alongside automations in `packages/agent.yaml`. Same dry-run → approve → write → reload flow as automations with automatic rollback on failure.
+
+### Query entity history
+
+Ask about trends and past state, not just current values.
+
+- "Show me the kitchen temperature over the last 48 hours"
+- "When was the front door last unlocked?"
+- "How often did the motion sensor trigger today?"
+
+**Tools used:** `query_history`
+
+Returns a compact summary (first/last/min/max/avg/count) for numeric sensors or state distribution for binary entities. Raw mode available for detailed state-change lists.
+
 ### Organize entities
 
 Bulk rename, reorganize areas, manage labels — clean up your HA without clicking through 200 settings pages.
@@ -150,9 +165,13 @@ Set up sensor monitoring through conversation — Mylo discovers your sensors an
 **Tools used:** `manage_monitored`, `query_entities`
 
 **What happens after setup:**
-- **Hourly:** Availability sweep detects newly-unavailable entities and stale automations (enabled but haven't fired in >48 hours). Sends HA persistent notifications.
+- **Hourly:** Availability sweep detects newly-unavailable entities, stale automations (>48h since last trigger), and lights/switches left on while everyone is away.
+- **Hourly:** Proactive suggestions — "Kitchen lights are on and you're away. Want me to turn them off?" Also detects locks unlocked >30 minutes and devices running >4 hours.
 - **Nightly:** Baseline recompute from HA's long-term statistics (7-day mean + standard deviation per monitored sensor).
-- **Hourly:** Anomaly detection — z-score check against baselines. If a sensor reading is >2.5 standard deviations from normal, you get notified.
+- **Nightly:** Behavioral pattern detection — analyzes 14 days of state transitions to learn recurring behaviors ("light.kitchen turns off around 23:00 on weekdays").
+- **Hourly:** Anomaly detection — z-score check against sensor baselines.
+
+**Proactive suggestions learn from your responses.** Each suggestion tracks how many times you accepted, rejected, or ignored it. After 5 rejections, Mylo stops suggesting. After 3 acceptances of the same pattern, Mylo offers to create an automation: "I've turned off the kitchen lights for you 3 times when you leave. Want me to automate this?" If you agree, Mylo builds the automation and stops suggesting.
 
 ### Control notifications
 
@@ -171,6 +190,9 @@ Mylo's proactive notifications respect your preferences. Configure globally or s
 | `unavailable` | Entities that went unavailable |
 | `anomaly` | Z-score anomaly alerts |
 | `sync_conflict` | Memory sync conflict alerts |
+| `on_while_away` | Lights/switches on while nobody is home |
+| `unlocked_too_long` | Locks unlocked for >30 minutes |
+| `device_running_long` | Devices on for >4 hours |
 | `*` | All proactive notifications |
 
 Suppressions can be **global** (all of a type) or **entity-scoped** (just `sensor.sprinkler_system`). They're stored in memory and persist across sessions.

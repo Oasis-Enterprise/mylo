@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-05-15
+
+### Added
+- **Helper entity creation** — create/update/delete all 7 HA helper types (input_boolean, input_number, input_select, input_text, input_datetime, timer, counter) through conversation via the `manage_helpers` tool.
+- **Script management** — create/update/delete scripts stored in packages/agent.yaml via the `modify_script` tool. Same dry-run → approve → rollback flow as automations.
+- **Entity history queries** — `query_history` tool retrieves state history over time (up to 1 week). Summary mode returns min/max/avg/count; raw mode returns state change list.
+- **State transition logger** — subscribes to HA state_changed events and records on/off transitions for lights, switches, locks, covers, person entities in a rolling 14-day JSONL log. Feeds the pattern detector and suggestion engine.
+- **Presence-aware monitoring** — hourly sweep now checks person.* entities. When nobody is home and lights/switches are on, fires a notification: "3 lights on while away."
+- **Proactive suggestion engine** — detects "lights on while away", "lock unlocked >30 min", "device running >4 hours" and sends suggestions. Tracks accept/reject/ignore rates per pattern. Silences after 5 rejections; offers automation creation after 3 acceptances.
+- **Automation proposals** — when a suggestion has been accepted 3+ times, Mylo proactively offers to create an automation. Builds it via modify_automation, marks the suggestion as automated so it stops firing.
+- **Behavioral pattern detection** — nightly analysis of 14 days of transition data to find recurring time-of-day behaviors. Uses time-of-day clustering with midnight-wrap handling. Stores as Pattern entries in context.yaml.
+- Suggestion memory schema (Suggestion model with outcome tracking).
+- API endpoints: GET /api/suggestions, POST /api/suggestions/{id}/respond, POST /api/suggestions/{id}/automated.
+- 24 tools now registered.
+
 ## [1.0.6] — 2026-05-04
 
 ### Fixed
