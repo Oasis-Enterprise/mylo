@@ -219,6 +219,79 @@ async def _startup(app: web.Application) -> None:
     await client.subscribe_events("state_changed", _on_state_changed)
     app[AppKeys.TRANSITIONS] = transition_logger
 
+    # Mobile app notification action handler — when users tap action
+    # buttons on Mylo's mobile notifications, HA fires this event.
+    async def _on_mobile_action(event: dict[str, Any]) -> None:
+        data = event.get("data") or event
+        action_id = data.get("action", "")
+        if not action_id.startswith("MYLO_"):
+            return
+
+        from mylo.monitor.suggestions import record_outcome
+
+        mem_store = app[AppKeys.MEMORY]
+        mem = mem_store.current()
+
+        if action_id.startswith("MYLO_ACCEPT_"):
+            suggestion_id = action_id[len("MYLO_ACCEPT_") :]
+            record_outcome(mem, suggestion_id, "accepted")
+            # Find the suggestion and execute the accept service.
+            for s in mem.suggestions:
+                if s.id == suggestion_id:
+                    entity = s.entity_id
+                    domain = entity.split(".", 1)[0] if entity else ""
+                    if domain in ("light", "switch", "fan", "media_player"):
+                        try:
+                            await client.send_command(
+                                "call_service",
+                                domain=domain,
+                                service="turn_off",
+                                target={"entity_id": entity},
+                                timeout=10.0,
+                            )
+                        except Exception as exc:
+                            log.warning("mobile_action.service_failed", error=str(exc))
+                    elif domain == "lock":
+                        try:
+                            await client.send_command(
+                                "call_service",
+                                domain="lock",
+                                service="lock",
+                                target={"entity_id": entity},
+                                timeout=10.0,
+                            )
+                        except Exception as exc:
+                            log.warning("mobile_action.service_failed", error=str(exc))
+                    break
+            await mem_store.save(mem, note=f"mobile action: accepted {suggestion_id}")
+
+        elif action_id.startswith("MYLO_IGNORE_"):
+            suggestion_id = action_id[len("MYLO_IGNORE_") :]
+            record_outcome(mem, suggestion_id, "ignored")
+            await mem_store.save(mem, note=f"mobile action: ignored {suggestion_id}")
+
+        elif action_id.startswith("MYLO_SUPPRESS_"):
+            suggestion_id = action_id[len("MYLO_SUPPRESS_") :]
+            record_outcome(mem, suggestion_id, "rejected")
+            # Also add a notification suppression for this entity.
+            for s in mem.suggestions:
+                if s.id == suggestion_id and s.entity_id:
+                    from mylo.memory.schema import NotificationSuppression
+
+                    mem.notification_suppressions.append(
+                        NotificationSuppression(
+                            type=s.type,
+                            entity=s.entity_id,
+                            reason="suppressed via mobile notification",
+                        )
+                    )
+                    break
+            await mem_store.save(mem, note=f"mobile action: suppressed {suggestion_id}")
+
+        log.info("mobile_action.handled", action=action_id)
+
+    await client.subscribe_events("mobile_app_notification_action", _on_mobile_action)
+
     # HA timezone — cached at startup so the memory section renders
     # the current time in the user's local tz on every chat turn.
     try:

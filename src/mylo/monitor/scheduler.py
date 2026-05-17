@@ -296,6 +296,24 @@ async def _hourly_job(app: web.Application) -> None:
                     "open Mylo and ask me to create an automation for this.)"
                 )
 
+            # Build action buttons for mobile notifications.
+            from mylo.monitor.notifier import NotificationAction
+
+            mobile_actions = [
+                NotificationAction(
+                    action=f"MYLO_ACCEPT_{action.suggestion_id}",
+                    title="Turn Off" if action.accept_service else "Accept",
+                ),
+                NotificationAction(
+                    action=f"MYLO_IGNORE_{action.suggestion_id}",
+                    title="Ignore",
+                ),
+                NotificationAction(
+                    action=f"MYLO_SUPPRESS_{action.suggestion_id}",
+                    title="Don't Ask Again",
+                ),
+            ]
+
             await notifier.send(
                 title=action.title,
                 message=message,
@@ -303,6 +321,7 @@ async def _hourly_job(app: web.Application) -> None:
                 severity="normal",
                 notification_type=action.type,
                 entity_id=action.entity_id,
+                actions=mobile_actions,
             )
 
         if suggestion_actions:

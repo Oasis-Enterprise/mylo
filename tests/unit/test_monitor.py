@@ -49,6 +49,7 @@ def _make_config(**overrides: Any) -> AppConfig:
         quiet_hours_end="07:00",
         session_budget_usd=0.50,
         monthly_budget_usd=15.00,
+        notification_method="persistent",
         supervisor_token=None,
         ha_config_dir="/tmp",
         mylo_data_dir="/tmp/.mylo",
@@ -92,6 +93,7 @@ async def test_notifier_respects_daily_cap() -> None:
         max_daily_notifications=2,
         quiet_hours_start="00:00",
         quiet_hours_end="00:00",
+        notification_method="persistent",
     )
     notifier = Notifier(ws_client=ws, config=config)
 
@@ -110,6 +112,7 @@ async def test_notifier_critical_bypasses_cap_and_quiet() -> None:
         max_daily_notifications=0,
         quiet_hours_start="00:00",
         quiet_hours_end="23:59",
+        notification_method="persistent",
     )
     notifier = Notifier(ws_client=ws, config=config)
     result = await notifier.send(
