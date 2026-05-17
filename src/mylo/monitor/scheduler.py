@@ -269,8 +269,13 @@ async def _hourly_job(app: web.Application) -> None:
     except Exception:
         log.exception("hourly.anomaly_failed")
 
-    # 3. Proactive suggestions (lights on while away, locks unlocked, etc).
+    # 3. Proactive suggestions — stored as pending_actions in memory
+    #    instead of sent as HA notifications. Surfaced in the catch-up
+    #    banner and assembler prompt when the user next opens Mylo.
     try:
+        from datetime import UTC, datetime
+
+        from mylo.memory.schema import PendingAction
         from mylo.monitor.suggestions import record_suggestion, run_suggestions
 
         memory = store.current()
@@ -279,7 +284,6 @@ async def _hourly_job(app: web.Application) -> None:
             memory=memory,
         )
         for action in suggestion_actions:
-            # Record that we suggested this.
             record_suggestion(
                 memory,
                 action.suggestion_id,
@@ -288,44 +292,26 @@ async def _hourly_job(app: web.Application) -> None:
                 action.message,
             )
 
-            # Build the notification message.
-            message = action.message
-            if action.offer_automation:
-                message += (
-                    " (I've suggested this multiple times — "
-                    "open Mylo and ask me to create an automation for this.)"
+            # Store as a pending action for the catch-up banner.
+            # Don't duplicate if already pending for the same entity+type.
+            already_pending = any(
+                pa.entity_id == action.entity_id and pa.type == action.type and not pa.resolved
+                for pa in memory.pending_actions
+            )
+            if not already_pending:
+                memory.pending_actions.append(
+                    PendingAction(
+                        id=action.suggestion_id,
+                        type=action.type,
+                        entity_id=action.entity_id,
+                        title=action.title,
+                        message=action.message,
+                        detected_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                    )
                 )
 
-            # Build action buttons for mobile notifications.
-            from mylo.monitor.notifier import NotificationAction
-
-            mobile_actions = [
-                NotificationAction(
-                    action=f"MYLO_ACCEPT_{action.suggestion_id}",
-                    title="Turn Off" if action.accept_service else "Accept",
-                ),
-                NotificationAction(
-                    action=f"MYLO_IGNORE_{action.suggestion_id}",
-                    title="Ignore",
-                ),
-                NotificationAction(
-                    action=f"MYLO_SUPPRESS_{action.suggestion_id}",
-                    title="Don't Ask Again",
-                ),
-            ]
-
-            await notifier.send(
-                title=action.title,
-                message=message,
-                notification_id=f"mylo_suggestion_{action.suggestion_id}",
-                severity="normal",
-                notification_type=action.type,
-                entity_id=action.entity_id,
-                actions=mobile_actions,
-            )
-
         if suggestion_actions:
-            await store.save(memory, note=f"suggestions: {len(suggestion_actions)} made")
+            await store.save(memory, note=f"suggestions: {len(suggestion_actions)} pending")
             log.info("hourly.suggestions", count=len(suggestion_actions))
     except Exception:
         log.exception("hourly.suggestions_failed")

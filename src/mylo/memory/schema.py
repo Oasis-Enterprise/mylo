@@ -249,6 +249,25 @@ class NotificationSuppression(BaseModel):
     added: str | None = None
 
 
+class PendingAction(BaseModel):
+    """A proactive suggestion waiting to be shown in the catch-up banner.
+
+    Stored in memory when the hourly sweep detects something (lights
+    on while away, lock unlocked too long, etc). Cleared once the
+    user opens Mylo and sees it in the catch-up banner or conversation.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    type: str  # on_while_away, unlocked_too_long, device_running_long
+    entity_id: str
+    title: str
+    message: str
+    detected_at: str  # ISO timestamp
+    resolved: bool = False  # True once user acted or dismissed
+
+
 class Suggestion(BaseModel):
     """A proactive suggestion Mylo made, with outcome tracking.
 
@@ -291,6 +310,7 @@ class MemoryFile(BaseModel):
     monitored_entities: list[str] = Field(default_factory=list)
     notification_suppressions: list[NotificationSuppression] = Field(default_factory=list)
     suggestions: list[Suggestion] = Field(default_factory=list)
+    pending_actions: list[PendingAction] = Field(default_factory=list)
     baselines: Baselines = Field(default_factory=Baselines)
 
     def pending_conflicts(self) -> list[Conflict]:

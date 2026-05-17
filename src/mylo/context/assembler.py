@@ -125,6 +125,21 @@ def assemble_system_prompt(
     if hints:
         parts.append("SETUP HINTS (mention naturally if relevant, don't force):\n" + hints)
 
+    # Pending actions — proactive findings from the hourly sweep that
+    # haven't been shown to the user yet. Mention them naturally at
+    # the start of conversation ("I noticed while you were away...").
+    pending = [pa for pa in memory.pending_actions if not pa.resolved]
+    if pending:
+        action_lines = [
+            "PENDING OBSERVATIONS (mention these naturally at the start "
+            "of the conversation — the user hasn't seen them yet. Offer "
+            "to take action. After discussing, the user's response will "
+            "be tracked as accepted/rejected):"
+        ]
+        for pa in pending:
+            action_lines.append(f"- {pa.message}")
+        parts.append("\n".join(action_lines))
+
     # Automation proposals — suggestions that have been accepted
     # enough times that we should offer to create an automation.
     proposals = _automation_proposals(memory)

@@ -49,6 +49,7 @@ def register_memory_routes(app: web.Application) -> None:
     app.router.add_get("/api/suggestions", _handle_get_suggestions)
     app.router.add_post("/api/suggestions/{suggestion_id}/respond", _handle_suggestion_respond)
     app.router.add_post("/api/suggestions/{suggestion_id}/automated", _handle_suggestion_automated)
+    app.router.add_post("/api/pending-actions/clear", _handle_clear_pending_actions)
 
 
 # ─── Read endpoints ─────────────────────────────────────────────────────────
@@ -434,6 +435,29 @@ async def _handle_suggestion_automated(request: web.Request) -> web.Response:
             return web.json_response({"ok": True, "id": suggestion_id, "automated": True})
 
     return web.json_response({"ok": False, "error": "suggestion_not_found"}, status=404)
+
+
+async def _handle_clear_pending_actions(request: web.Request) -> web.Response:
+    """Mark all pending actions as resolved.
+
+    Called when the user opens a session and sees the catch-up banner,
+    or after the model has discussed the pending items.
+    """
+    from mylo.server.app import AppKeys
+
+    store = request.app[AppKeys.MEMORY]
+    memory = store.current()
+
+    cleared = 0
+    for pa in memory.pending_actions:
+        if not pa.resolved:
+            pa.resolved = True
+            cleared += 1
+
+    if cleared:
+        await store.save(memory, note=f"cleared {cleared} pending actions")
+
+    return web.json_response({"ok": True, "cleared": cleared})
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
