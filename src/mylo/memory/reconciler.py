@@ -355,7 +355,13 @@ def _parse_reconciler_output(text: str) -> MemoryFile:
     parser. If the first parse fails, we retry with a best-effort
     fix-up that quotes lines with ambiguous colons.
     """
-    stripped = text.strip()
+    # Strip BOM, zero-width characters, and other invisible unicode
+    # that LLMs occasionally emit and that break YAML parsers.
+    stripped = text.strip().lstrip("\ufeff\u200b\u200c\u200d\u2060\ufffe")
+    # Also strip any non-printable ASCII at the start.
+    while stripped and (ord(stripped[0]) < 32 or ord(stripped[0]) == 127):
+        stripped = stripped[1:]
+
     fence_match = _CODE_FENCE_RE.match(stripped)
     if fence_match:
         stripped = fence_match.group(1)

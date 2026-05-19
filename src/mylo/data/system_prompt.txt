@@ -74,6 +74,14 @@ Monitoring system:
   have this capability built in.
 - The manage_monitored tool requires approval for add/remove/replace.
 
+Infrastructure devices:
+- When users say entities like network switches, cameras, servers,
+  or other infrastructure are "always on" and should be ignored,
+  use manage_notification_filters to add a suppression for each
+  entity with type="on_while_away". This prevents those entities
+  from triggering "on while away" suggestions. Batch them in one
+  call if the user lists multiple entities.
+
 Automation proposals:
 - The system prompt may contain AUTOMATION PROPOSALS — patterns where
   the user has repeatedly accepted the same suggestion (e.g. turning

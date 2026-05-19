@@ -105,6 +105,13 @@ async def run_suggestions(
                 continue
             if state.get("state") != "on":
                 continue
+
+            # Skip entities the user has suppressed via notification
+            # filters — includes infrastructure devices (network
+            # switches, cameras, servers) that are always on.
+            if memory.is_notification_suppressed("on_while_away", entity_id):
+                continue
+
             friendly = state.get("attributes", {}).get("friendly_name", entity_id)
             sid = f"on_while_away_{entity_id}"
 
@@ -129,6 +136,8 @@ async def run_suggestions(
         if not entity_id.startswith("lock."):
             continue
         if state.get("state") != "unlocked":
+            continue
+        if memory.is_notification_suppressed("unlocked_too_long", entity_id):
             continue
         last_changed = state.get("last_changed")
         if not last_changed:
@@ -168,6 +177,8 @@ async def run_suggestions(
         if domain not in ("switch", "media_player", "fan"):
             continue
         if state.get("state") != "on":
+            continue
+        if memory.is_notification_suppressed("device_running_long", entity_id):
             continue
         last_changed = state.get("last_changed")
         if not last_changed:
