@@ -48,7 +48,6 @@ from mylo.files.diff import diff_structs
 from mylo.files.manager import exists, read_text
 from mylo.files.rollback import (
     apply_optimistic_reload_all,
-    apply_with_rollback,
     automation_loaded_verifier,
 )
 from mylo.resolver.resolver import Resolver
@@ -219,31 +218,24 @@ async def handler(params: ModifyAutomationParams, ctx: ToolContext) -> ToolResul
     #   re-reads configuration.yaml — including the packages directive —
     #   so it picks up edits to existing package files without bouncing
     #   ingress. Synchronous verify is fast (3-5s) and accurate.
-    cold_path = not pkg_path.exists()
-    if cold_path:
-        rollback_result = await apply_optimistic_reload_all(
-            client=ctx.ws_client,
-            path=pkg_path,
-            content=new_text,
-            config_dir=ctx.config.ha_config_dir,
-            mylo_data_dir=ctx.config.mylo_data_dir,
-            verify=verify,
-            reload_wait_seconds=15.0,
-            audit=ctx.audit,
-            tool_name="modify_automation",
-            conversation_id=ctx.conversation_id,
-        )
-    else:
-        rollback_result = await apply_with_rollback(
-            client=ctx.ws_client,
-            path=pkg_path,
-            content=new_text,
-            domain="automation",
-            config_dir=ctx.config.ha_config_dir,
-            mylo_data_dir=ctx.config.mylo_data_dir,
-            verify=verify,
-            reload_wait_seconds=5.0,
-        )
+    #
+    # UPDATE: On large homes (2000+ entities), even automation.reload
+    # can take 30-60s and the synchronous wait times out, triggering
+    # a rollback cascade that kills the websocket + SSE stream. Both
+    # paths now use the optimistic pattern: write, fire reload, return
+    # immediately, verify in background, notify on failure.
+    rollback_result = await apply_optimistic_reload_all(
+        client=ctx.ws_client,
+        path=pkg_path,
+        content=new_text,
+        config_dir=ctx.config.ha_config_dir,
+        mylo_data_dir=ctx.config.mylo_data_dir,
+        verify=verify,
+        reload_wait_seconds=15.0,
+        audit=ctx.audit,
+        tool_name="modify_automation",
+        conversation_id=ctx.conversation_id,
+    )
     envelope: dict[str, Any] = {
         **preview,
         "preview": False,

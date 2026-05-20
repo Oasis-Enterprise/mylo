@@ -34,7 +34,7 @@ from slugify import slugify
 
 from mylo.files.diff import diff_structs
 from mylo.files.manager import exists, read_text
-from mylo.files.rollback import apply_optimistic_reload_all, apply_with_rollback
+from mylo.files.rollback import apply_optimistic_reload_all
 from mylo.logging_setup import get_logger
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
@@ -145,30 +145,21 @@ async def handler(params: ModifyScriptParams, ctx: ToolContext) -> ToolResult:
     new_text = dump_yaml(new_pkg)
 
     # Hot/cold path — same split as modify_automation.
-    cold_path = not pkg_path.exists()
-    if cold_path:
-        rollback_result = await apply_optimistic_reload_all(
-            client=ctx.ws_client,
-            path=pkg_path,
-            content=new_text,
-            config_dir=ctx.config.ha_config_dir,
-            mylo_data_dir=ctx.config.mylo_data_dir,
-            verify=None,
-            reload_wait_seconds=15.0,
-            audit=ctx.audit,
-            conversation_id=ctx.conversation_id,
-            tool_name="modify_script",
-        )
-    else:
-        rollback_result = await apply_with_rollback(
-            client=ctx.ws_client,
-            path=pkg_path,
-            content=new_text,
-            domain="script",
-            config_dir=ctx.config.ha_config_dir,
-            mylo_data_dir=ctx.config.mylo_data_dir,
-            verify=None,
-        )
+    # Both hot and cold paths use the optimistic pattern: write, fire
+    # reload, return immediately, verify in background. On large homes
+    # even targeted reloads can take 30-60s.
+    rollback_result = await apply_optimistic_reload_all(
+        client=ctx.ws_client,
+        path=pkg_path,
+        content=new_text,
+        config_dir=ctx.config.ha_config_dir,
+        mylo_data_dir=ctx.config.mylo_data_dir,
+        verify=None,
+        reload_wait_seconds=15.0,
+        audit=ctx.audit,
+        conversation_id=ctx.conversation_id,
+        tool_name="modify_script",
+    )
 
     if not rollback_result.ok:
         return ToolResult.error(
