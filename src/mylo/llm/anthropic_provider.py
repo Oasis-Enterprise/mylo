@@ -41,7 +41,7 @@ import asyncio
 import random
 from typing import Any
 
-from anthropic import APIConnectionError, AsyncAnthropic, RateLimitError
+from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 
 from mylo.llm.provider import ProviderMessage, ProviderResponse, ToolCall
 from mylo.logging_setup import get_logger
@@ -111,13 +111,23 @@ class AnthropicProvider:
                 self._rebuild_client()
                 response = await _call()
                 break
-            except RateLimitError:
+            except APIStatusError as exc:
+                # 429 (rate limit) and 5xx — including 529 "overloaded",
+                # which Anthropic returns during platform-wide load spikes
+                # — are transient. Back off and retry. Other 4xx are
+                # caller errors (bad request, auth, etc.); re-raise.
+                if exc.status_code != 429 and exc.status_code < 500:
+                    raise
                 if attempt >= len(_BACKOFF_DELAYS):
-                    log.error("anthropic.rate_limit_exhausted_retries")
+                    log.error(
+                        "anthropic.transient_error_exhausted_retries",
+                        status_code=exc.status_code,
+                    )
                     raise
                 delay = _BACKOFF_DELAYS[attempt] + random.uniform(0, 1)
                 log.warning(
-                    "anthropic.rate_limited",
+                    "anthropic.transient_error",
+                    status_code=exc.status_code,
                     attempt=attempt + 1,
                     backoff_seconds=round(delay, 1),
                 )
