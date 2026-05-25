@@ -322,6 +322,91 @@ async def test_multiple_text_blocks_yield_separate_events(
     assert texts == ["Let me check.", "First block.", "Second block."]
 
 
+async def test_dashboard_cards_visible_after_intra_turn_compression(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    """A multi-iteration turn must keep the dashboard view's card list
+    reachable for later iterations. Without this, modify_dashboard can't
+    construct a surgical replace_card / update_view patch and the model
+    loops asking for the view config it was just shown.
+    """
+
+    # Re-register echo under a dashboard-shaped name so the executor
+    # routes it via the same loop, but the result envelope mirrors what
+    # query_dashboard actually returns (data.view.cards).
+    class _DashParams(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        dashboard_id: str
+        view_id: str
+
+    big_cards = [
+        {
+            "type": "custom:mushroom-entity-card",
+            "entity": f"switch.outside_{i}",
+            "name": f"Outside {i}",
+            "icon": "mdi:flower",
+            "tap_action": {"action": "toggle"},
+        }
+        for i in range(8)
+    ]
+
+    async def _dashboard_handler(params: _DashParams, _ctx: Any) -> ToolResult:
+        return ToolResult.ok(
+            {
+                "dashboard_id": params.dashboard_id,
+                "view": {
+                    "path": params.view_id,
+                    "title": "Rooms",
+                    "cards": big_cards,
+                },
+            }
+        )
+
+    tool_registry.register(
+        ToolDefinition(
+            name="query_dashboard",
+            description="fake query_dashboard",
+            params_model=_DashParams,
+            tier=Tier.READ,
+            handler=_dashboard_handler,
+        )
+    )
+
+    provider = _FakeProvider(
+        [
+            _tool_turn("d1", "query_dashboard", {"dashboard_id": "lovelace", "view_id": "rooms"}),
+            _tool_turn("e1", "echo", {"value": 1}),
+            _tool_turn("e2", "echo", {"value": 2}),
+            _text_turn("done."),
+        ]
+    )
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+
+    [
+        _e
+        async for _e in run_turn(
+            user_message="add a landscape chip",
+            conversation=_conv,
+            provider=provider,
+            ctx=ctx,
+            system="",
+            tools=[],
+            model="fake",
+        )
+    ]
+
+    # Final provider call carries everything the model sees right before
+    # the modify step would land. The dashboard cards from iteration 1
+    # must still be reachable inside the tool_result payload.
+    final_call = provider.calls[-1]
+    serialized = json.dumps(final_call["messages"], default=str)
+    assert "switch.outside_0" in serialized, (
+        "dashboard cards were stripped by intra-turn compression — "
+        "the model can't see the view it just queried"
+    )
+    assert "switch.outside_7" in serialized
+
+
 async def test_usage_is_summed_across_iterations(
     tmp_path: Path, _conv: ConversationManager
 ) -> None:

@@ -177,6 +177,19 @@ def _summarize_tool_result(raw_content: str) -> str | None:
     if data.get("preview"):
         return None
 
+    # Dashboard query results — the model uses the card list to build
+    # surgical edits (replace_card, update_view). A compressed summary
+    # would force the model to re-query and stall the approval flow.
+    if (
+        "view" in data
+        or (
+            isinstance(data.get("views"), list)
+            and any(isinstance(v, dict) and "path" in v for v in data["views"])
+        )
+        or isinstance(data.get("dashboards"), list)
+    ):
+        return None
+
     # Generic fallback for large results: keep just the top-level keys.
     top_keys = list(data.keys())[:10]
     char_count = len(raw_content)
