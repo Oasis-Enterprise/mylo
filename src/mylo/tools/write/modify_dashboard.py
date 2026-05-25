@@ -26,6 +26,7 @@ frontend picks up Lovelace changes immediately on save.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -64,9 +65,10 @@ class ModifyDashboardParams(BaseModel):
         default=None,
         description=(
             "For 'create': a view config {title, path, icon?, cards: [...]}. "
+            "For 'update_view': the complete replacement view dict. "
+            "For 'replace_card': the new card dict that swaps in. "
             "For 'update': the complete replacement dashboard config. "
-            "For 'add_cards': not needed (use cards instead). "
-            "For 'delete': not needed."
+            "For 'add_cards', 'remove_card', 'delete': not needed."
         ),
     )
     cards: list[dict[str, Any]] | None = Field(
@@ -90,6 +92,17 @@ class ModifyDashboardParams(BaseModel):
         description=(
             "For 'replace_card' and 'remove_card': zero-based index of the "
             "card to target. Use query_dashboard to see the current card list."
+        ),
+    )
+    section_index: int | None = Field(
+        default=None,
+        description=(
+            "For sections-layout views, the zero-based section to act on. "
+            "When set, replace_card/remove_card target "
+            "view.sections[section_index].cards[card_index] and add_cards "
+            "appends to view.sections[section_index].cards. Omit on classic "
+            "layouts. Sections-layout views are flagged by 'type: sections' "
+            "in query_dashboard output."
         ),
     )
     title: str | None = Field(
@@ -287,10 +300,12 @@ async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolRes
         )
 
     target_view = dict(views[target_idx])
-    existing_cards = list(target_view.get("cards") or [])
+    resolved = _resolve_card_target(target_view, params.section_index)
+    if isinstance(resolved, ToolResult):
+        return resolved
+    existing_cards, commit = resolved
     existing_cards.extend(params.cards)
-    target_view["cards"] = existing_cards
-    views[target_idx] = target_view
+    views[target_idx] = commit(existing_cards)
 
     new_config = {**current, "views": views}
     diff = diff_structs(current, new_config)
@@ -298,6 +313,7 @@ async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolRes
         "dashboard_id": params.dashboard_id,
         "action": "add_cards",
         "view_path": params.view_path,
+        "section_index": params.section_index,
         "cards_added": len(params.cards),
         "total_cards": len(existing_cards),
         "entity_refs_validated": len(entity_refs),
@@ -387,6 +403,63 @@ async def _update_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
     return ToolResult.ok({**preview, "preview": False})
 
 
+def _resolve_card_target(
+    target_view: dict[str, Any], section_index: int | None
+) -> tuple[list[Any], Callable[[list[Any]], dict[str, Any]]] | ToolResult:
+    """Pick the card list to mutate (top-level or nested under a section).
+
+    Returns ``(cards, commit_fn)`` where ``commit_fn(new_cards)`` returns a
+    fully-updated copy of ``target_view``. On a layout mismatch returns a
+    ToolResult error the caller can pass through.
+    """
+    has_sections = target_view.get("type") == "sections" or isinstance(
+        target_view.get("sections"), list
+    )
+
+    if section_index is not None:
+        if not has_sections:
+            return ToolResult.error(
+                "section_index_invalid",
+                "section_index was provided but the view isn't a sections layout",
+            )
+        sections = list(target_view.get("sections") or [])
+        if section_index < 0 or section_index >= len(sections):
+            return ToolResult.error(
+                "section_not_found",
+                f"section_index {section_index} out of range (view has {len(sections)} sections)",
+            )
+        target_section = (
+            dict(sections[section_index]) if isinstance(sections[section_index], dict) else {}
+        )
+        cards = list(target_section.get("cards") or [])
+
+        def _commit_sectioned(new_cards: list[Any]) -> dict[str, Any]:
+            target_section["cards"] = new_cards
+            sections[section_index] = target_section
+            updated = dict(target_view)
+            updated["sections"] = sections
+            return updated
+
+        return cards, _commit_sectioned
+
+    # Classic top-level layout — but if the view is sections-only the
+    # model needs to know to pass section_index instead.
+    if has_sections and not target_view.get("cards"):
+        return ToolResult.error(
+            "section_index_required",
+            "this view uses sections layout — pass section_index to target a "
+            "card inside a section. See the view structure from query_dashboard.",
+        )
+    cards = list(target_view.get("cards") or [])
+
+    def _commit_classic(new_cards: list[Any]) -> dict[str, Any]:
+        updated = dict(target_view)
+        updated["cards"] = new_cards
+        return updated
+
+    return cards, _commit_classic
+
+
 async def _replace_card(ctx: ToolContext, params: ModifyDashboardParams) -> ToolResult:
     """Swap one card in a view by index — everything else untouched."""
     if not params.view_path:
@@ -417,12 +490,16 @@ async def _replace_card(ctx: ToolContext, params: ModifyDashboardParams) -> Tool
         )
 
     target_view = dict(views[target_idx])
-    cards = list(target_view.get("cards") or [])
+    resolved = _resolve_card_target(target_view, params.section_index)
+    if isinstance(resolved, ToolResult):
+        return resolved
+    cards, commit = resolved
 
     if params.card_index < 0 or params.card_index >= len(cards):
+        scope = f"section {params.section_index}" if params.section_index is not None else "view"
         return ToolResult.error(
             "card_not_found",
-            f"card_index {params.card_index} out of range (view has {len(cards)} cards)",
+            f"card_index {params.card_index} out of range ({scope} has {len(cards)} cards)",
         )
 
     entity_refs = extract_entity_refs([params.config])
@@ -441,8 +518,7 @@ async def _replace_card(ctx: ToolContext, params: ModifyDashboardParams) -> Tool
         else "unknown"
     )
     cards[params.card_index] = params.config
-    target_view["cards"] = cards
-    views[target_idx] = target_view
+    views[target_idx] = commit(cards)
 
     new_config = {**current, "views": views}
     diff = diff_structs(current, new_config)
@@ -450,6 +526,7 @@ async def _replace_card(ctx: ToolContext, params: ModifyDashboardParams) -> Tool
         "dashboard_id": params.dashboard_id,
         "action": "replace_card",
         "view_path": params.view_path,
+        "section_index": params.section_index,
         "card_index": params.card_index,
         "old_card_type": old_card_type,
         "new_card_type": params.config.get("type", "unknown"),
@@ -495,20 +572,23 @@ async def _remove_card(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
         )
 
     target_view = dict(views[target_idx])
-    cards = list(target_view.get("cards") or [])
+    resolved = _resolve_card_target(target_view, params.section_index)
+    if isinstance(resolved, ToolResult):
+        return resolved
+    cards, commit = resolved
 
     if params.card_index < 0 or params.card_index >= len(cards):
+        scope = f"section {params.section_index}" if params.section_index is not None else "view"
         return ToolResult.error(
             "card_not_found",
-            f"card_index {params.card_index} out of range (view has {len(cards)} cards)",
+            f"card_index {params.card_index} out of range ({scope} has {len(cards)} cards)",
         )
 
     removed_card = cards.pop(params.card_index)
     removed_type = (
         removed_card.get("type", "unknown") if isinstance(removed_card, dict) else "unknown"
     )
-    target_view["cards"] = cards
-    views[target_idx] = target_view
+    views[target_idx] = commit(cards)
 
     new_config = {**current, "views": views}
     diff = diff_structs(current, new_config)
@@ -516,6 +596,7 @@ async def _remove_card(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
         "dashboard_id": params.dashboard_id,
         "action": "remove_card",
         "view_path": params.view_path,
+        "section_index": params.section_index,
         "card_index": params.card_index,
         "removed_card_type": removed_type,
         "remaining_cards": len(cards),
@@ -612,10 +693,13 @@ TOOL = ToolDefinition(
         "'update_view' replaces a single view by path (others untouched), "
         "'replace_card' swaps one card by index, 'remove_card' deletes "
         "one card by index. Prefer these over 'update' which replaces "
-        "the entire dashboard. For new views, build incrementally: "
-        "'create' with first batch of cards, then 'add_cards'. Use the "
-        "shorthand fields (title, path, icon, cards) instead of nesting "
-        "in config. ALWAYS dry_run=true first. Changes are immediate."
+        "the entire dashboard. For sections-layout views (query_dashboard "
+        "shows 'layout: sections'), pass section_index alongside "
+        "card_index to target a nested card. For new views, build "
+        "incrementally: 'create' with first batch of cards, then "
+        "'add_cards'. Use the shorthand fields (title, path, icon, cards) "
+        "instead of nesting in config. ALWAYS dry_run=true first. Changes "
+        "are immediate."
     ),
     params_model=ModifyDashboardParams,
     tier=Tier.MODIFY,

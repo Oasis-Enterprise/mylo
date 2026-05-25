@@ -94,12 +94,23 @@ async def _fetch_config(ctx: ToolContext, dashboard_id: str | None) -> Any:
 
 def _view_summary(view: dict[str, Any]) -> dict[str, Any]:
     cards = view.get("cards") or []
-    return {
+    sections = view.get("sections")
+    summary: dict[str, Any] = {
         "path": view.get("path"),
         "title": view.get("title"),
         "icon": view.get("icon"),
         "card_count": len(cards) if isinstance(cards, list) else 0,
     }
+    # Flag sections-layout views so the model knows to pass section_index
+    # to modify_dashboard's surgical ops instead of top-level card_index.
+    if view.get("type") == "sections" or isinstance(sections, list):
+        summary["layout"] = "sections"
+        if isinstance(sections, list):
+            summary["section_count"] = len(sections)
+            summary["section_card_counts"] = [
+                len(s.get("cards") or []) if isinstance(s, dict) else 0 for s in sections
+            ]
+    return summary
 
 
 async def handler(params: QueryDashboardParams, ctx: ToolContext) -> ToolResult:

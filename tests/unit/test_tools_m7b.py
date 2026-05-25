@@ -247,6 +247,170 @@ async def test_delete_nonexistent_view(_ctx):
     assert result.error_code == "view_not_found"
 
 
+# ─── modify_dashboard — sections layout ─────────────────────────────────────
+#
+# HA's sections layout nests cards inside `view.sections[i].cards`. The
+# surgical ops must accept `section_index` so the model can target a
+# nested card without re-emitting the whole view.
+
+
+def _sections_view_dashboard() -> dict[str, Any]:
+    """Realistic sections-layout dashboard config the fake client returns."""
+    return {
+        "views": [
+            {
+                "path": "rooms",
+                "title": "Rooms",
+                "type": "sections",
+                "sections": [
+                    {
+                        "type": "grid",
+                        "cards": [
+                            {"type": "heading", "heading": "Living"},
+                            {"type": "entity", "entity": "light.kitchen_overhead"},
+                        ],
+                    },
+                    {
+                        "type": "grid",
+                        "cards": [
+                            {"type": "heading", "heading": "Outside & Garage"},
+                            {
+                                "type": "custom:mushroom-chips-card",
+                                "chips": [
+                                    {"type": "entity", "entity": "light.kitchen_overhead"},
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def _sections_ctx(tmp_path: Path):
+    reg = Registries()
+    reg.entities = {
+        "light.kitchen_overhead": EntityEntry.from_raw(
+            {"entity_id": "light.kitchen_overhead", "original_name": "Kitchen"}
+        ),
+    }
+    client = _FakeClient(
+        responses={
+            "lovelace/config": _sections_view_dashboard(),
+        }
+    )
+    return make_ctx(ws_client=client, registries=reg, tmp_path=tmp_path)
+
+
+async def test_replace_card_with_section_index_targets_nested_card(_sections_ctx):
+    """replace_card with section_index swaps view.sections[section].cards[index]."""
+    result = await execute(
+        "modify_dashboard",
+        {
+            "action": "replace_card",
+            "dashboard_id": None,
+            "view_path": "rooms",
+            "section_index": 1,
+            "card_index": 1,
+            "config": {
+                "type": "custom:mushroom-chips-card",
+                "chips": [
+                    {"type": "entity", "entity": "light.kitchen_overhead"},
+                    {"type": "entity", "entity": "light.kitchen_overhead"},
+                ],
+            },
+            "dry_run": True,
+        },
+        _sections_ctx,
+    )
+    assert result.status.value == "ok", result
+    assert result.data["preview"] is True
+    assert result.data["section_index"] == 1
+    assert result.data["card_index"] == 1
+    assert result.data["old_card_type"] == "custom:mushroom-chips-card"
+
+
+async def test_replace_card_without_section_index_on_sections_view_errors(_sections_ctx):
+    """Targeting a sections-layout view via top-level card_index alone must
+    return a helpful error pointing the model at section_index.
+    """
+    result = await execute(
+        "modify_dashboard",
+        {
+            "action": "replace_card",
+            "dashboard_id": None,
+            "view_path": "rooms",
+            "card_index": 0,
+            "config": {"type": "entity", "entity": "light.kitchen_overhead"},
+            "dry_run": True,
+        },
+        _sections_ctx,
+    )
+    assert result.error_code == "section_index_required"
+
+
+async def test_add_cards_with_section_index_appends_to_section(_sections_ctx):
+    """add_cards with section_index appends to view.sections[section].cards."""
+    result = await execute(
+        "modify_dashboard",
+        {
+            "action": "add_cards",
+            "dashboard_id": None,
+            "view_path": "rooms",
+            "section_index": 0,
+            "cards": [{"type": "entity", "entity": "light.kitchen_overhead"}],
+            "dry_run": True,
+        },
+        _sections_ctx,
+    )
+    assert result.status.value == "ok", result
+    assert result.data["preview"] is True
+    assert result.data["section_index"] == 0
+    assert result.data["cards_added"] == 1
+    # Section 0 had 2 cards; after add, 3.
+    assert result.data["total_cards"] == 3
+
+
+async def test_remove_card_with_section_index_drops_nested_card(_sections_ctx):
+    """remove_card with section_index removes view.sections[section].cards[index]."""
+    result = await execute(
+        "modify_dashboard",
+        {
+            "action": "remove_card",
+            "dashboard_id": None,
+            "view_path": "rooms",
+            "section_index": 1,
+            "card_index": 1,
+            "dry_run": True,
+        },
+        _sections_ctx,
+    )
+    assert result.status.value == "ok", result
+    assert result.data["preview"] is True
+    assert result.data["section_index"] == 1
+    assert result.data["removed_card_type"] == "custom:mushroom-chips-card"
+    assert result.data["remaining_cards"] == 1
+
+
+async def test_replace_card_with_invalid_section_index_errors(_sections_ctx):
+    result = await execute(
+        "modify_dashboard",
+        {
+            "action": "replace_card",
+            "dashboard_id": None,
+            "view_path": "rooms",
+            "section_index": 99,
+            "card_index": 0,
+            "config": {"type": "entity", "entity": "light.kitchen_overhead"},
+            "dry_run": True,
+        },
+        _sections_ctx,
+    )
+    assert result.error_code == "section_not_found"
+
+
 # ─── rename_entities ─────────────────────────────────────────────────────────
 
 
