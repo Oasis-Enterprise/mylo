@@ -71,9 +71,7 @@ async def test_retries_on_529_overloaded_then_succeeds() -> None:
     )
     provider._client.messages.create = create  # type: ignore[attr-defined]
 
-    result = await provider.message(
-        system="sys", messages=[], tools=[], model="claude-x"
-    )
+    result = await provider.message(system="sys", messages=[], tools=[], model="claude-x")
 
     assert create.await_count == 2
     assert result.stop_reason == "end_turn"
@@ -86,9 +84,7 @@ async def test_does_not_retry_on_400_bad_request() -> None:
     provider._client.messages.create = create  # type: ignore[attr-defined]
 
     with pytest.raises(BadRequestError):
-        await provider.message(
-            system="sys", messages=[], tools=[], model="claude-x"
-        )
+        await provider.message(system="sys", messages=[], tools=[], model="claude-x")
 
     assert create.await_count == 1
 
@@ -97,14 +93,10 @@ async def test_gives_up_after_exhausting_backoff() -> None:
     """Persistent 529s eventually surface to the caller after retries."""
     provider = AnthropicProvider(api_key="x")
     # _BACKOFF_DELAYS has 3 entries → up to 4 attempts total.
-    create = AsyncMock(
-        side_effect=[_status_error(InternalServerError, 529)] * 4
-    )
+    create = AsyncMock(side_effect=[_status_error(InternalServerError, 529)] * 4)
     provider._client.messages.create = create  # type: ignore[attr-defined]
 
     with pytest.raises(InternalServerError):
-        await provider.message(
-            system="sys", messages=[], tools=[], model="claude-x"
-        )
+        await provider.message(system="sys", messages=[], tools=[], model="claude-x")
 
     assert create.await_count == 4
