@@ -29,6 +29,7 @@ from unittest.mock import AsyncMock
 from mylo.config import AppConfig
 from mylo.memory.schema import Baselines, EntityBaseline, NotificationSuppression, empty_memory
 from mylo.monitor.anomaly import check_anomalies
+from mylo.monitor.anomaly import reset_state as reset_anomaly_state
 from mylo.monitor.baselines import _extract_mean_values
 from mylo.monitor.hourly import reset_state, run_hourly_check
 from mylo.monitor.notifier import Notifier, _in_quiet_hours
@@ -269,7 +270,8 @@ def test_extract_mean_values_filters_nulls() -> None:
 # ─── Anomaly: z-score detection ─────────────────────────────────────────────
 
 
-async def test_anomaly_detects_spike() -> None:
+async def test_anomaly_detects_persistent_spike() -> None:
+    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -283,21 +285,45 @@ async def test_anomaly_detects_spike() -> None:
             },
         ]
     )
-
     baselines = Baselines(
         entities=[
             EntityBaseline(entity="sensor.power", metric="mean", avg=200.0, stddev=50.0),
         ]
     )
 
-    findings = await check_anomalies(ws_client=ws, baselines=baselines)
-    assert len(findings) == 1
-    assert findings[0]["z_score"] == 5.0
-    assert "high" in findings[0]["title"]
-    assert findings[0]["severity"] == "high"
+    # First check: anomalous but not persistent yet — no finding.
+    first = await check_anomalies(ws_client=ws, baselines=baselines)
+    assert first == []
+
+    # Second consecutive check: now it fires.
+    second = await check_anomalies(ws_client=ws, baselines=baselines)
+    assert len(second) == 1
+    assert second[0]["z_score"] == 5.0
+    assert second[0]["severity"] == "high"
+
+
+async def test_anomaly_blip_resets_streak() -> None:
+    reset_anomaly_state()
+    ws = AsyncMock()
+    baselines = Baselines(
+        entities=[
+            EntityBaseline(entity="sensor.power", metric="mean", avg=200.0, stddev=50.0),
+        ]
+    )
+    spike = [{"entity_id": "sensor.power", "state": "450.0", "attributes": {}}]
+    normal = [{"entity_id": "sensor.power", "state": "205.0", "attributes": {}}]
+
+    ws.send_command = AsyncMock(return_value=spike)
+    assert await check_anomalies(ws_client=ws, baselines=baselines) == []
+    ws.send_command = AsyncMock(return_value=normal)
+    assert await check_anomalies(ws_client=ws, baselines=baselines) == []
+    ws.send_command = AsyncMock(return_value=spike)
+    # Streak was reset — still only the first anomalous check.
+    assert await check_anomalies(ws_client=ws, baselines=baselines) == []
 
 
 async def test_anomaly_no_finding_within_threshold() -> None:
+    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -316,8 +342,10 @@ async def test_anomaly_no_finding_within_threshold() -> None:
 
 
 async def test_anomaly_ignores_tiny_battery_fluctuation() -> None:
-    """A battery at 96% with baseline 96.6+/-0.2 is technically 3 SD but
-    the absolute change (0.6%) is meaningless. Should NOT fire."""
+    """A battery at 96% with baseline 96.6+/-0.2 is technically below 3.5 sd
+    (after stddev clamping) AND the absolute change (0.6%) is below
+    MIN_ABSOLUTE_CHANGE. Should NOT fire."""
+    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -340,8 +368,9 @@ async def test_anomaly_ignores_tiny_battery_fluctuation() -> None:
 
 
 async def test_anomaly_fires_on_real_battery_drop() -> None:
-    """Jerome vacuum at 62% with baseline 96±10 is a real drop (34%).
-    Should fire."""
+    """Vacuum at 62% with baseline 96.2+/-9.5 is a real drop (~3.6 sd, 34 units).
+    Must fire after 2 consecutive checks."""
+    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -355,16 +384,23 @@ async def test_anomaly_fires_on_real_battery_drop() -> None:
 
     baselines = Baselines(
         entities=[
-            EntityBaseline(entity="sensor.vacuum_battery", metric="mean", avg=96.2, stddev=9.9),
+            # stddev=9.5 → z = (62-96.2)/9.5 ≈ -3.60 (> 3.5 sd threshold)
+            EntityBaseline(entity="sensor.vacuum_battery", metric="mean", avg=96.2, stddev=9.5),
         ]
     )
 
-    findings = await check_anomalies(ws_client=ws, baselines=baselines)
-    assert len(findings) == 1
-    assert findings[0]["entity_id"] == "sensor.vacuum_battery"
+    # First check builds streak but does not fire.
+    first = await check_anomalies(ws_client=ws, baselines=baselines)
+    assert first == []
+
+    # Second consecutive check fires.
+    second = await check_anomalies(ws_client=ws, baselines=baselines)
+    assert len(second) == 1
+    assert second[0]["entity_id"] == "sensor.vacuum_battery"
 
 
 async def test_anomaly_skips_non_numeric_state() -> None:
+    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[

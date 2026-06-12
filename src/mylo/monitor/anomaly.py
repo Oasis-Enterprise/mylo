@@ -16,12 +16,11 @@
 
 Runs during the hourly sweep. For each entity that has a stored
 baseline (mean + stddev), fetch the current state value and compute
-the z-score. If |z| > threshold, emit a finding for the notifier.
-
-The default threshold is 2.5 sd — roughly a 1.2% chance of a false
-positive per check on normally-distributed data. Sensors with high
-natural variance (outdoor temperature, energy) will have wide stddev
-from the 7-day baseline, so the threshold adapts organically.
+the z-score. A finding is only emitted when |z| exceeds 3.5 sd *and*
+the anomaly persists for at least 2 consecutive hourly checks — this
+kills one-hour blips that were generating noise at the old 2.5 sd
+threshold. Streaks reset to zero as soon as the value returns within
+threshold or falls below MIN_ABSOLUTE_CHANGE.
 
 Entities whose current state is non-numeric or ``unavailable`` are
 silently skipped — the hourly availability sweep handles those.
@@ -38,7 +37,14 @@ from mylo.memory.schema import Baselines
 
 log = get_logger(__name__)
 
-Z_THRESHOLD = 2.5
+Z_THRESHOLD = 3.5
+
+# An anomaly must persist for this many consecutive hourly checks
+# before a finding is emitted — kills one-hour blips.
+PERSISTENCE_CHECKS = 2
+
+# Per-entity count of consecutive anomalous checks.
+_streaks: dict[str, int] = {}
 
 # Sensors with very low natural variance (batteries, stable temps)
 # produce tiny stddevs where any small change looks like a spike.
@@ -87,11 +93,13 @@ async def check_anomalies(
         z = (value - baseline.avg) / effective_stddev
         abs_z = abs(z)
 
-        if abs_z < threshold:
+        if abs_z < threshold or abs(value - baseline.avg) < MIN_ABSOLUTE_CHANGE:
+            _streaks.pop(baseline.entity, None)
             continue
 
-        # Skip if the absolute change is too small to matter.
-        if abs(value - baseline.avg) < MIN_ABSOLUTE_CHANGE:
+        streak = _streaks.get(baseline.entity, 0) + 1
+        _streaks[baseline.entity] = streak
+        if streak < PERSISTENCE_CHECKS:
             continue
 
         direction = "above" if z > 0 else "below"
@@ -100,9 +108,9 @@ async def check_anomalies(
         friendly = attrs.get("friendly_name", baseline.entity)
 
         severity: str
-        if abs_z >= 4.0:
+        if abs_z >= 4.5:
             severity = "high"
-        elif abs_z >= 3.0:
+        elif abs_z >= 4.0:
             severity = "normal"
         else:
             severity = "low"
@@ -135,3 +143,8 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def reset_state() -> None:
+    """Clear persistence streaks — used by tests."""
+    _streaks.clear()
