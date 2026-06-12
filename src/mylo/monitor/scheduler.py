@@ -282,23 +282,26 @@ async def _hourly_job(app: web.Application) -> None:
             entity_id = finding.get("entity_id", "")
             if ntype == "stale_automation":
                 stale_ids.add(entity_id)
-            if findings_store.in_cooldown(memory, ntype, entity_id, now):
-                continue
-            is_new = findings_store.upsert_finding(
-                memory,
-                finding_id=f"mylo_hourly_{finding['id']}",
-                finding_type=ntype,
-                entity_id=entity_id,
-                title=finding["title"],
-                message=finding["message"],
-                confidence=1.0,
-                now=now,
-            )
-            dirty = True
+            is_new = False
+            if not findings_store.in_cooldown(memory, ntype, entity_id, now):
+                is_new = findings_store.upsert_finding(
+                    memory,
+                    finding_id=f"mylo_hourly_{finding['id']}",
+                    finding_type=ntype,
+                    entity_id=entity_id,
+                    title=finding["title"],
+                    message=finding["message"],
+                    confidence=1.0,
+                    now=now,
+                )
+                dirty = True
             # The aggregated unavailable finding shares one key, so a
             # refresh (is_new=False) can still describe a brand-new
             # outage batch — run_hourly_check already throttles those
-            # to newly-unavailable entities, so always notify them.
+            # to newly-unavailable entities, so notify them even while
+            # the banner item is dismissed (dismiss silences the banner,
+            # not outage alerts; type-level suppression filters are the
+            # lever for muting those).
             if is_new or ntype == "unavailable":
                 await notifier.send(
                     title=finding["title"],
