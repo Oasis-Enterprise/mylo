@@ -29,12 +29,16 @@ fatal (entities just re-enter the quiet period).
 
 from __future__ import annotations
 
+import contextlib
 import json
+import math
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.logging_setup import get_logger
+from mylo.monitor.transitions import Transition
 
 log = get_logger(__name__)
 
@@ -122,3 +126,88 @@ class ProfileStore:
             self._path.write_text(json.dumps(profile_set.model_dump()), encoding="utf-8")
         except OSError as exc:
             log.warning("profiles.save_failed", error=str(exc))
+
+
+def fold_transitions(profile_set: ProfileSet, transitions: list[Transition]) -> int:
+    """Fold new transitions into the profiles, in place.
+
+    Only transitions newer than the watermark (``last_folded``) are
+    processed, so re-reading the same 14-day window every night
+    never double-counts. Returns the number of cycles recorded.
+    """
+    watermark = profile_set.last_folded or ""
+    fresh = sorted(
+        (t for t in transitions if t.timestamp > watermark),
+        key=lambda t: t.timestamp,
+    )
+    cycles = 0
+
+    for t in fresh:
+        domain = t.entity_id.split(".", 1)[0]
+        active = ACTIVE_STATES.get(domain)
+        if active is None:
+            continue
+
+        profile = profile_set.entities.get(t.entity_id)
+        if profile is None:
+            profile = EntityProfile(entity_id=t.entity_id, first_seen=t.timestamp)
+            profile_set.entities[t.entity_id] = profile
+
+        profile.total_events += 1
+        event_date = t.timestamp[:10]
+        if event_date != profile.last_event_date:
+            profile.days_observed += 1
+            profile.last_event_date = event_date
+        with contextlib.suppress(ValueError):
+            profile.active_hours[datetime.fromisoformat(t.timestamp).hour] += 1
+
+        if t.to_state == active:
+            profile.active_since = t.timestamp
+        elif t.from_state == active and profile.active_since is not None:
+            try:
+                start = datetime.fromisoformat(profile.active_since)
+                end = datetime.fromisoformat(t.timestamp)
+            except ValueError:
+                profile.active_since = None
+                continue
+            profile.active_since = None
+            duration_s = (end - start).total_seconds()
+            if duration_s > 0:
+                _record_cycle(profile, duration_s)
+                cycles += 1
+
+    if fresh:
+        profile_set.last_folded = fresh[-1].timestamp
+    return cycles
+
+
+def _record_cycle(profile: EntityProfile, duration_s: float) -> None:
+    profile.cycle_count += 1
+    profile.max_duration_s = max(profile.max_duration_s, duration_s)
+    profile.duration_histogram[_bucket_index(duration_s)] += 1
+
+
+def _bucket_index(duration_s: float) -> int:
+    for i, edge in enumerate(BUCKET_EDGES_S):
+        if duration_s <= edge:
+            return i
+    return len(BUCKET_EDGES_S)
+
+
+def p95_duration_s(profile: EntityProfile) -> float:
+    """95th-percentile cycle duration — upper bound of its bucket.
+
+    The open-ended last bucket uses the exact observed max instead.
+    """
+    total = sum(profile.duration_histogram)
+    if total == 0:
+        return 0.0
+    target = math.ceil(total * 0.95)
+    cumulative = 0
+    for i, count in enumerate(profile.duration_histogram):
+        cumulative += count
+        if cumulative >= target:
+            if i < len(BUCKET_EDGES_S):
+                return float(BUCKET_EDGES_S[i])
+            return profile.max_duration_s
+    return profile.max_duration_s
