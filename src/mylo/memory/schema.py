@@ -250,22 +250,35 @@ class NotificationSuppression(BaseModel):
 
 
 class PendingAction(BaseModel):
-    """A proactive suggestion waiting to be shown in the catch-up banner.
+    """A monitor finding waiting to be shown in the catch-up banner.
 
-    Stored in memory when the hourly sweep detects something (lights
-    on while away, lock unlocked too long, etc). Cleared once the
-    user opens Mylo and sees it in the catch-up banner or conversation.
+    Lifecycle is managed by ``mylo.monitor.findings``: keyed by
+    (type, entity_id), capped, auto-resolved when the condition
+    clears, expired after 48h. Dismissing applies a cooldown.
     """
 
     model_config = ConfigDict(extra="allow")
 
     id: str
-    type: str  # on_while_away, unlocked_too_long, device_running_long
+    type: str  # duration_anomaly, while_away, anomaly, unavailable, stale_automation
     entity_id: str
     title: str
     message: str
     detected_at: str  # ISO timestamp
-    resolved: bool = False  # True once user acted or dismissed
+    last_seen: str | None = None  # refreshed on every re-detection
+    confidence: float = 1.0  # orders the banner; lowest evicted at cap
+    resolved: bool = False  # legacy field — kept for migration detection
+
+
+class FindingCooldown(BaseModel):
+    """A dismissed finding's snooze — detectors skip this
+    (type, entity) pair until ``until``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    entity_id: str
+    until: str  # ISO timestamp
 
 
 class Suggestion(BaseModel):
@@ -311,6 +324,7 @@ class MemoryFile(BaseModel):
     notification_suppressions: list[NotificationSuppression] = Field(default_factory=list)
     suggestions: list[Suggestion] = Field(default_factory=list)
     pending_actions: list[PendingAction] = Field(default_factory=list)
+    finding_cooldowns: list[FindingCooldown] = Field(default_factory=list)
     baselines: Baselines = Field(default_factory=Baselines)
 
     def pending_conflicts(self) -> list[Conflict]:
