@@ -82,11 +82,25 @@ Fields:
 - `active_hours` — 24 ints, event count per hour-of-day (kept for future use and
   explainability; not a detector input in v1)
 - `away_samples`, `on_while_away_samples` — away behavior is learned by sampling, not
-  reconstruction: each hourly sweep that runs while every `person.*` entity is `not_home`
-  records one sample per light/switch entity (`away_samples += 1`, plus
-  `on_while_away_samples += 1` if the entity is on). Reconstructing contiguous "away
-  periods" from person transitions would require knowing initial states; hourly sampling
-  gives the same signal with far less code.
+  reconstruction: a sweep that runs while everyone is away records one sample per
+  light/switch entity (`away_samples += 1`, plus `on_while_away_samples += 1` if the
+  entity is on). Reconstructing contiguous "away periods" from person transitions would
+  require knowing initial states; sampling gives the same signal with far less code.
+  Two guards keep the learning honest:
+  - **At most one sample per calendar day** (`ProfileSet.last_away_sample_date`): hourly
+    samples within one absence are autocorrelated — without this, a single 8-hour trip
+    would fully qualify every entity and define its away norm. With it, the ≥8-sample
+    gate means roughly 8 distinct away days.
+  - **Only definitive person states count**: `unknown`/`unavailable` person entities are
+    ignored when deciding "everyone away" — a tracker outage at 3am must not record
+    poisoned samples or fire while-away alerts while the user is in bed. No definitive
+    state ⇒ treated as not away.
+  - Known residual: a real anomaly that persists across a sampled day teaches itself
+    into the norm by one sample. Bounded to one sample per incident by the
+    one-per-day rule; accepted.
+  - While-away findings use their own confidence basis (`away_samples / 16`, capped
+    at 1.0) so away-only entities aren't permanently the first evicted from the
+    capped findings store.
 
 Maintenance:
 

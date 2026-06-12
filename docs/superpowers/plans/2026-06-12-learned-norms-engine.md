@@ -204,11 +204,28 @@ class ProfileStore:
     def save(self, profile_set: ProfileSet) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(
-                json.dumps(profile_set.model_dump()), encoding="utf-8"
-            )
+            # Atomic: a torn write would silently discard weeks of
+            # accumulated learning that the 14-day raw log can't rebuild.
+            atomic_write(self._path, json.dumps(profile_set.model_dump()))
         except OSError as exc:
             log.warning("profiles.save_failed", error=str(exc))
+```
+
+(`atomic_write` comes from `mylo.files.manager` — the repo's standard tempfile+fsync+replace helper. Add the import at the top.)
+
+Also add a length-normalizing validator to `EntityProfile` so a hand-edited or schema-drifted profiles.json can never IndexError the fold loop:
+
+```python
+    @field_validator("duration_histogram", "active_hours", mode="after")
+    @classmethod
+    def _normalize_length(cls, v: list[int], info: ValidationInfo) -> list[int]:
+        expected = NUM_BUCKETS if info.field_name == "duration_histogram" else 24
+        if len(v) < expected:
+            return v + [0] * (expected - len(v))
+        return v[:expected]
+```
+
+(imports: `from pydantic import ... field_validator, ValidationInfo`)
 ```
 
 (`math` is imported now because Task 2 adds `p95_duration_s`; if ruff flags it as unused at this step, add it in Task 2 instead.)
@@ -1575,6 +1592,19 @@ git commit -m "feat(monitor): remove fixed-threshold detectors in favor of learn
 - Modify: `src/mylo/monitor/scheduler.py` (`_hourly_job` rewrite + nightly fold step)
 
 No new unit tests for the job glue itself — every piece it composes is unit-tested (profiles, findings, detectors, anomaly, hourly), and the existing scheduler tests only verify job registration, which is unchanged. Behavior is verified on the real HA instance.
+
+**Concurrency guard:** the nightly fold and the hourly learned-check both do load→mutate→save on profiles.json, and the hourly holds its loaded `ProfileSet` across an `await` — a lost-update window on the shared event loop. Add a module-level lock to `scheduler.py`:
+
+```python
+import asyncio
+
+# Serializes profiles.json load-modify-save between nightly fold and
+# hourly learned checks — the hourly holds its ProfileSet across an
+# await, so an unguarded nightly fold could be silently overwritten.
+_profiles_lock = asyncio.Lock()
+```
+
+Wrap the nightly step-4 body (load→fold→save) and the hourly step-3 profile section (load→run_learned_checks→save) in `async with _profiles_lock:`.
 
 - [ ] **Step 1: Add the nightly profile fold**
 
