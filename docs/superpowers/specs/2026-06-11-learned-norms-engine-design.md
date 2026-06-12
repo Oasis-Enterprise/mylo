@@ -81,10 +81,12 @@ Fields:
   containing the 95th percentile).
 - `active_hours` — 24 ints, event count per hour-of-day (kept for future use and
   explainability; not a detector input in v1)
-- `away_periods_observed`, `on_while_away_count`
-
-An "away period" is a contiguous span during which every `person.*` entity is `not_home`,
-reconstructed from person-entity transitions (already in the watched domains).
+- `away_samples`, `on_while_away_samples` — away behavior is learned by sampling, not
+  reconstruction: each hourly sweep that runs while every `person.*` entity is `not_home`
+  records one sample per light/switch entity (`away_samples += 1`, plus
+  `on_while_away_samples += 1` if the entity is on). Reconstructing contiguous "away
+  periods" from person transitions would require knowing initial states; hourly sampling
+  gives the same signal with far less code.
 
 Maintenance:
 
@@ -99,7 +101,7 @@ Maintenance:
 Confidence gate:
 
 - Duration alerts: eligible when `days_observed ≥ 14` AND `cycle_count ≥ 8`.
-- While-away alerts: eligible when `away_periods_observed ≥ 5`.
+- While-away alerts: eligible when `away_samples ≥ 8`.
 - `confidence = min(1.0, days_observed / 21)` — used only to order findings, never shown
   as a number.
 
@@ -116,7 +118,7 @@ All detectors consult the profile gate before emitting anything.
   - Message includes the learned norm: "Kitchen light has been on 8h — the longest you've
     left it before is 6h."
 - **While-away anomaly** — entity on while all `person.*` are `not_home`, AND
-  `on_while_away_count / away_periods_observed < 0.20`. Entities routinely left on while
+  `on_while_away_samples / away_samples < 0.20`. Entities routinely left on while
   away never fire.
 - **Numeric z-score** (`anomaly.py`, hardened) — threshold 2.5σ → 3.5σ; a finding is
   emitted only after the same entity is anomalous on 2 consecutive hourly checks
