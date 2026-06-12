@@ -22,6 +22,11 @@ kills one-hour blips that were generating noise at the old 2.5 sd
 threshold. Streaks reset to zero as soon as the value returns within
 threshold or falls below MIN_ABSOLUTE_CHANGE.
 
+Persistence streaks are strictly consecutive: checks where the entity
+is unreadable (missing from states, non-numeric value, or zero stddev)
+RESET the streak. This keeps "2 consecutive anomalous checks" meaningful
+rather than counting across gaps.
+
 Entities whose current state is non-numeric or ``unavailable`` are
 silently skipped — the hourly availability sweep handles those.
 """
@@ -66,6 +71,10 @@ async def check_anomalies(
     """Compare current sensor values against stored baselines.
 
     Returns a list of anomaly finding dicts suitable for the notifier.
+
+    Maintains per-entity persistence streaks across calls (see module
+    docstring). Calling with a non-default ``threshold`` perturbs that
+    shared state — reserve custom thresholds for tests.
     """
     if not baselines.entities:
         return []
@@ -76,14 +85,19 @@ async def check_anomalies(
     for baseline in baselines.entities:
         state_dict = states.get(baseline.entity)
         if state_dict is None:
+            # an unreadable hour breaks the 'consecutive' chain by design —
+            # better to under-alert than fire on stale streaks.
+            _streaks.pop(baseline.entity, None)
             continue
 
         raw_value = state_dict.get("state")
         value = _to_float(raw_value)
         if value is None:
+            _streaks.pop(baseline.entity, None)
             continue
 
         if baseline.stddev <= 0:
+            _streaks.pop(baseline.entity, None)
             continue
 
         # Clamp stddev so stable sensors (batteries, slow-changing
@@ -129,6 +143,13 @@ async def check_anomalies(
                 "z_score": round(z, 2),
             }
         )
+
+    # baselines are rebuilt nightly, so entities come and go — stale streaks
+    # must not survive their entity's absence.
+    current = {b.entity for b in baselines.entities}
+    for key in list(_streaks.keys()):
+        if key not in current:
+            _streaks.pop(key)
 
     if findings:
         log.info("anomaly.findings", count=len(findings))

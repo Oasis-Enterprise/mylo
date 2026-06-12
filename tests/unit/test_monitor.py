@@ -26,6 +26,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock
 
+import pytest
+
 from mylo.config import AppConfig
 from mylo.memory.schema import Baselines, EntityBaseline, NotificationSuppression, empty_memory
 from mylo.monitor.anomaly import check_anomalies
@@ -33,6 +35,12 @@ from mylo.monitor.anomaly import reset_state as reset_anomaly_state
 from mylo.monitor.baselines import _extract_mean_values
 from mylo.monitor.hourly import reset_state, run_hourly_check
 from mylo.monitor.notifier import Notifier, _in_quiet_hours
+
+
+@pytest.fixture(autouse=True)
+def _reset_monitor_state() -> None:
+    reset_state()
+    reset_anomaly_state()
 
 
 def _make_config(**overrides: Any) -> AppConfig:
@@ -201,7 +209,6 @@ async def test_notifier_suppressed_when_disabled() -> None:
 
 
 async def test_hourly_detects_newly_unavailable() -> None:
-    reset_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -216,7 +223,6 @@ async def test_hourly_detects_newly_unavailable() -> None:
 
 
 async def test_hourly_does_not_re_report_known_unavailable() -> None:
-    reset_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -230,7 +236,6 @@ async def test_hourly_does_not_re_report_known_unavailable() -> None:
 
 
 async def test_hourly_detects_stale_automation() -> None:
-    reset_state()
     ws = AsyncMock()
     old_date = (datetime.now(UTC) - timedelta(days=5)).isoformat()
     ws.send_command = AsyncMock(
@@ -271,7 +276,6 @@ def test_extract_mean_values_filters_nulls() -> None:
 
 
 async def test_anomaly_detects_persistent_spike() -> None:
-    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -303,7 +307,6 @@ async def test_anomaly_detects_persistent_spike() -> None:
 
 
 async def test_anomaly_blip_resets_streak() -> None:
-    reset_anomaly_state()
     ws = AsyncMock()
     baselines = Baselines(
         entities=[
@@ -323,7 +326,6 @@ async def test_anomaly_blip_resets_streak() -> None:
 
 
 async def test_anomaly_no_finding_within_threshold() -> None:
-    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -345,7 +347,6 @@ async def test_anomaly_ignores_tiny_battery_fluctuation() -> None:
     """A battery at 96% with baseline 96.6+/-0.2 is technically below 3.5 sd
     (after stddev clamping) AND the absolute change (0.6%) is below
     MIN_ABSOLUTE_CHANGE. Should NOT fire."""
-    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -370,7 +371,6 @@ async def test_anomaly_ignores_tiny_battery_fluctuation() -> None:
 async def test_anomaly_fires_on_real_battery_drop() -> None:
     """Vacuum at 62% with baseline 96.2+/-9.5 is a real drop (~3.6 sd, 34 units).
     Must fire after 2 consecutive checks."""
-    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -400,7 +400,6 @@ async def test_anomaly_fires_on_real_battery_drop() -> None:
 
 
 async def test_anomaly_skips_non_numeric_state() -> None:
-    reset_anomaly_state()
     ws = AsyncMock()
     ws.send_command = AsyncMock(
         return_value=[
@@ -416,3 +415,120 @@ async def test_anomaly_skips_non_numeric_state() -> None:
 
     findings = await check_anomalies(ws_client=ws, baselines=baselines)
     assert len(findings) == 0
+
+
+async def test_anomaly_gap_resets_streak() -> None:
+    """An unavailable check between two spikes resets the streak.
+
+    Spike → unavailable → spike → no fire (streak=1)
+    Spike → fire (streak=2).
+    """
+    # avg=100, stddev=20, threshold=3 → spike value=200 gives z=5.
+    baselines = Baselines(
+        entities=[
+            EntityBaseline(entity="sensor.gapped", metric="mean", avg=100.0, stddev=20.0),
+        ]
+    )
+    spike_states = [{"entity_id": "sensor.gapped", "state": "200.0", "attributes": {}}]
+    # "unavailable" means the entity is missing from the states dict entirely.
+    unavail_states: list[dict[str, Any]] = []
+
+    ws = AsyncMock()
+
+    # Call 1: spike — streak becomes 1, no fire.
+    ws.send_command = AsyncMock(return_value=spike_states)
+    assert await check_anomalies(ws_client=ws, baselines=baselines, threshold=3.0) == []
+
+    # Call 2: entity absent from states — streak reset to 0.
+    ws.send_command = AsyncMock(return_value=unavail_states)
+    assert await check_anomalies(ws_client=ws, baselines=baselines, threshold=3.0) == []
+
+    # Call 3: spike again — streak restarts at 1, still no fire.
+    ws.send_command = AsyncMock(return_value=spike_states)
+    assert await check_anomalies(ws_client=ws, baselines=baselines, threshold=3.0) == []
+
+    # Call 4: spike — streak=2, fires now.
+    ws.send_command = AsyncMock(return_value=spike_states)
+    result = await check_anomalies(ws_client=ws, baselines=baselines, threshold=3.0)
+    assert len(result) == 1
+    assert result[0]["entity_id"] == "sensor.gapped"
+
+
+async def test_anomaly_streak_pruned_when_baseline_removed() -> None:
+    """When an entity disappears from baselines, its stale streak is pruned.
+
+    After pruning, the restored entity must accumulate a fresh streak
+    before firing again.
+    """
+    baselines_with = Baselines(
+        entities=[
+            EntityBaseline(entity="sensor.pruned", metric="mean", avg=100.0, stddev=20.0),
+        ]
+    )
+    # A different entity — ensures the loop body runs so pruning code executes,
+    # but sensor.pruned is absent from `current` so its streak gets pruned.
+    baselines_other = Baselines(
+        entities=[
+            EntityBaseline(entity="sensor.other_entity", metric="mean", avg=50.0, stddev=5.0),
+        ]
+    )
+    spike_states = [{"entity_id": "sensor.pruned", "state": "200.0", "attributes": {}}]
+    other_states = [{"entity_id": "sensor.other_entity", "state": "51.0", "attributes": {}}]
+
+    ws = AsyncMock()
+
+    # Call 1: spike with original baseline — streak=1, no fire.
+    ws.send_command = AsyncMock(return_value=spike_states)
+    assert await check_anomalies(ws_client=ws, baselines=baselines_with, threshold=3.0) == []
+
+    # Call 2: different baselines set — sensor.pruned absent from current, streak pruned.
+    ws.send_command = AsyncMock(return_value=other_states)
+    await check_anomalies(ws_client=ws, baselines=baselines_other, threshold=3.0)
+
+    # Call 3: restore original baseline + spike — streak restarted at 1, no fire.
+    ws.send_command = AsyncMock(return_value=spike_states)
+    assert await check_anomalies(ws_client=ws, baselines=baselines_with, threshold=3.0) == []
+
+    # Call 4: spike again — streak=2, fires.
+    ws.send_command = AsyncMock(return_value=spike_states)
+    result = await check_anomalies(ws_client=ws, baselines=baselines_with, threshold=3.0)
+    assert len(result) == 1
+    assert result[0]["entity_id"] == "sensor.pruned"
+
+
+async def test_anomaly_severity_bands() -> None:
+    """Verify the severity thresholds: low=3.5-4.0, normal=4.0-4.5, high>=4.5.
+
+    avg=200, stddev=50:
+      value=385 → z=3.7 → severity "low"
+      value=410 → z=4.2 → severity "normal"
+
+    Each needs 2 consecutive checks to fire (persistence=2).
+    """
+    baselines = Baselines(
+        entities=[
+            EntityBaseline(entity="sensor.sev", metric="mean", avg=200.0, stddev=50.0),
+        ]
+    )
+    ws = AsyncMock()
+
+    # --- low severity (z=3.7) ---
+    low_states = [{"entity_id": "sensor.sev", "state": "385.0", "attributes": {}}]
+    ws.send_command = AsyncMock(return_value=low_states)
+    assert await check_anomalies(ws_client=ws, baselines=baselines) == []
+    ws.send_command = AsyncMock(return_value=low_states)
+    low_result = await check_anomalies(ws_client=ws, baselines=baselines)
+    assert len(low_result) == 1
+    assert low_result[0]["severity"] == "low"
+
+    # Reset between sub-cases so they're independent.
+    reset_anomaly_state()
+
+    # --- normal severity (z=4.2) ---
+    normal_states = [{"entity_id": "sensor.sev", "state": "410.0", "attributes": {}}]
+    ws.send_command = AsyncMock(return_value=normal_states)
+    assert await check_anomalies(ws_client=ws, baselines=baselines) == []
+    ws.send_command = AsyncMock(return_value=normal_states)
+    normal_result = await check_anomalies(ws_client=ws, baselines=baselines)
+    assert len(normal_result) == 1
+    assert normal_result[0]["severity"] == "normal"
