@@ -138,19 +138,20 @@ async def _handle_catchup(request: web.Request) -> web.Response:
     pending_actions: list[dict[str, Any]] = []
     if memory_store is not None:
         mem = memory_store.current()
-        for pa in mem.pending_actions:
-            if not pa.resolved:
-                lines.append(pa.message)
-                pending_actions.append(
-                    {
-                        "id": pa.id,
-                        "type": pa.type,
-                        "entity_id": pa.entity_id,
-                        "title": pa.title,
-                        "message": pa.message,
-                        "detected_at": pa.detected_at,
-                    }
-                )
+        unresolved = [pa for pa in mem.pending_actions if not pa.resolved]
+        unresolved.sort(key=lambda pa: pa.confidence, reverse=True)
+        for pa in unresolved:
+            lines.append(pa.message)
+            pending_actions.append(
+                {
+                    "id": pa.id,
+                    "type": pa.type,
+                    "entity_id": pa.entity_id,
+                    "title": pa.title,
+                    "message": pa.message,
+                    "detected_at": pa.detected_at,
+                }
+            )
 
     if not lines:
         lines.append("No new activity while you were away")

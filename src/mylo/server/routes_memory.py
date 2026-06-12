@@ -50,6 +50,7 @@ def register_memory_routes(app: web.Application) -> None:
     app.router.add_post("/api/suggestions/{suggestion_id}/respond", _handle_suggestion_respond)
     app.router.add_post("/api/suggestions/{suggestion_id}/automated", _handle_suggestion_automated)
     app.router.add_post("/api/pending-actions/clear", _handle_clear_pending_actions)
+    app.router.add_post("/api/pending-actions/dismiss", _handle_dismiss_pending_action)
 
 
 # ─── Read endpoints ─────────────────────────────────────────────────────────
@@ -438,26 +439,50 @@ async def _handle_suggestion_automated(request: web.Request) -> web.Response:
 
 
 async def _handle_clear_pending_actions(request: web.Request) -> web.Response:
-    """Mark all pending actions as resolved.
+    """Dismiss all findings.
 
-    Called when the user opens a session and sees the catch-up banner,
-    or after the model has discussed the pending items.
+    Applies the per-(type, entity) cooldown to each so detectors
+    don't re-surface the same items next sweep, then deletes them.
     """
+    from datetime import UTC, datetime
+
+    from mylo.monitor import findings as findings_store
     from mylo.server.app import AppKeys
 
     store = request.app[AppKeys.MEMORY]
     memory = store.current()
 
-    cleared = 0
-    for pa in memory.pending_actions:
-        if not pa.resolved:
-            pa.resolved = True
-            cleared += 1
-
+    cleared = findings_store.dismiss_all(memory, datetime.now(UTC))
     if cleared:
-        await store.save(memory, note=f"cleared {cleared} pending actions")
+        await store.save(memory, note=f"dismissed {cleared} findings")
 
     return web.json_response({"ok": True, "cleared": cleared})
+
+
+async def _handle_dismiss_pending_action(request: web.Request) -> web.Response:
+    """Dismiss one finding by id — cooldown its (type, entity), delete it."""
+    from datetime import UTC, datetime
+
+    from mylo.monitor import findings as findings_store
+    from mylo.server.app import AppKeys
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+
+    finding_id = str(body.get("id", "")).strip()
+    if not finding_id:
+        return web.json_response({"ok": False, "error": "missing_id"}, status=400)
+
+    store = request.app[AppKeys.MEMORY]
+    memory = store.current()
+
+    dismissed = findings_store.dismiss_finding(memory, finding_id, datetime.now(UTC))
+    if dismissed:
+        await store.save(memory, note=f"dismissed finding {finding_id}")
+        return web.json_response({"ok": True})
+    return web.json_response({"ok": False, "error": "not_found"}, status=404)
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
