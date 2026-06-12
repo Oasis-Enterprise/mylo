@@ -76,6 +76,8 @@ class SuggestionAction:
     # True when this pattern has been accepted enough times to
     # offer automation creation.
     offer_automation: bool = False
+    # Profile confidence (0..1) — orders findings in the banner.
+    confidence: float = 1.0
 
 
 async def run_suggestions(
