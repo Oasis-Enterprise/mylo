@@ -68,3 +68,7 @@ dev-config/
 
 # Docker / dev HA
 tests/integration/.ha-data/
+
+# Local session artifacts
+.claude/
+uv.lock
