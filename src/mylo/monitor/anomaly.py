@@ -77,6 +77,9 @@ async def check_anomalies(
     shared state — reserve custom thresholds for tests.
     """
     if not baselines.entities:
+        # No baselines means every entity is unreadable this check —
+        # stale streaks must not survive to fire on a single later hit.
+        _streaks.clear()
         return []
 
     states = await get_all_states(ws_client)
