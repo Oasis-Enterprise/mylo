@@ -14,7 +14,7 @@
 
 """Hourly availability sweep (no LLM).
 
-Checks two things, all from HA's live state:
+Checks two things from HA's live state:
 
 1. **Unavailable entities** — entities in state ``unavailable`` or
    ``unknown`` that are not disabled and belong to a monitored
@@ -22,8 +22,7 @@ Checks two things, all from HA's live state:
    last check (only reports *newly* unavailable ones).
 
 2. **Stale automations** — automations whose ``last_triggered``
-   hasn't advanced in more than 2x their expected interval. Only
-   tracked for automations that have a known trigger schedule.
+   hasn't advanced in more than 48h.
 
 Presence-aware checks (lights/switches on while nobody is home)
 live in ``mylo.monitor.detectors``, gated by learned profiles.

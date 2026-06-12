@@ -292,7 +292,7 @@ class Suggestion(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    type: str  # on_while_away, unlocked_too_long, device_running_long
+    type: str  # while_away, duration_anomaly (legacy: on_while_away, unlocked_too_long, device_running_long)
     entity_id: str
     description: str
     times_suggested: int = 0

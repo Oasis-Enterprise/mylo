@@ -50,7 +50,7 @@ Severity = Literal["critical", "normal", "low"]
 class NotificationAction:
     """An action button on a mobile notification."""
 
-    action: str  # event tag, e.g. "MYLO_ACCEPT_on_while_away_light.kitchen"
+    action: str  # event tag, e.g. "MYLO_ACCEPT_while_away_light.kitchen"
     title: str  # button label, e.g. "Turn Off"
 
 
