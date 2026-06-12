@@ -23,7 +23,12 @@ from mylo.monitor.profiles import (
     EntityProfile,
     ProfileSet,
     ProfileStore,
+    away_eligible,
+    confidence,
+    duration_eligible,
+    duration_threshold_s,
     fold_transitions,
+    is_rarely_on_while_away,
     p95_duration_s,
 )
 from mylo.monitor.transitions import Transition
@@ -154,3 +159,54 @@ def test_p95_last_bucket_uses_max_duration() -> None:
     p.duration_histogram[9] = 10  # everything >24h
     p.max_duration_s = 100000.0
     assert p95_duration_s(p) == 100000.0
+
+
+def _confident_profile(**overrides: object) -> EntityProfile:
+    p = EntityProfile(entity_id="light.kitchen", days_observed=20, cycle_count=20)
+    p.duration_histogram[2] = 20  # twenty ~30min cycles → p95 = 1800s
+    p.max_duration_s = 2100.0  # 35 min
+    for key, value in overrides.items():
+        setattr(p, key, value)
+    return p
+
+
+def test_duration_eligibility_gates() -> None:
+    assert duration_eligible(_confident_profile())
+    assert not duration_eligible(_confident_profile(days_observed=10))
+    assert not duration_eligible(_confident_profile(cycle_count=5))
+
+
+def test_away_eligibility_and_rarity() -> None:
+    p = _confident_profile(away_samples=10, on_while_away_samples=1)
+    assert away_eligible(p)
+    assert is_rarely_on_while_away(p)  # 10% < 20%
+    routine = _confident_profile(away_samples=10, on_while_away_samples=8)
+    assert not is_rarely_on_while_away(routine)  # 80% — porch light
+    assert not away_eligible(_confident_profile(away_samples=3))
+
+
+def test_confidence_scales_with_days() -> None:
+    assert confidence(_confident_profile(days_observed=21)) == 1.0
+    assert abs(confidence(_confident_profile(days_observed=7)) - 7 / 21) < 1e-9
+
+
+def test_duration_threshold_default_margins() -> None:
+    p = _confident_profile()
+    # max(2100 * 1.25, 1800 * 2.0) = max(2625, 3600) = 3600
+    assert duration_threshold_s(p) == 3600.0
+
+
+def test_duration_threshold_lock_uses_tight_margins() -> None:
+    p = EntityProfile(entity_id="lock.front", days_observed=20, cycle_count=20)
+    p.duration_histogram[2] = 20
+    p.max_duration_s = 2100.0
+    # max(2100 * 1.1, 1800 * 1.5) = max(2310, 2700) = 2700
+    assert duration_threshold_s(p) == 2700.0
+
+
+def test_duration_threshold_door_sensor_uses_tight_margins() -> None:
+    p = EntityProfile(entity_id="binary_sensor.garage", days_observed=20, cycle_count=20)
+    p.duration_histogram[2] = 20
+    p.max_duration_s = 2100.0
+    assert duration_threshold_s(p, device_class="garage_door") == 2700.0
+    assert duration_threshold_s(p, device_class="motion") == 3600.0

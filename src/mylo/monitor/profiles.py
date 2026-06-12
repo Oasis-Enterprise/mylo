@@ -211,3 +211,39 @@ def p95_duration_s(profile: EntityProfile) -> float:
                 return float(BUCKET_EDGES_S[i])
             return profile.max_duration_s
     return profile.max_duration_s
+
+
+def duration_eligible(profile: EntityProfile) -> bool:
+    """Quiet until confident: enough days AND enough cycles."""
+    return (
+        profile.days_observed >= MIN_DAYS_FOR_DURATION
+        and profile.cycle_count >= MIN_CYCLES_FOR_DURATION
+    )
+
+
+def away_eligible(profile: EntityProfile) -> bool:
+    return profile.away_samples >= MIN_AWAY_SAMPLES
+
+
+def is_rarely_on_while_away(profile: EntityProfile) -> bool:
+    """True when being on during away time is unusual for this entity."""
+    if profile.away_samples == 0:
+        return False
+    return profile.on_while_away_samples / profile.away_samples < AWAY_RARE_FRACTION
+
+
+def confidence(profile: EntityProfile) -> float:
+    """0..1 — orders findings in the banner, never shown as a number."""
+    return min(1.0, profile.days_observed / CONFIDENCE_FULL_DAYS)
+
+
+def duration_threshold_s(profile: EntityProfile, *, device_class: str | None = None) -> float:
+    """Seconds in the active state beyond which a finding fires.
+
+    Must beat the all-time max with margin AND a multiple of the
+    typical (p95) duration — whichever is larger governs.
+    """
+    domain = profile.entity_id.split(".", 1)[0]
+    tight = domain == "lock" or (domain == "binary_sensor" and device_class in TIGHT_DEVICE_CLASSES)
+    margin_max, margin_p95 = TIGHT_MARGINS if tight else DEFAULT_MARGINS
+    return max(profile.max_duration_s * margin_max, p95_duration_s(profile) * margin_p95)
