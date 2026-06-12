@@ -470,6 +470,8 @@ async def _handle_dismiss_pending_action(request: web.Request) -> web.Response:
         body = await request.json()
     except Exception:
         return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+    if not isinstance(body, dict):
+        return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
 
     finding_id = str(body.get("id", "")).strip()
     if not finding_id:
