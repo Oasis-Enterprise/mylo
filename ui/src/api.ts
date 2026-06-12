@@ -202,6 +202,14 @@ export async function clearPendingActions(): Promise<void> {
   await fetch(apiUrl("api/pending-actions/clear"), { method: "POST" });
 }
 
+export async function dismissPendingAction(id: string): Promise<void> {
+  await fetch(apiUrl("api/pending-actions/dismiss"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+}
+
 export async function newConversation(): Promise<void> {
   await fetch(apiUrl("api/conversation/new"), { method: "POST" });
 }

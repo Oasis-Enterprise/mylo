@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { clearPendingActions, type CatchupData } from "../api";
+import { useState } from "react";
+import {
+  clearPendingActions,
+  dismissPendingAction,
+  type CatchupData,
+} from "../api";
 
 interface Props {
   data: CatchupData;
@@ -22,22 +27,32 @@ interface Props {
 // Injected as a divider between old messages and the input area.
 // Not a message from Mylo — a lightweight status block that gives
 // context without pretending the old conversation didn't happen.
-// Pending actions from the proactive engine show here with accent
-// styling so the user knows Mylo has something to discuss.
+// Findings from the monitor show here with accent styling; each can
+// be dismissed individually (7-day cooldown server-side) or all at
+// once.
 export function CatchupBanner({ data, onDismiss }: Props) {
+  const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+
   if (!data.show_banner) return null;
 
-  const hasPending = (data.pending_actions?.length ?? 0) > 0;
+  const pending = (data.pending_actions ?? []).filter(
+    (pa) => !dismissedIds.includes(pa.id),
+  );
+  const hasPending = pending.length > 0;
   const regularLines = (data.lines || []).filter(
-    (line) =>
-      !data.pending_actions?.some((pa) => pa.message === line),
+    (line) => !data.pending_actions?.some((pa) => pa.message === line),
   );
 
-  const handleDismiss = async () => {
+  const handleDismissAll = async () => {
     if (hasPending) {
       await clearPendingActions();
     }
     onDismiss();
+  };
+
+  const handleDismissItem = (id: string) => {
+    setDismissedIds((prev) => [...prev, id]);
+    void dismissPendingAction(id);
   };
 
   return (
@@ -93,7 +108,7 @@ export function CatchupBanner({ data, onDismiss }: Props) {
           </ul>
         ) : null}
 
-        {/* Pending actions — accent-styled, these are actionable */}
+        {/* Findings — accent-styled, individually dismissable */}
         {hasPending ? (
           <div className="space-y-1.5">
             <div
@@ -102,7 +117,7 @@ export function CatchupBanner({ data, onDismiss }: Props) {
             >
               Needs attention
             </div>
-            {data.pending_actions!.map((pa) => (
+            {pending.map((pa) => (
               <div
                 key={pa.id}
                 className="flex items-start gap-2 font-sans text-[12.5px]"
@@ -112,7 +127,16 @@ export function CatchupBanner({ data, onDismiss }: Props) {
                   className="mt-1.5 shrink-0 h-[4px] w-[4px] rounded-full dot-glow-accent"
                   style={{ backgroundColor: "var(--color-accent)" }}
                 />
-                {pa.message}
+                <span className="flex-1">{pa.message}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDismissItem(pa.id)}
+                  title="Dismiss — won't resurface for a week"
+                  className="font-mono text-[10px] shrink-0 px-1"
+                  style={{ color: "var(--color-text-dim)" }}
+                >
+                  ✕
+                </button>
               </div>
             ))}
           </div>
@@ -129,7 +153,7 @@ export function CatchupBanner({ data, onDismiss }: Props) {
           </span>
           <button
             type="button"
-            onClick={() => void handleDismiss()}
+            onClick={() => void handleDismissAll()}
             className="font-mono text-[9px] uppercase tracking-label"
             style={{ color: "var(--color-text-dim)" }}
           >
