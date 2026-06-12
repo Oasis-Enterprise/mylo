@@ -19,6 +19,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
+import pytest
+
 from mylo.memory.schema import empty_memory
 from mylo.monitor.detectors import run_learned_checks
 from mylo.monitor.profiles import EntityProfile, ProfileSet
@@ -145,3 +147,105 @@ async def test_suppression_silences_detector() -> None:
 
     actions = await run_learned_checks(ws_client=ws, memory=memory, profiles=profiles)
     assert actions == []
+
+
+async def test_naive_last_changed_no_crash() -> None:
+    """A tz-naive last_changed (e.g. from HA after restart) must not crash
+    the sweep and must be treated as UTC so long durations still fire."""
+    profiles = ProfileSet(entities={"light.kitchen": _profile("light.kitchen")})
+    # Naive ISO timestamp — no offset, no Z.  Use a date far in the past so
+    # the duration is well beyond threshold (3600s) regardless of test-run time.
+    ws = _ws(
+        [
+            {
+                "entity_id": "light.kitchen",
+                "state": "on",
+                "last_changed": "2026-06-01T08:00:00",
+                "attributes": {},
+            }
+        ]
+    )
+    # last_changed is days ago (treated as UTC); duration well beyond 3600s threshold.
+    # We only assert no crash and at least one duration_anomaly action fires.
+    actions = await run_learned_checks(ws_client=ws, memory=empty_memory(), profiles=profiles)
+    assert len(actions) >= 1
+    assert actions[0].type == "duration_anomaly"
+
+
+async def test_all_persons_unavailable_no_while_away_and_no_samples() -> None:
+    """If all person entities are unavailable/unknown we can't determine absence.
+    Must NOT fire while_away and must NOT record away samples."""
+    rare = _profile("light.closet", away_samples=10, on_while_away_samples=0)
+    profiles = ProfileSet(entities={"light.closet": rare})
+    ws = _ws(
+        [
+            _state("person.max", "unavailable"),
+            _state("light.closet", "on", hours_ago=0.2),
+        ]
+    )
+    actions = await run_learned_checks(ws_client=ws, memory=empty_memory(), profiles=profiles)
+    while_away = [a for a in actions if a.type == "while_away"]
+    assert while_away == []
+    # No new samples — persons were all unavailable, not definitively away.
+    assert profiles.entities["light.closet"].away_samples == 10
+
+
+async def test_away_samples_recorded_once_per_day() -> None:
+    """Two run_learned_checks calls on the same day while away record
+    only one sample per entity (second call is skipped)."""
+    profiles = ProfileSet()
+    ws = _ws(
+        [
+            _state("person.max", "not_home"),
+            _state("light.kitchen", "on", hours_ago=0.2),
+        ]
+    )
+    # Both calls use real now() → same date → second call must be skipped.
+    await run_learned_checks(ws_client=ws, memory=empty_memory(), profiles=profiles)
+    await run_learned_checks(ws_client=ws, memory=empty_memory(), profiles=profiles)
+    assert profiles.entities["light.kitchen"].away_samples == 1
+
+
+async def test_while_away_confidence_uses_away_samples() -> None:
+    """while_away action confidence is based on away_samples, not days_observed.
+    With away_samples=10 before the call, the first call records one more sample
+    (11 total, since once-per-day rule allows recording on a fresh ProfileSet),
+    so confidence = 11/16."""
+    # Build a profile eligible for while-away: 10 away samples, rarely on while away.
+    # days_observed is LOW so we can verify confidence is NOT from days_observed.
+    rare = _profile("light.closet", away_samples=10, on_while_away_samples=0, days_observed=0)
+    rare.cycle_count = 0  # not duration-eligible, so only while_away fires
+    profiles = ProfileSet(entities={"light.closet": rare})
+    ws = _ws(
+        [
+            _state("person.max", "not_home"),
+            _state("light.closet", "on", hours_ago=0.2),
+        ]
+    )
+    actions = await run_learned_checks(ws_client=ws, memory=empty_memory(), profiles=profiles)
+    while_away = [a for a in actions if a.type == "while_away"]
+    assert len(while_away) == 1
+    # Recording happens before detection: 10 + 1 = 11 samples used for confidence.
+    assert while_away[0].confidence == pytest.approx(11 / 16)
+
+
+async def test_binary_sensor_motion_uses_active_verb() -> None:
+    """binary_sensor with device_class 'motion' should use 'active', not 'open'."""
+    p = _profile("binary_sensor.hall_motion")
+    # Threshold: max(2100*1.25, 1800*2) = 3600s. State "on" for 4h = 14400s > 3600s.
+    profiles = ProfileSet(entities={"binary_sensor.hall_motion": p})
+    ws = _ws(
+        [
+            {
+                "entity_id": "binary_sensor.hall_motion",
+                "state": "on",
+                "last_changed": (datetime.now(UTC) - timedelta(hours=4)).isoformat(),
+                "attributes": {"device_class": "motion", "friendly_name": "Hall Motion"},
+            }
+        ]
+    )
+    actions = await run_learned_checks(ws_client=ws, memory=empty_memory(), profiles=profiles)
+    assert len(actions) == 1
+    assert "active" in actions[0].title
+    assert "open" not in actions[0].title
+    assert "active" in actions[0].message

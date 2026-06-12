@@ -110,6 +110,11 @@ class ProfileSet(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     last_folded: str | None = None
+    # YYYY-MM-DD of the last sweep that recorded away samples.
+    # Hourly samples within one away trip are autocorrelated — one 8h trip
+    # must not fully qualify an entity.  With this guard the ≥8-sample gate
+    # requires ~8 distinct away days.
+    last_away_sample_date: str | None = None
     entities: dict[str, EntityProfile] = Field(default_factory=dict)
 
 
@@ -248,6 +253,15 @@ def is_rarely_on_while_away(profile: EntityProfile) -> bool:
 def confidence(profile: EntityProfile) -> float:
     """0..1 — orders findings in the banner, never shown as a number."""
     return min(1.0, profile.days_observed / CONFIDENCE_FULL_DAYS)
+
+
+AWAY_CONFIDENCE_FULL_SAMPLES = 16
+
+
+def away_confidence(profile: EntityProfile) -> float:
+    """0..1 from distinct away-day samples — while-away findings use
+    this instead of days_observed, which away-only entities never accrue."""
+    return min(1.0, profile.away_samples / AWAY_CONFIDENCE_FULL_SAMPLES)
 
 
 def duration_threshold_s(profile: EntityProfile, *, device_class: str | None = None) -> float:

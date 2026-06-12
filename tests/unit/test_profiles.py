@@ -19,10 +19,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from mylo.monitor.profiles import (
+    AWAY_CONFIDENCE_FULL_SAMPLES,
     EntityProfile,
     ProfileSet,
     ProfileStore,
+    away_confidence,
     away_eligible,
     confidence,
     duration_eligible,
@@ -236,3 +240,14 @@ def test_histogram_validator_pads_and_truncates() -> None:
     assert len(p.duration_histogram) == 10
     assert p.duration_histogram[0] == 1
     assert len(p.active_hours) == 24
+
+
+def test_away_confidence_scales_with_samples() -> None:
+    # 0 samples → 0.0; 8 → 0.5 (half of AWAY_CONFIDENCE_FULL_SAMPLES=16);
+    # 16 → 1.0; 20 (over cap) → still 1.0.
+    assert away_confidence(EntityProfile(entity_id="x", away_samples=0)) == 0.0
+    assert away_confidence(EntityProfile(entity_id="x", away_samples=8)) == pytest.approx(
+        8 / AWAY_CONFIDENCE_FULL_SAMPLES
+    )
+    assert away_confidence(EntityProfile(entity_id="x", away_samples=16)) == 1.0
+    assert away_confidence(EntityProfile(entity_id="x", away_samples=20)) == 1.0

@@ -43,6 +43,7 @@ from mylo.monitor.profiles import (
     ACTIVE_STATES,
     EntityProfile,
     ProfileSet,
+    away_confidence,
     away_eligible,
     confidence,
     duration_eligible,
@@ -73,8 +74,20 @@ _TURN_OFF_SERVICES: dict[str, str] = {
 _STATE_VERBS: dict[str, str] = {
     "lock": "unlocked",
     "cover": "open",
-    "binary_sensor": "open",
 }
+# binary_sensor device_classes that describe a physical opening (door/window).
+_OPEN_DEVICE_CLASSES = frozenset({"door", "garage_door", "window"})
+
+
+def _state_verb(domain: str, device_class: str | None) -> str:
+    """Return the verb describing the active state for messages.
+
+    binary_sensor uses "open" only for opening-type device classes;
+    other sensors use "active" (e.g. motion, vibration, smoke).
+    """
+    if domain == "binary_sensor":
+        return "open" if device_class in _OPEN_DEVICE_CLASSES else "active"
+    return _STATE_VERBS.get(domain, "on")
 
 
 async def run_learned_checks(
@@ -92,14 +105,25 @@ async def run_learned_checks(
     now = datetime.now(UTC)
     actions: list[SuggestionAction] = []
 
+    # Only count states that are definitively present or absent; ignore
+    # "unknown"/"unavailable"/"" which appear during HA restarts or tracker outages.
+    # If no definitive states exist we cannot conclude the house is empty, so we
+    # treat the situation as NOT away — no poisoned samples, no false while-away alerts.
     person_states = {
-        eid: s.get("state", "") for eid, s in states.items() if eid.startswith("person.")
+        eid: s.get("state", "")
+        for eid, s in states.items()
+        if eid.startswith("person.") and s.get("state", "") not in ("unknown", "unavailable", "")
     }
     anyone_home = any(s == "home" for s in person_states.values()) if person_states else True
     away = bool(person_states) and not anyone_home
 
-    if away:
+    # Record at most one set of away samples per calendar day.  Hourly samples
+    # within a single absence trip are autocorrelated — one 8h trip must not
+    # fully qualify an entity.  With the once-per-day rule, the ≥8-sample gate
+    # requires ~8 distinct away days.
+    if away and profiles.last_away_sample_date != now.date().isoformat():
         _record_away_samples(profiles, states, now)
+        profiles.last_away_sample_date = now.date().isoformat()
 
     # 1. Duration anomalies.
     for entity_id, state in states.items():
@@ -126,7 +150,7 @@ async def run_learned_checks(
             continue
 
         friendly = state.get("attributes", {}).get("friendly_name", entity_id)
-        verb = _STATE_VERBS.get(domain, "on")
+        verb = _state_verb(domain, device_class)
         actions.append(
             SuggestionAction(
                 suggestion_id=sid,
@@ -175,7 +199,9 @@ async def run_learned_checks(
                     ),
                     accept_service=f"{domain}.turn_off",
                     accept_target={"entity_id": entity_id},
-                    confidence=confidence(profile),
+                    # away-only entities never accrue days_observed, so use
+                    # away_confidence (based on distinct away-day samples) instead.
+                    confidence=away_confidence(profile),
                     offer_automation=_should_offer_automation(sid, memory),
                 )
             )
@@ -213,6 +239,10 @@ def _seconds_in_state(state: dict[str, Any], now: datetime) -> float | None:
         return None
     try:
         changed_dt = datetime.fromisoformat(str(last_changed).replace("Z", "+00:00"))
+        # HA restarts reset last_changed to a naive local timestamp.  Treating it
+        # as UTC undercounts the duration (missed alerts only, never false ones).
+        if changed_dt.tzinfo is None:
+            changed_dt = changed_dt.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return None
     return (now - changed_dt).total_seconds()
