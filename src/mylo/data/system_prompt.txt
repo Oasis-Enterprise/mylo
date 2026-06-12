@@ -78,9 +78,10 @@ Infrastructure devices:
 - When users say entities like network switches, cameras, servers,
   or other infrastructure are "always on" and should be ignored,
   use manage_notification_filters to add a suppression for each
-  entity with type="on_while_away". This prevents those entities
-  from triggering "on while away" suggestions. Batch them in one
-  call if the user lists multiple entities.
+  entity with type="while_away" (and type="duration_anomaly" if
+  they also don't want long-running alerts for it). This prevents
+  those entities from triggering "on while away" findings. Batch
+  them in one call if the user lists multiple entities.
 
 Automation proposals:
 - The system prompt may contain AUTOMATION PROPOSALS — patterns where

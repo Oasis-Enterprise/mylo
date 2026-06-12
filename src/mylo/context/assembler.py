@@ -227,18 +227,14 @@ def _automation_proposals(memory: MemoryFile) -> str:
 
 def _proposal_description(s: Suggestion) -> str:
     """Build a human-readable proposal from a suggestion."""
-    if s.type == "on_while_away":
-        entity = s.entity_id
+    if s.type in ("while_away", "on_while_away"):
         return (
-            f"Turn off {entity} when everyone leaves home. "
+            f"Turn off {s.entity_id} when everyone leaves home. "
             f"(You've accepted this {s.times_accepted} times.)"
         )
-    if s.type == "unlocked_too_long":
-        entity = s.entity_id
+    if s.type == "duration_anomaly":
         return (
-            f"Auto-lock {entity} after 30 minutes. (You've accepted this {s.times_accepted} times.)"
+            f"Turn off {s.entity_id} when it's been on much longer than usual. "
+            f"(You've accepted this {s.times_accepted} times.)"
         )
-    if s.type == "device_running_long":
-        entity = s.entity_id
-        return f"Turn off {entity} after 4 hours. (You've accepted this {s.times_accepted} times.)"
     return f"{s.description} (accepted {s.times_accepted} times)"
