@@ -87,14 +87,14 @@ async def start_scheduler(app: web.Application) -> AsyncIOScheduler:
             trigger=str(nightly_trigger),
         )
 
-    # ── Hourly job (availability sweep) ─────────────────────────────
+    # ── Hourly job (availability + anomaly + learned checks) ────────
     if config.proactive_notifications:
         scheduler.add_job(
             _hourly_job,
             trigger=IntervalTrigger(hours=1),
             args=[app],
             id="mylo_hourly",
-            name="Mylo hourly availability sweep",
+            name="Mylo hourly monitor sweep",
             replace_existing=True,
             misfire_grace_time=1800,
         )
@@ -295,7 +295,11 @@ async def _hourly_job(app: web.Application) -> None:
                 now=now,
             )
             dirty = True
-            if is_new:
+            # The aggregated unavailable finding shares one key, so a
+            # refresh (is_new=False) can still describe a brand-new
+            # outage batch — run_hourly_check already throttles those
+            # to newly-unavailable entities, so always notify them.
+            if is_new or ntype == "unavailable":
                 await notifier.send(
                     title=finding["title"],
                     message=finding["message"],
