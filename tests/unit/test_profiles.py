@@ -210,3 +210,29 @@ def test_duration_threshold_door_sensor_uses_tight_margins() -> None:
     p.max_duration_s = 2100.0
     assert duration_threshold_s(p, device_class="garage_door") == 2700.0
     assert duration_threshold_s(p, device_class="motion") == 3600.0
+
+
+def test_fold_malformed_timestamp_does_not_crash() -> None:
+    ps = ProfileSet()
+    cycles = fold_transitions(
+        ps,
+        [
+            _t("light.kitchen", "off", "on", "not-a-timestamp"),
+            _t("light.kitchen", "on", "off", "really-not-a-timestamp"),
+        ],
+    )
+    assert cycles == 0
+
+
+def test_fold_off_without_prior_on_records_no_cycle() -> None:
+    ps = ProfileSet()
+    cycles = fold_transitions(ps, [_t("light.kitchen", "on", "off", "2026-06-01T07:00:00+00:00")])
+    assert cycles == 0
+    assert ps.entities["light.kitchen"].cycle_count == 0
+
+
+def test_histogram_validator_pads_and_truncates() -> None:
+    p = EntityProfile(entity_id="x", duration_histogram=[1, 2], active_hours=[0] * 30)
+    assert len(p.duration_histogram) == 10
+    assert p.duration_histogram[0] == 1
+    assert len(p.active_hours) == 24

@@ -35,8 +35,9 @@ import math
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from mylo.files.manager import atomic_write
 from mylo.logging_setup import get_logger
 from mylo.monitor.transitions import Transition
 
@@ -94,6 +95,14 @@ class EntityProfile(BaseModel):
     away_samples: int = 0
     on_while_away_samples: int = 0
 
+    @field_validator("duration_histogram", "active_hours", mode="after")
+    @classmethod
+    def _normalize_length(cls, v: list[int], info: ValidationInfo) -> list[int]:
+        expected = NUM_BUCKETS if info.field_name == "duration_histogram" else 24
+        if len(v) < expected:
+            return v + [0] * (expected - len(v))
+        return v[:expected]
+
 
 class ProfileSet(BaseModel):
     """Root of profiles.json: all profiles + the fold watermark."""
@@ -121,9 +130,10 @@ class ProfileStore:
             return ProfileSet()
 
     def save(self, profile_set: ProfileSet) -> None:
+        # A torn write would silently discard weeks of accumulated learning
+        # that the 14-day raw log can't rebuild.
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json.dumps(profile_set.model_dump()), encoding="utf-8")
+            atomic_write(self._path, json.dumps(profile_set.model_dump()))
         except OSError as exc:
             log.warning("profiles.save_failed", error=str(exc))
 
@@ -136,6 +146,9 @@ def fold_transitions(profile_set: ProfileSet, transitions: list[Transition]) -> 
     never double-counts. Returns the number of cycles recorded.
     """
     watermark = profile_set.last_folded or ""
+    # Strict `>` means an event logged in the same second as the watermark but
+    # appended after the nightly read is knowingly dropped — bounded loss: at
+    # most one cycle, and a dangling active_since self-heals on the next activation.
     fresh = sorted(
         (t for t in transitions if t.timestamp > watermark),
         key=lambda t: t.timestamp,
@@ -242,6 +255,8 @@ def duration_threshold_s(profile: EntityProfile, *, device_class: str | None = N
 
     Must beat the all-time max with margin AND a multiple of the
     typical (p95) duration — whichever is larger governs.
+
+    Callers must check ``duration_eligible`` first; an empty profile returns 0.0, which every duration exceeds.
     """
     domain = profile.entity_id.split(".", 1)[0]
     tight = domain == "lock" or (domain == "binary_sensor" and device_class in TIGHT_DEVICE_CLASSES)
