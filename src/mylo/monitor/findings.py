@@ -26,6 +26,20 @@ same catch-up banner plumbing) but with new lifecycle rules:
 
 Legacy entries (written before ``last_seen`` existed) are dropped by
 ``migrate_legacy`` on the first sweep after upgrade.
+
+**Important invariants for callers:**
+
+* All ``now`` arguments must be timezone-aware UTC datetimes.  ISO-string
+  comparisons in this module depend on a uniform ``+00:00`` suffix; naive
+  datetimes will silently produce wrong ordering.
+
+* Intended per-sweep call order::
+
+      migrate_legacy(memory)                         # once, on startup
+      for each detection type:
+          upsert_finding(...)   # 0-N times
+          resolve_stale(...)    # once after successful check
+      expire_old(memory, now)                        # last, every sweep
 """
 
 from __future__ import annotations
@@ -53,7 +67,19 @@ def upsert_finding(
     confidence: float,
     now: datetime,
 ) -> bool:
-    """Insert or refresh a finding. Returns True only when newly inserted."""
+    """Insert or refresh a finding.
+
+    Returns True only when newly inserted AND the finding survives the cap
+    eviction (i.e. it is still present in ``memory.pending_actions`` after
+    the loop).  Returns False on a refresh of an existing finding.
+    Cooled-down ``(type, entity_id)`` pairs are rejected silently — callers
+    are expected to check ``in_cooldown`` first, but this guard makes the
+    invariant unbreakable across all call sites.
+    """
+    # Defensive guard: never insert a cooled-down pair regardless of caller.
+    if in_cooldown(memory, finding_type, entity_id, now):
+        return False
+
     ts = now.isoformat(timespec="seconds")
     for pa in memory.pending_actions:
         if pa.type == finding_type and pa.entity_id == entity_id:
@@ -63,22 +89,28 @@ def upsert_finding(
             pa.confidence = confidence
             return False
 
-    memory.pending_actions.append(
-        PendingAction(
-            id=finding_id,
-            type=finding_type,
-            entity_id=entity_id,
-            title=title,
-            message=message,
-            detected_at=ts,
-            last_seen=ts,
-            confidence=confidence,
-        )
+    new_finding = PendingAction(
+        id=finding_id,
+        type=finding_type,
+        entity_id=entity_id,
+        title=title,
+        message=message,
+        detected_at=ts,
+        last_seen=ts,
+        confidence=confidence,
     )
+    memory.pending_actions.append(new_finding)
     while len(memory.pending_actions) > MAX_ACTIVE_FINDINGS:
         lowest = min(memory.pending_actions, key=lambda pa: pa.confidence)
+        log.debug(
+            "findings.evicted",
+            type=lowest.type,
+            entity_id=lowest.entity_id,
+            confidence=lowest.confidence,
+        )
         memory.pending_actions.remove(lowest)
-    return True
+    # Return True only if the new finding survived eviction.
+    return new_finding in memory.pending_actions
 
 
 def resolve_stale(memory: MemoryFile, finding_type: str, active_entity_ids: set[str]) -> int:
@@ -97,10 +129,17 @@ def resolve_stale(memory: MemoryFile, finding_type: str, active_entity_ids: set[
 
 
 def expire_old(memory: MemoryFile, now: datetime) -> int:
-    """Delete findings older than the TTL. Returns the number removed."""
+    """Delete findings older than the TTL and prune expired cooldowns.
+
+    Returns the number of findings removed (cooldown pruning is side-effect
+    only and not reflected in the return value).
+    """
     cutoff = (now - timedelta(hours=FINDING_TTL_HOURS)).isoformat(timespec="seconds")
     before = len(memory.pending_actions)
     memory.pending_actions = [pa for pa in memory.pending_actions if pa.detected_at >= cutoff]
+    # Prune expired cooldowns — compare against NOW, not the 48h finding cutoff.
+    cutoff_ts = now.isoformat(timespec="seconds")
+    memory.finding_cooldowns = [cd for cd in memory.finding_cooldowns if cd.until > cutoff_ts]
     return before - len(memory.pending_actions)
 
 
@@ -146,11 +185,15 @@ def dismiss_all(memory: MemoryFile, now: datetime) -> int:
 
 
 def migrate_legacy(memory: MemoryFile) -> int:
-    """Drop pre-rework entries: anything resolved or missing last_seen."""
+    """Drop pre-rework entries: anything missing ``last_seen``.
+
+    Legacy entries never have ``last_seen`` set, so that field alone
+    identifies them.  We intentionally do NOT also filter on ``resolved``
+    because doing so would turn migration into a cooldown-bypassing delete
+    once anything sets ``resolved`` on new-style findings.
+    """
     before = len(memory.pending_actions)
-    memory.pending_actions = [
-        pa for pa in memory.pending_actions if pa.last_seen is not None and not pa.resolved
-    ]
+    memory.pending_actions = [pa for pa in memory.pending_actions if pa.last_seen is not None]
     dropped = before - len(memory.pending_actions)
     if dropped:
         log.info("findings.migrated_legacy", dropped=dropped)

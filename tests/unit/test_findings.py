@@ -133,3 +133,84 @@ def test_migrate_legacy_drops_old_entries() -> None:
     assert migrate_legacy(memory) == 1
     assert len(memory.pending_actions) == 1
     assert memory.pending_actions[0].type == "duration_anomaly"
+
+
+def test_cap_lowest_confidence_not_inserted() -> None:
+    """Upsert at cap with lowest confidence: finding is evicted, returns False."""
+    memory = empty_memory()
+    for i in range(5):
+        _upsert(memory, entity_id=f"light.l{i}", conf=0.5 + i / 10)
+    result = _upsert(memory, entity_id="light.low", conf=0.1)
+    assert result is False
+    assert len(memory.pending_actions) == 5
+    entity_ids = {pa.entity_id for pa in memory.pending_actions}
+    assert "light.low" not in entity_ids
+
+
+def test_migrate_legacy_idempotent() -> None:
+    """Second call to migrate_legacy on a clean store drops nothing."""
+    memory = empty_memory()
+    memory.pending_actions.append(
+        PendingAction(
+            id="on_while_away_light.x",
+            type="on_while_away",
+            entity_id="light.x",
+            title="t",
+            message="m",
+            detected_at="2026-05-01T00:00:00+00:00",
+        )
+    )
+    assert migrate_legacy(memory) == 1
+    assert migrate_legacy(memory) == 0
+
+
+def test_dismiss_finding_unknown_id_returns_false() -> None:
+    """Dismissing a non-existent id returns False and leaves store unchanged."""
+    memory = empty_memory()
+    _upsert(memory)
+    result = dismiss_finding(memory, "nonexistent_id", NOW)
+    assert result is False
+    assert len(memory.pending_actions) == 1
+
+
+def test_expire_old_prunes_cooldowns() -> None:
+    """expire_old called 8 days after dismiss clears the cooldown."""
+    memory = empty_memory()
+    _upsert(memory)
+    dismiss_finding(memory, "duration_anomaly_light.kitchen", NOW)
+    # Cooldown should exist now.
+    assert len(memory.finding_cooldowns) == 1
+    # Advance time past the 7-day cooldown window.
+    expire_old(memory, NOW + timedelta(days=8))
+    assert memory.finding_cooldowns == []
+
+
+def test_upsert_refresh_updates_title_and_message() -> None:
+    """Refreshing an existing finding updates title and message, not just last_seen."""
+    memory = empty_memory()
+    _upsert(memory, entity_id="light.kitchen")
+    upsert_finding(
+        memory,
+        finding_id="duration_anomaly_light.kitchen",
+        finding_type="duration_anomaly",
+        entity_id="light.kitchen",
+        title="new title",
+        message="new message",
+        confidence=0.9,
+        now=NOW + timedelta(hours=1),
+    )
+    assert len(memory.pending_actions) == 1
+    pa = memory.pending_actions[0]
+    assert pa.title == "new title"
+    assert pa.message == "new message"
+
+
+def test_upsert_while_in_cooldown_returns_false() -> None:
+    """Upsert of a dismissed (cooled-down) pair returns False and does not insert."""
+    memory = empty_memory()
+    _upsert(memory)
+    dismiss_finding(memory, "duration_anomaly_light.kitchen", NOW)
+    assert len(memory.pending_actions) == 0
+    result = _upsert(memory)
+    assert result is False
+    assert len(memory.pending_actions) == 0
