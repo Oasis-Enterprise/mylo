@@ -907,3 +907,124 @@ async def test_oversized_semantic_memory_degrades_gracefully(tmp_path: Path) -> 
     assert result.updated is None
     assert "too large" in result.summary
     assert provider.calls == []
+
+
+# ─── Pattern bloat guards (staleness + cap) ──────────────────────────────────
+
+
+def test_pruner_drops_stale_behavioral_patterns_regardless_of_confidence() -> None:
+    """A behavioral pattern not re-confirmed within the staleness window is
+    dead weight even at high confidence (its averaged-time id drifted)."""
+    mem = empty_memory()
+    mem.patterns.append(
+        Pattern(
+            id="behavior_light.kitchen_off_2230",
+            description="stale but confident",
+            confidence=0.9,
+            source="behavioral",
+            first_observed=iso(40),
+            last_confirmed=iso(30),  # > 21d ago
+        )
+    )
+    mem.patterns.append(
+        Pattern(
+            id="behavior_light.kitchen_off_0700",
+            description="fresh",
+            confidence=0.9,
+            source="behavioral",
+            first_observed=iso(40),
+            last_confirmed=iso(3),  # recent
+        )
+    )
+    # A user/observation pattern of the same age must NOT be auto-expired.
+    mem.patterns.append(
+        Pattern(
+            id="manual_pattern",
+            description="user-derived",
+            confidence=0.9,
+            source="observation",
+            first_observed=iso(40),
+            last_confirmed=iso(30),
+        )
+    )
+    report = plan_prune(mem, now=NOW)
+    flagged = {c.item_id: c.reason for c in report.candidates}
+    assert flagged.get("behavior_light.kitchen_off_2230") == "stale_pattern"
+    assert "behavior_light.kitchen_off_0700" not in flagged
+    assert "manual_pattern" not in flagged
+
+
+def test_pruner_caps_pattern_count_keeping_strongest() -> None:
+    mem = empty_memory()
+    # 250 fresh, high-ish confidence behavioral patterns.
+    for i in range(250):
+        mem.patterns.append(
+            Pattern(
+                id=f"behavior_e{i}_off_1200",
+                description=f"p{i}",
+                confidence=0.5 + (i % 50) / 100.0,  # 0.50..0.99
+                source="behavioral",
+                first_observed=iso(5),
+                last_confirmed=iso(1),  # all fresh — staleness won't fire
+            )
+        )
+    report = plan_prune(mem, now=NOW)
+    capped = [c for c in report.candidates if c.reason == "pattern_cap_exceeded"]
+    assert len(capped) == 50  # 250 - 200 cap
+
+    pruned = apply_prune(mem, report)
+    assert len(pruned.patterns) == 200
+    # The strongest survived: every kept pattern has confidence >= the
+    # highest-confidence dropped one.
+    dropped_ids = {c.item_id for c in capped}
+    kept = [p for p in pruned.patterns]
+    max_dropped_conf = max(p.confidence for p in mem.patterns if p.id in dropped_ids)
+    assert min(p.confidence for p in kept) >= max_dropped_conf
+
+
+# ─── Behavioral pattern id stability ─────────────────────────────────────────
+
+
+def _write_transitions(
+    path: Path, entity_id: str, to_state: str, minute_of_day: int, days: int
+) -> None:
+    """Write `days` transitions for one entity at ~minute_of_day across
+    distinct recent days (relative to real now, since the detector reads
+    its own clock)."""
+    import json
+
+    base = datetime.now(UTC)
+    lines = []
+    for d in range(1, days + 1):
+        ts = (base - timedelta(days=d)).replace(
+            hour=minute_of_day // 60, minute=minute_of_day % 60, second=0, microsecond=0
+        )
+        lines.append(
+            json.dumps({"entity_id": entity_id, "from": "on", "to": to_state, "ts": ts.isoformat()})
+        )
+    (path / "transitions.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_behavioral_pattern_id_stable_under_minute_drift(tmp_path: Path) -> None:
+    from mylo.monitor.behavioral import detect_patterns
+    from mylo.monitor.transitions import TransitionLogger
+
+    logger = TransitionLogger(tmp_path)
+    mem = empty_memory()
+
+    # First run: cluster averaging ~22:31.
+    _write_transitions(tmp_path, "light.kitchen", "off", 22 * 60 + 31, days=8)
+    first = detect_patterns(logger, mem)
+    assert len(first) == 1
+    mem.patterns.extend(first)
+    pid = first[0].id
+    assert pid.endswith("_2230")  # bucketed to the 30-min slot
+
+    # Second run: same behavior, averaged time drifted to ~22:36.
+    _write_transitions(tmp_path, "light.kitchen", "off", 22 * 60 + 36, days=8)
+    second = detect_patterns(logger, mem)
+    # Drift stayed in the same 30-min bucket → existing pattern updated,
+    # no new pattern spawned.
+    assert second == []
+    assert len([p for p in mem.patterns if p.id == pid]) == 1
+    assert len(mem.patterns) == 1

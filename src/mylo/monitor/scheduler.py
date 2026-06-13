@@ -167,6 +167,16 @@ async def _nightly_job(app: web.Application) -> None:
                 memory_to_save = apply_prune(memory_to_save, result.prune_report)
             await store.save(memory_to_save, note=f"nightly sync: {result.summary}")
             drain_scratchpad(config.mylo_data_dir)
+        elif result.prune_report.total > 0:
+            # Sync produced no merge (e.g. memory too large to reconcile),
+            # but we can still safely shrink it by applying the prune plan.
+            # Critical for recovering a runaway patterns list that's
+            # blocking the LLM merge — next run then fits.
+            pruned = apply_prune(store.current(), result.prune_report)
+            await store.save(
+                pruned, note=f"nightly prune-only: dropped {result.prune_report.total} items"
+            )
+            log.info("nightly.prune_only", dropped=result.prune_report.total)
 
         if result.conflicts_added > 0:
             await notifier.send(

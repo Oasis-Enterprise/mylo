@@ -108,7 +108,12 @@ def detect_patterns(
             minute = avg_minute % 60
             spread = _spread_minutes(cluster)
 
-            pattern_id = f"behavior_{entity_id}_{to_state}_{hour:02d}{minute:02d}"
+            # Bucket the time into 30-min slots for the id. The averaged
+            # minute drifts a little each night as the 14-day window
+            # slides; without bucketing, every drift would mint a brand
+            # new pattern id and the list would grow without bound. The
+            # description still carries the precise time.
+            pattern_id = f"behavior_{entity_id}_{to_state}_{_time_slot(avg_minute)}"
 
             # Update existing pattern confidence if present.
             existing = _find_pattern(memory, pattern_id)
@@ -195,6 +200,14 @@ def _cluster_by_time_of_day(
             clusters.pop()
 
     return clusters
+
+
+def _time_slot(avg_minute: int) -> str:
+    """Bucket a minute-of-day into a stable 30-min slot string (e.g.
+    "2230"). Keeps a behavior's pattern id stable across the small
+    night-to-night drift of its averaged time."""
+    bucket = (avg_minute // 30) * 30
+    return f"{bucket // 60:02d}{bucket % 60:02d}"
 
 
 def _average_minute_of_day(timestamps: list[datetime]) -> int:
