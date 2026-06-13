@@ -54,6 +54,34 @@ from mylo.validators.yaml_parser import dump_yaml, load_yaml
 log = get_logger(__name__)
 
 
+# Machine-owned memory sections: pure state the reconciler LLM cannot
+# meaningfully merge. They are never sent to the model (on large
+# instances they bloat the prompt past the 200k context window) and
+# never read back from its output — always carried over verbatim from
+# the prior memory. See _carry_over_machine_sections.
+_MACHINE_SECTIONS: tuple[str, ...] = (
+    "monitored_entities",
+    "notification_suppressions",
+    "suggestions",
+    "pending_actions",
+    "finding_cooldowns",
+    "baselines",
+)
+
+# How many entity/device/area IDs from the state diff to put in the
+# prompt. The reconciler doesn't act on them in bulk (system prompt
+# rule 5), so a sample + total count is enough; the full lists can be
+# thousands of IDs on a large instance.
+_DIFF_SAMPLE_CAP = 50
+
+# Approximate ceiling for the assembled user payload. Anthropic's hard
+# limit is 200k tokens for input + output combined; we stay well under
+# to leave room for the system prompt and the model's reply. Rough
+# 4-chars-per-token heuristic — deliberately conservative.
+_PAYLOAD_TOKEN_BUDGET = 150_000
+_CHARS_PER_TOKEN = 4
+
+
 # ─── Provider interface (narrow) ─────────────────────────────────────────────
 
 
@@ -187,6 +215,27 @@ async def run_sync(
     prompt = _build_system_prompt()
     user_msg = _build_user_payload(memory, scratchpad, diff)
 
+    # Backstop: even with machine state excluded, a home with thousands
+    # of notes/conflicts could still exceed the context window. Skip the
+    # LLM call and degrade gracefully rather than letting the API 400.
+    est_tokens = (len(prompt) + len(user_msg)) // _CHARS_PER_TOKEN
+    if est_tokens > _PAYLOAD_TOKEN_BUDGET:
+        log.error(
+            "memory.reconciler_payload_too_large",
+            est_tokens=est_tokens,
+            budget=_PAYLOAD_TOKEN_BUDGET,
+        )
+        return ReconcileResult(
+            updated=None,
+            summary=(
+                f"memory too large to reconcile (~{est_tokens} tokens > "
+                f"{_PAYLOAD_TOKEN_BUDGET} budget); skipped LLM merge. "
+                "Prune notes/conflicts and retry."
+            ),
+            conflicts_added=0,
+            prune_report=prune_report,
+        )
+
     response = await provider.message(
         system=prompt,
         messages=[{"role": "user", "content": user_msg}],
@@ -209,6 +258,7 @@ async def run_sync(
         )
 
     merged = _protect_user_sections(memory, proposed, scratchpad, current)
+    _carry_over_machine_sections(memory, merged)
     merged.last_sync = current.replace(microsecond=0).isoformat()
 
     conflicts_added = len(merged.pending_conflicts()) - len(memory.pending_conflicts())
@@ -243,9 +293,11 @@ RULES — follow exactly:
    `created` timestamp.
 4. Update `last_referenced` and `reference_count` for any items the
    scratchpad mentioned.
-5. For new state (entities/devices/areas), ONLY add them to
-   `monitored_entities` or `household.shared` if there's evidence the
-   user cares. Mere existence of a new entity is not evidence.
+5. The Home Assistant state diff is informational. Do NOT record a new
+   entity/device/area anywhere just because it exists — only capture it
+   (e.g. in `household.shared` or a note) when the scratchpad shows the
+   user cares about it. Monitoring lists and other machine state are
+   managed elsewhere and are not part of this document.
 6. Output ONLY a YAML document. No prose before or after. No code
    fences unless you're showing them literally inside a string.
 7. The output must validate against the schema the user provides.
@@ -302,7 +354,15 @@ def _build_user_payload(
     scratchpad: list[ScratchpadEntry],
     diff: StateDiff,
 ) -> str:
-    memory_yaml = dump_yaml(memory.model_dump(exclude_none=False))
+    # Only the sections the LLM actually reconciles go in the prompt.
+    # Machine-owned state (baselines, pending_actions, monitored_entities,
+    # …) is excluded — it can't be merged semantically and would blow the
+    # context window on large instances. It's reattached verbatim after
+    # the call (see _carry_over_machine_sections).
+    reconcilable = {
+        k: v for k, v in memory.model_dump(exclude_none=False).items() if k not in _MACHINE_SECTIONS
+    }
+    memory_yaml = dump_yaml(reconcilable)
     scratchpad_yaml = dump_yaml(
         [
             {
@@ -316,16 +376,7 @@ def _build_user_payload(
             for e in scratchpad
         ]
     )
-    diff_yaml = dump_yaml(
-        {
-            "new_entities": diff.new_entities,
-            "removed_entities": diff.removed_entities,
-            "new_devices": diff.new_devices,
-            "removed_devices": diff.removed_devices,
-            "new_areas": diff.new_areas,
-            "removed_areas": diff.removed_areas,
-        }
-    )
+    diff_yaml = dump_yaml(_summarize_diff(diff))
 
     return (
         "Current memory (context.yaml):\n\n"
@@ -336,6 +387,53 @@ def _build_user_payload(
         f"{diff_yaml}\n"
         "Produce the updated memory YAML now."
     )
+
+
+def _summarize_diff(diff: StateDiff) -> dict[str, Any]:
+    """Render the state diff with each list sampled to a cap.
+
+    The reconciler only needs to know *that* things changed and roughly
+    what; it never processes the full lists (which can be thousands of
+    IDs). Each field becomes ``{count, items}`` or, when over the cap,
+    ``{count, sample, omitted}``.
+    """
+
+    def field_summary(items: list[str]) -> dict[str, Any]:
+        if len(items) <= _DIFF_SAMPLE_CAP:
+            return {"count": len(items), "items": items}
+        return {
+            "count": len(items),
+            "sample": items[:_DIFF_SAMPLE_CAP],
+            "omitted": f"{len(items) - _DIFF_SAMPLE_CAP} more not shown",
+        }
+
+    return {
+        "new_entities": field_summary(diff.new_entities),
+        "removed_entities": field_summary(diff.removed_entities),
+        "new_devices": field_summary(diff.new_devices),
+        "removed_devices": field_summary(diff.removed_devices),
+        "new_areas": field_summary(diff.new_areas),
+        "removed_areas": field_summary(diff.removed_areas),
+    }
+
+
+def _carry_over_machine_sections(original: MemoryFile, merged: MemoryFile) -> None:
+    """Copy machine-owned sections from the prior memory onto the merged
+    result, in place.
+
+    These sections are never shown to the LLM, so its output omits them
+    (they'd validate as empty defaults). They're authoritative state
+    owned by the monitor/scheduler, not the reconciler — restore them
+    verbatim so a sync can neither drop nor rewrite them.
+
+    ``merged`` ends up sharing these objects with ``original`` by
+    reference. That's safe here: ``merged`` replaces the store's cached
+    memory on save and ``original`` is dropped, and callers rebind these
+    sections (e.g. nightly ``baselines`` recompute) rather than mutating
+    them in place. Deep-copy if that invariant ever changes.
+    """
+    for field_name in _MACHINE_SECTIONS:
+        setattr(merged, field_name, getattr(original, field_name))
 
 
 # ─── Output parsing ──────────────────────────────────────────────────────────

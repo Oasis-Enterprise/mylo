@@ -30,16 +30,22 @@ import pytest
 from aiohttp import web
 
 from mylo.memory.pruner import apply_prune, plan_prune
-from mylo.memory.reconciler import run_sync
+from mylo.memory.reconciler import StateDiff, _build_user_payload, run_sync
 from mylo.memory.schema import (
+    Baselines,
     Claim,
     Conflict,
+    EntityBaseline,
+    FindingCooldown,
     HouseholdMember,
     ItemMetadata,
     KnownIssue,
     Note,
+    NotificationSuppression,
     Pattern,
+    PendingAction,
     RejectedSuggestion,
+    Suggestion,
     empty_memory,
 )
 from mylo.memory.store import MemoryStore
@@ -737,3 +743,167 @@ async def test_get_scratchpad_endpoint_empty_when_missing(
     assert resp.status == 200
     body = await resp.json()
     assert body["entries"] == []
+
+
+# ─── Reconciler prompt bloat (large-instance guards) ─────────────────────────
+
+
+def test_user_payload_excludes_machine_sections_and_bounds_diff() -> None:
+    """The reconciler prompt must not carry machine-owned state, and the
+    state diff must be sampled, or large instances blow the context window."""
+    mem = empty_memory()
+    mem.notes.append(
+        Note(id="n1", content="SEMANTIC_NOTE_MARKER", metadata=ItemMetadata(created=iso(1)))
+    )
+    mem.monitored_entities = [f"sensor.monitored_{i}" for i in range(300)]
+    mem.baselines = Baselines(
+        entities=[
+            EntityBaseline(entity=f"sensor.bl_{i}", metric="mean", avg=1.0, stddev=0.1)
+            for i in range(300)
+        ]
+    )
+    mem.pending_actions.append(
+        PendingAction(
+            id="duration_anomaly_light.x",
+            type="duration_anomaly",
+            entity_id="light.x",
+            title="t",
+            message="PENDING_MARKER",
+            detected_at=iso(0),
+            last_seen=iso(0),
+        )
+    )
+    mem.suggestions.append(
+        Suggestion(id="s1", type="while_away", entity_id="light.y", description="SUGGESTION_MARKER")
+    )
+    mem.finding_cooldowns.append(
+        FindingCooldown(type="while_away", entity_id="light.z", until=iso(-7))
+    )
+    mem.notification_suppressions.append(
+        NotificationSuppression(type="anomaly", entity="SUPPRESS_MARKER")
+    )
+
+    diff = StateDiff(new_entities=[f"sensor.new_{i}" for i in range(2000)])
+    payload = _build_user_payload(mem, [], diff)
+
+    # Semantic data the LLM actually reconciles is present.
+    assert "SEMANTIC_NOTE_MARKER" in payload
+    # Machine-owned sections are absent.
+    assert "sensor.monitored_0" not in payload
+    assert "sensor.bl_0" not in payload
+    assert "PENDING_MARKER" not in payload
+    assert "SUGGESTION_MARKER" not in payload
+    assert "SUPPRESS_MARKER" not in payload
+    # Diff is sampled, not dumped whole.
+    assert "sensor.new_0" in payload
+    assert "sensor.new_1999" not in payload
+    assert "more" in payload.lower()
+    # Payload is small even though the memory was large.
+    assert len(payload) < 50_000
+
+
+async def test_machine_sections_carried_over_untouched(tmp_path: Path) -> None:
+    """Machine state must survive a reconcile verbatim — the LLM can neither
+    drop it (it's never sent) nor overwrite it (we ignore its version)."""
+    store = MemoryStore(mylo_data_dir=tmp_path)
+    await store.load()
+
+    mem = empty_memory()
+    mem.monitored_entities = ["sensor.keep_me"]
+    mem.baselines = Baselines(
+        entities=[EntityBaseline(entity="sensor.keep_me", metric="mean", avg=5.0, stddev=1.0)]
+    )
+    mem.pending_actions.append(
+        PendingAction(
+            id="duration_anomaly_light.a",
+            type="duration_anomaly",
+            entity_id="light.a",
+            title="t",
+            message="m",
+            detected_at=iso(0),
+            last_seen=iso(0),
+        )
+    )
+    mem.suggestions.append(
+        Suggestion(
+            id="sg1", type="while_away", entity_id="light.b", description="d", times_accepted=2
+        )
+    )
+    mem.finding_cooldowns.append(
+        FindingCooldown(type="while_away", entity_id="light.c", until=iso(-7))
+    )
+    mem.notification_suppressions.append(NotificationSuppression(type="anomaly", entity="sensor.q"))
+    await store.save(mem, note="seed")
+
+    (tmp_path / "scratchpad.yaml").write_text(
+        '- {type: "user_note", scope: {general: true}, content: "x", '
+        'recorded: "2026-04-12", confidence: 0.9, conversation_id: "c1"}\n'
+    )
+
+    # Reply omits some machine sections and tries to overwrite others with junk.
+    model_reply = (
+        "version: 2\n"
+        "notes:\n"
+        "  - id: n_new\n"
+        "    content: x\n"
+        "    metadata:\n"
+        "      created: '2026-04-13T10:00:00+00:00'\n"
+        "      source: conversation\n"
+        "      reference_count: 1\n"
+        "monitored_entities: ['sensor.LLM_INJECTED']\n"
+        "pending_actions: []\n"
+        "baselines: {entities: [], energy: null}\n"
+        "suggestions: []\n"
+    )
+    provider = _FakeProvider(reply=model_reply)
+    result = await run_sync(
+        store=store,
+        provider=provider,
+        registries=None,
+        model="haiku",
+        mylo_data_dir=tmp_path,
+        now=NOW,
+    )
+
+    assert result.updated is not None
+    m = result.updated
+    assert m.monitored_entities == ["sensor.keep_me"]
+    assert [b.entity for b in m.baselines.entities] == ["sensor.keep_me"]
+    assert [p.id for p in m.pending_actions] == ["duration_anomaly_light.a"]
+    assert [s.id for s in m.suggestions] == ["sg1"]
+    assert [c.entity_id for c in m.finding_cooldowns] == ["light.c"]
+    assert [n.entity for n in m.notification_suppressions] == ["sensor.q"]
+    # The model never even saw the machine state.
+    sent = provider.calls[0]["messages"][0]["content"]
+    assert "sensor.keep_me" not in sent
+
+
+async def test_oversized_semantic_memory_degrades_gracefully(tmp_path: Path) -> None:
+    """If even the semantic sections exceed the budget, skip the LLM call and
+    return a degraded result instead of letting the API 400."""
+    store = MemoryStore(mylo_data_dir=tmp_path)
+    await store.load()
+
+    mem = empty_memory()
+    big = "x" * 500
+    for i in range(2000):
+        mem.notes.append(Note(id=f"n{i}", content=big, metadata=ItemMetadata(created=iso(1))))
+    await store.save(mem, note="seed")
+
+    (tmp_path / "scratchpad.yaml").write_text(
+        '- {type: "user_note", scope: {general: true}, content: "x", '
+        'recorded: "2026-04-12", confidence: 0.9, conversation_id: "c1"}\n'
+    )
+    provider = _FakeProvider(reply="version: 2\n")
+    result = await run_sync(
+        store=store,
+        provider=provider,
+        registries=None,
+        model="haiku",
+        mylo_data_dir=tmp_path,
+        now=NOW,
+    )
+
+    assert result.updated is None
+    assert "too large" in result.summary
+    assert provider.calls == []
