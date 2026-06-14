@@ -60,6 +60,7 @@ _DEFAULT_MODULES: tuple[str, ...] = (
     "mylo.tools.write.manage_helpers",
     "mylo.tools.write.modify_script",
     "mylo.tools.write.modify_scene",
+    "mylo.tools.write.modify_zones",
 )
 
 

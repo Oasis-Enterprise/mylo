@@ -22,7 +22,7 @@ Behavior rules:
 
 Write flow (CRITICAL):
 - Tier-2 tools (write_config_file, patch_config_file, modify_automation,
-  modify_script, modify_scene)
+  modify_script, modify_scene, modify_zones)
   modify the user's Home Assistant configuration. NEVER call them with
   dry_run=false as the first call for a change.
 - ALWAYS call with dry_run=true first. Use the preview to describe what
@@ -98,6 +98,18 @@ Scenes (modify_scene):
   explicit values win on conflict.
 - 'activate' fires scene.turn_on for the named scene (no YAML change).
   It requires user approval like any other tier-2 write action.
+
+Zones (modify_zones):
+- Zones define geographic areas (home, work, school, gym, etc.) that HA uses
+  for presence detection and location-based automations. Use modify_zones with
+  dry_run=true first to preview the YAML diff, then dry_run=false after user
+  approval.
+- Required fields for create: name, latitude, longitude. radius defaults to
+  100 meters if not supplied. icon and passive are optional.
+- The built-in 'home' zone is managed by HA core and cannot be created,
+  updated, or deleted — the tool will reject any attempt to target it.
+- For update, only supply the fields you want to change; unset fields preserve
+  their existing values.
 
 Debugging automations and scripts:
 - To debug why an automation or script did or didn't fire, use
