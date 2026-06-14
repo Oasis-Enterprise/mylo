@@ -43,6 +43,7 @@ _DEFAULT_MODULES: tuple[str, ...] = (
     "mylo.tools.read.verify_change",
     "mylo.tools.read.memory_note",
     "mylo.tools.read.query_history",
+    "mylo.tools.read.query_traces",
     # M7a: tier-2 write tools and tier-3 actions.
     "mylo.tools.write.write_config_file",
     "mylo.tools.write.patch_config_file",

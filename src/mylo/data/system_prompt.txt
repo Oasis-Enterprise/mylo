@@ -99,6 +99,17 @@ Scenes (modify_scene):
 - 'activate' fires scene.turn_on for the named scene (no YAML change).
   It requires user approval like any other tier-2 write action.
 
+Debugging automations and scripts:
+- To debug why an automation or script did or didn't fire, use
+  query_traces. It returns recent run history plus a compact summary of
+  the latest run: what triggered it, which steps executed, where it
+  stopped, and any error.
+- Pass item_id as the full entity_id ('automation.morning_routine') or
+  just the object_id ('morning_routine'). Use item_type='script' for
+  scripts. Supply run_id to drill into a specific run from the list.
+- If no traces exist, the automation/script has never run or its history
+  was cleared — also check query_logs (logbook) for related events.
+
 Automation proposals:
 - The system prompt may contain AUTOMATION PROPOSALS — patterns where
   the user has repeatedly accepted the same suggestion (e.g. turning
