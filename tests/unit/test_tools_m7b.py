@@ -493,3 +493,82 @@ async def test_rename_apply_calls_registry_update(_ctx):
         and kw.get("name") == "Kitchen Main Light"
         for t, kw in client.calls
     )
+
+
+# ─── manage_helpers — input_button + schedule ────────────────────────────────
+
+
+@pytest.fixture
+def _helpers_ctx(tmp_path: Path):
+    reg = Registries()
+    reg.entities = {}
+    client = _FakeClient(responses={"config/input_button/create": {"id": "btn1"}})
+    return make_ctx(ws_client=client, registries=reg, tmp_path=tmp_path)
+
+
+async def test_create_input_button(_helpers_ctx):
+    """create input_button routes to config/input_button/create with name."""
+    _helpers_ctx.user_approved = True
+    result = await execute(
+        "manage_helpers",
+        {"action": "create", "helper_type": "input_button", "name": "Ring Doorbell"},
+        _helpers_ctx,
+    )
+    assert result.status.value == "ok", result
+    assert result.data["helper_type"] == "input_button"
+    client = _helpers_ctx.ws_client
+    assert any(
+        t == "config/input_button/create" and kw.get("name") == "Ring Doorbell"
+        for t, kw in client.calls
+    )
+
+
+async def test_create_schedule_with_blocks(_helpers_ctx):
+    """create schedule routes to config/schedule/create with weekday blocks in payload."""
+    _helpers_ctx.ws_client._responses["config/schedule/create"] = {"id": "sched1"}
+    _helpers_ctx.user_approved = True
+    blocks = {"monday": [{"from": "08:00:00", "to": "17:00:00"}]}
+    result = await execute(
+        "manage_helpers",
+        {
+            "action": "create",
+            "helper_type": "schedule",
+            "name": "Work Hours",
+            "schedule_blocks": blocks,
+        },
+        _helpers_ctx,
+    )
+    assert result.status.value == "ok", result
+    assert result.data["helper_type"] == "schedule"
+    client = _helpers_ctx.ws_client
+    matching = [(t, kw) for t, kw in client.calls if t == "config/schedule/create"]
+    assert matching, "expected config/schedule/create call"
+    _, kw = matching[0]
+    assert kw.get("monday") == [{"from": "08:00:00", "to": "17:00:00"}]
+
+
+async def test_delete_schedule_routes_correctly(_helpers_ctx):
+    """delete schedule routes to config/schedule/delete with schedule_id."""
+    _helpers_ctx.user_approved = True
+    result = await execute(
+        "manage_helpers",
+        {"action": "delete", "helper_type": "schedule", "helper_id": "work_hours"},
+        _helpers_ctx,
+    )
+    assert result.status.value == "ok", result
+    client = _helpers_ctx.ws_client
+    assert any(
+        t == "config/schedule/delete" and kw.get("schedule_id") == "work_hours"
+        for t, kw in client.calls
+    )
+
+
+async def test_create_helper_requires_approval(_helpers_ctx):
+    """create/update/delete gated when user_approved is False."""
+    _helpers_ctx.user_approved = False
+    result = await execute(
+        "manage_helpers",
+        {"action": "create", "helper_type": "input_button", "name": "Test"},
+        _helpers_ctx,
+    )
+    assert result.error_code == "confirmation_required"

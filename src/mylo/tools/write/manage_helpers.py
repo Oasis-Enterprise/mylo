@@ -16,7 +16,8 @@
 
 Helpers are HA's built-in virtual entities: input_boolean (toggles),
 input_number (sliders), input_select (dropdowns), input_text (text
-fields), input_datetime (date/time pickers), timer, and counter.
+fields), input_datetime (date/time pickers), timer, counter,
+input_button (momentary buttons), and schedule (weekly time blocks).
 Users currently have to create these one at a time through
 Settings → Helpers in the UI.
 
@@ -25,13 +26,15 @@ no file writes, no reload. The ``list`` action is tier-1 (free);
 ``create``, ``update``, and ``delete`` require user approval.
 
 Websocket commands per helper type:
-  input_boolean — config/input_boolean/{create,update,delete}
-  input_number  — config/input_number/{create,update,delete}
-  input_select  — config/input_select/{create,update,delete}
-  input_text    — config/input_text/{create,update,delete}
+  input_boolean  — config/input_boolean/{create,update,delete}
+  input_number   — config/input_number/{create,update,delete}
+  input_select   — config/input_select/{create,update,delete}
+  input_text     — config/input_text/{create,update,delete}
   input_datetime — config/input_datetime/{create,update,delete}
-  timer         — config/timer/{create,update,delete}
-  counter       — config/counter/{create,update,delete}
+  timer          — config/timer/{create,update,delete}
+  counter        — config/counter/{create,update,delete}
+  input_button   — config/input_button/{create,update,delete}
+  schedule       — config/schedule/{create,update,delete}
 """
 
 from __future__ import annotations
@@ -57,6 +60,8 @@ HelperType = Literal[
     "input_datetime",
     "timer",
     "counter",
+    "input_button",
+    "schedule",
 ]
 
 
@@ -151,6 +156,13 @@ class ManageHelpersParams(BaseModel):
     maximum: int | None = Field(
         default=None,
         description="For counter: maximum value.",
+    )
+    schedule_blocks: dict[str, list[dict[str, str]]] | None = Field(
+        default=None,
+        description=(
+            "For schedule: weekday -> list of {from, to} time segments, e.g. "
+            "{'monday': [{'from': '08:00:00', 'to': '17:00:00'}]}. Keys: monday..sunday."
+        ),
     )
 
 
@@ -334,6 +346,13 @@ def _build_payload(params: ManageHelpersParams) -> dict[str, Any]:
         if params.step is not None:
             payload["step"] = int(params.step)
 
+    elif ht == "input_button":
+        pass  # only name/icon — already added above; no extra fields
+
+    elif ht == "schedule" and params.schedule_blocks:
+        for day, segments in params.schedule_blocks.items():
+            payload[day] = segments
+
     return payload
 
 
@@ -342,7 +361,8 @@ TOOL = ToolDefinition(
     description=(
         "Create, update, delete, or list Home Assistant helper entities: "
         "input_boolean (toggles), input_number (sliders), input_select "
-        "(dropdowns), input_text, input_datetime, timer, and counter. "
+        "(dropdowns), input_text, input_datetime, timer, counter, "
+        "input_button (momentary buttons), and schedule (weekly time blocks). "
         "Use 'list' to see existing helpers of a type. Create/update/delete "
         "require approval. All operations are immediate via websocket — "
         "no file writes or reload needed."
