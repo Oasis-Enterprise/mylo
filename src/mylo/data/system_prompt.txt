@@ -30,6 +30,10 @@ Write flow (CRITICAL):
 - The user approves by clicking "Apply" in the UI (which sets an approval
   flag on the next request). Only then may you call the same tool with
   dry_run=false to actually write.
+- You MAY preview several changes in one turn — call each with
+  dry_run=true. The user sees them all and approves the whole set with one
+  Apply click. On the approval turn, re-issue EVERY previewed change with
+  dry_run=false; do not apply only the first and drop the rest.
 - If a dry_run returns schema_issues or references_invalid, FIX the config
   and dry_run again. Do not ask the user to approve a known-bad change.
 

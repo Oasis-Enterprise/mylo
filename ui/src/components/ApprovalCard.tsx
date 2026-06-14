@@ -15,7 +15,8 @@
 import { StatusDot } from "./StatusDot";
 import { Tag } from "./Tag";
 
-interface Props {
+// One previewed change awaiting approval.
+export interface ApprovalItem {
   description?: string;
   // Optional diff block. When present, rendered as a red minus /
   // green plus pair in mono. Both sides are single lines — wrap at
@@ -24,6 +25,12 @@ interface Props {
   // Metadata line under the diff — "references: 0 automations · 0 dashboards · 0 scripts".
   meta?: string;
   tierLabel?: string;
+}
+
+interface Props {
+  // One or more previewed changes. The model can dry-run several writes
+  // in a single turn; they're all listed here and approved together.
+  items: ApprovalItem[];
   onApprove: () => void;
   onReject: () => void;
   // True when an apply has been queued but not yet submitted (prior
@@ -33,18 +40,12 @@ interface Props {
 }
 
 // Inline approval card rendered in the chat stream, not as a bottom
-// bar. Pulsing dot + "AWAITING APPROVAL" label in accent mono, tier
-// tag, optional description + diff + reference metadata, Reject /
-// Apply buttons.
-export function ApprovalCard({
-  description,
-  diff,
-  meta,
-  tierLabel = "TIER-2",
-  onApprove,
-  onReject,
-  applying = false,
-}: Props) {
+// bar. Pulsing dot + "AWAITING APPROVAL" label in accent mono, then one
+// block per previewed change (tier tag + description + diff + metadata),
+// and a single Reject / Apply pair that authorizes the whole set.
+export function ApprovalCard({ items, onApprove, onReject, applying = false }: Props) {
+  const multiple = items.length > 1;
+
   return (
     <div
       className="rounded border"
@@ -63,32 +64,65 @@ export function ApprovalCard({
         >
           Awaiting approval
         </span>
-        <span className="ml-auto">
-          <Tag tone="muted">{tierLabel}</Tag>
-        </span>
+        {multiple ? (
+          <span
+            className="font-mono text-[10px]"
+            style={{ color: "var(--color-text-dim)" }}
+          >
+            · {items.length} changes
+          </span>
+        ) : null}
       </div>
 
-      {(description || diff || meta) ? (
-        <div className="px-3 py-3 space-y-2.5">
-          {description ? (
-            <div
-              className="font-sans text-[13px]"
-              style={{ color: "var(--color-text)" }}
-            >
-              {description}
+      {items.map((item, i) => {
+        const hasBody = item.description || item.diff || item.meta;
+        return (
+          <div
+            key={i}
+            className="px-3 py-3 space-y-2.5"
+            style={
+              i > 0
+                ? { borderTop: "1px solid var(--color-border)" }
+                : undefined
+            }
+          >
+            <div className="flex items-center gap-2">
+              {multiple ? (
+                <span
+                  className="font-mono text-[10px]"
+                  style={{ color: "var(--color-text-dim)" }}
+                >
+                  {i + 1}.
+                </span>
+              ) : null}
+              <Tag tone="muted">{item.tierLabel ?? "TIER-2"}</Tag>
             </div>
-          ) : null}
-          {diff ? <DiffBlock before={diff.before} after={diff.after} /> : null}
-          {meta ? (
-            <div
-              className="font-mono text-[10px]"
-              style={{ color: "var(--color-text-dim)" }}
-            >
-              {meta}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+            {hasBody ? (
+              <>
+                {item.description ? (
+                  <div
+                    className="font-sans text-[13px]"
+                    style={{ color: "var(--color-text)" }}
+                  >
+                    {item.description}
+                  </div>
+                ) : null}
+                {item.diff ? (
+                  <DiffBlock before={item.diff.before} after={item.diff.after} />
+                ) : null}
+                {item.meta ? (
+                  <div
+                    className="font-mono text-[10px]"
+                    style={{ color: "var(--color-text-dim)" }}
+                  >
+                    {item.meta}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        );
+      })}
 
       <div className="flex items-center justify-end gap-2 px-3 py-2 border-t"
         style={{ borderColor: "var(--color-border)" }}
@@ -116,7 +150,7 @@ export function ApprovalCard({
             color: "var(--color-accent)",
           }}
         >
-          {applying ? "Applying…" : "Apply"}
+          {applying ? "Applying…" : multiple ? `Apply all ${items.length}` : "Apply"}
         </button>
       </div>
     </div>

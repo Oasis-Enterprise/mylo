@@ -186,8 +186,18 @@ export default function App() {
     })();
   }, []);
 
+  // Every previewed change in the latest assistant turn that's awaiting
+  // approval. The model can dry-run several writes in one turn; they're
+  // all surfaced together and applied with a single click (the approval
+  // flag authorizes the whole turn server-side).
+  const approvalContexts = findApprovalContexts(items);
+  const approvalCount = approvalContexts.length;
+
   const handleApply = useCallback(async () => {
-    const message = "Yes, apply the change.";
+    const message =
+      approvalCount > 1
+        ? `Yes, apply all ${approvalCount} changes.`
+        : "Yes, apply the change.";
     if (sending) {
       // Previous stream still closing out — queue the submit so it
       // fires the moment sending clears, and give the button visible
@@ -196,7 +206,7 @@ export default function App() {
       return;
     }
     await handleSubmit(message);
-  }, [handleSubmit, sending]);
+  }, [handleSubmit, sending, approvalCount]);
 
   const handleReject = useCallback(() => {
     setPendingApproval(false);
@@ -212,10 +222,6 @@ export default function App() {
     }
   }, [sending, queuedApply, handleSubmit]);
 
-  // Pull the latest tool call + dry-run data so the ApprovalCard can
-  // surface a meaningful diff. Walk backwards looking for the most
-  // recent tool fragment with a preview payload.
-  const approvalContext = findApprovalContext(items);
 
   return (
     <div className="flex h-full flex-col bg-bg">
@@ -239,13 +245,10 @@ export default function App() {
                 onDismiss={() => setCatchup(null)}
               />
             ) : null}
-            {pendingApproval && approvalContext ? (
+            {pendingApproval && approvalCount > 0 ? (
               <div style={{ paddingRight: 40 }}>
                 <ApprovalCard
-                  description={approvalContext.description}
-                  diff={approvalContext.diff}
-                  meta={approvalContext.meta}
-                  tierLabel={approvalContext.tierLabel}
+                  items={approvalContexts}
                   onApprove={() => void handleApply()}
                   onReject={handleReject}
                   applying={queuedApply !== null}
@@ -291,16 +294,7 @@ function detectPendingApproval(items: ChatItem[]): boolean {
     if (item.role !== "assistant") continue;
     for (const frag of item.fragments) {
       if (frag.kind !== "tool") continue;
-      const call = frag.call;
-      if (call.errorCode === "confirmation_required") return true;
-      if (
-        call.state === "ok" &&
-        typeof call.data === "object" &&
-        call.data !== null &&
-        (call.data as Record<string, unknown>).preview === true
-      ) {
-        return true;
-      }
+      if (_callNeedsApproval(frag.call)) return true;
     }
     // Only check the most recent assistant turn.
     return false;
@@ -315,19 +309,35 @@ interface ApprovalContext {
   tierLabel: string;
 }
 
-function findApprovalContext(items: ChatItem[]): ApprovalContext | null {
-  // Walk the most recent assistant turn's fragments in reverse and
-  // pull the first tool fragment we see.
+function findApprovalContexts(items: ChatItem[]): ApprovalContext[] {
+  // Collect EVERY previewed / confirmation-required write in the most
+  // recent assistant turn, in the order the model issued them — the model
+  // can dry-run several writes per turn and they're approved as a set.
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
+    // A more recent user message means the user already responded.
+    if (item.role === "user") return [];
     if (item.role !== "assistant") continue;
-    for (let j = item.fragments.length - 1; j >= 0; j--) {
-      const frag = item.fragments[j];
+    const contexts: ApprovalContext[] = [];
+    for (const frag of item.fragments) {
       if (frag.kind !== "tool") continue;
-      return buildApprovalContext(frag.call);
+      if (_callNeedsApproval(frag.call)) {
+        contexts.push(buildApprovalContext(frag.call));
+      }
     }
+    return contexts;
   }
-  return null;
+  return [];
+}
+
+function _callNeedsApproval(call: ToolCallRecord): boolean {
+  if (call.errorCode === "confirmation_required") return true;
+  return (
+    call.state === "ok" &&
+    typeof call.data === "object" &&
+    call.data !== null &&
+    (call.data as Record<string, unknown>).preview === true
+  );
 }
 
 function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
