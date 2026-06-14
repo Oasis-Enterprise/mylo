@@ -66,6 +66,15 @@ def _normalize_item_id(item_type: str, item_id: str) -> str:
     return item_id
 
 
+def _run_start(run: dict[str, Any]) -> str:
+    """ISO-8601 start time of a run, '' if absent. Sorts correctly as a
+    string (lexicographic == chronological for ISO-8601)."""
+    ts = run.get("timestamp")
+    if isinstance(ts, dict):
+        return ts.get("start") or ""
+    return ts or "" if isinstance(ts, str) else ""
+
+
 def _summarize_run_list(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return a compact list of runs (run_id, timestamps, state, error)."""
     out = []
@@ -200,9 +209,13 @@ async def handler(params: QueryTracesParams, ctx: ToolContext) -> ToolResult:
             }
         )
 
+    # HA's trace/list returns runs OLDEST-first (insertion order in a
+    # size-limited OrderedDict). Sort newest-first by start time so
+    # "latest_run" and recent_runs are genuinely most-recent-first.
+    runs = sorted(runs, key=_run_start, reverse=True)
     recent_runs = _summarize_run_list(runs)
 
-    # Fetch full trace for the most recent run (first in the list).
+    # Fetch full trace for the most recent run.
     most_recent_run_id = runs[0].get("run_id")
     latest_summary: dict[str, Any] | None = None
     if most_recent_run_id:

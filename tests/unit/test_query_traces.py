@@ -28,18 +28,20 @@ from tests.unit._helpers import make_ctx
 
 # ─── Sample HA trace payloads ────────────────────────────────────────────────
 
+# HA returns trace/list OLDEST-first; the older run is at index 0. The
+# tool must still select abc123 (newest by timestamp) as the latest run.
 _TRACE_LIST_RESPONSE = [
     {
-        "run_id": "abc123",
-        "timestamp": {"start": "2026-06-10T08:00:00+00:00", "finish": "2026-06-10T08:00:01+00:00"},
+        "run_id": "def456",
+        "timestamp": {"start": "2026-06-09T08:00:00+00:00", "finish": "2026-06-09T08:00:01+00:00"},
         "state": "stopped",
         "script_execution": "finished",
         "last_step": "action/0",
         "error": None,
     },
     {
-        "run_id": "def456",
-        "timestamp": {"start": "2026-06-09T08:00:00+00:00", "finish": "2026-06-09T08:00:01+00:00"},
+        "run_id": "abc123",
+        "timestamp": {"start": "2026-06-10T08:00:00+00:00", "finish": "2026-06-10T08:00:01+00:00"},
         "state": "stopped",
         "script_execution": "finished",
         "last_step": "action/0",
