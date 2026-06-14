@@ -211,6 +211,29 @@ async def test_create_capture_entities_dry_run_preview(
     assert any(t == "get_states" for t, _ in _client.calls)
 
 
+async def test_explicit_entities_win_over_captured(
+    _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
+) -> None:
+    """When an entity is both captured and given explicitly, the explicit
+    value replaces the snapshot."""
+    _ctx.user_approved = True
+    await execute(
+        "modify_scene",
+        {
+            "action": "create",
+            "name": "Override Scene",
+            "capture_entities": ["light.kitchen"],  # live: on, brightness 200
+            "entities": {"light.kitchen": {"state": "off"}},  # explicit override
+            "dry_run": False,
+        },
+        _ctx,
+    )
+    pkg_path = tmp_path / "config" / "packages" / "agent.yaml"
+    scene = load_yaml(pkg_path.read_text())["scene"][0]
+    # Explicit value fully replaces the captured snapshot (no brightness).
+    assert scene["entities"]["light.kitchen"] == {"state": "off"}
+
+
 # ─── update ──────────────────────────────────────────────────────────────────
 
 
