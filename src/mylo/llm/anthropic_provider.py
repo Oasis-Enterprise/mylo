@@ -63,14 +63,14 @@ def _with_history_cache_breakpoint(
     if not messages:
         return messages
 
-    out = list(messages)
-    last = dict(out[-1])
-    content = last.get("content")
+    src = messages[-1]
+    content = src.get("content")
+    new_content: list[dict[str, Any]]
 
     if isinstance(content, str):
         if not content:
             return messages
-        last["content"] = [
+        new_content = [
             {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
         ]
     elif isinstance(content, list) and content and isinstance(content[-1], dict):
@@ -78,11 +78,11 @@ def _with_history_cache_breakpoint(
         tail = dict(new_content[-1])
         tail["cache_control"] = {"type": "ephemeral"}
         new_content[-1] = tail
-        last["content"] = new_content
     else:
         return messages
 
-    out[-1] = last
+    out = list(messages)
+    out[-1] = {"role": src["role"], "content": new_content}
     return out
 
 

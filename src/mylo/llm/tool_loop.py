@@ -195,19 +195,21 @@ async def run_turn(
         nudge_repeat = False
         for call in response.tool_calls:
             yield ToolCallEvent(name=call.name, input=call.input, id=call.id)
-            key = _read_call_key(call.name, call.input)
-            if key is not None and key in seen_reads:
+            read_key = _read_call_key(call.name, call.input)
+            if read_key is not None and read_key in seen_reads:
                 # Identical read already run this turn — reuse it, don't
                 # re-execute. Count the repeat; nudge once it persists.
-                envelope = seen_reads[key]
-                repeat_counts[key] = repeat_counts.get(key, 0) + 1
-                if repeat_counts[key] >= _REPEAT_NUDGE_THRESHOLD:
+                envelope = seen_reads[read_key]
+                repeat_counts[read_key] = repeat_counts.get(read_key, 0) + 1
+                if repeat_counts[read_key] >= _REPEAT_NUDGE_THRESHOLD:
                     nudge_repeat = True
-                log.info("llm.tool_loop.dedup_read", tool=call.name, repeats=repeat_counts[key])
+                log.info(
+                    "llm.tool_loop.dedup_read", tool=call.name, repeats=repeat_counts[read_key]
+                )
             else:
                 envelope = (await execute(call.name, call.input, ctx)).to_dict()
-                if key is not None and envelope.get("status") == "ok":
-                    seen_reads[key] = envelope
+                if read_key is not None and envelope.get("status") == "ok":
+                    seen_reads[read_key] = envelope
             tool_results.append(envelope)
             yield ToolResultEvent(
                 name=call.name,

@@ -50,10 +50,10 @@ def estimate_usd(usage: dict[str, Any], model: str) -> float:
     """Estimate the dollar cost of one usage dict for ``model``."""
     rates = _rates_for(model)
     cost = (
-        usage.get("input_tokens", 0) * rates["input"]
-        + usage.get("output_tokens", 0) * rates["output"]
-        + usage.get("cache_creation_input_tokens", 0) * rates["cache_write"]
-        + usage.get("cache_read_input_tokens", 0) * rates["cache_read"]
+        float(usage.get("input_tokens", 0)) * rates["input"]
+        + float(usage.get("output_tokens", 0)) * rates["output"]
+        + float(usage.get("cache_creation_input_tokens", 0)) * rates["cache_write"]
+        + float(usage.get("cache_read_input_tokens", 0)) * rates["cache_read"]
     )
     return cost / 1_000_000
 
