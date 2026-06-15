@@ -41,6 +41,7 @@ from aiohttp import web
 
 from mylo.context.assembler import assemble_system_prompt
 from mylo.context.memory_injection import render_current_time
+from mylo.llm.cost import cache_hit_ratio, estimate_usd
 from mylo.llm.tool_loop import (
     DoneEvent,
     LoopEvent,
@@ -429,6 +430,8 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
                         "stop_reason": event.stop_reason,
                         "usage": event.usage,
                         "truncated": event.truncated,
+                        "estimated_usd": round(estimate_usd(event.usage, config.model), 4),
+                        "cache_hit_ratio": round(cache_hit_ratio(event.usage), 3),
                     },
                 )
     except Exception as exc:

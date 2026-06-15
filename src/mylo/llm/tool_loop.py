@@ -36,6 +36,7 @@ from typing import Any
 
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.summarize import compress_old_tool_results
+from mylo.llm.cost import cache_hit_ratio, estimate_usd
 from mylo.llm.provider import Provider, ProviderMessage
 from mylo.logging_setup import get_logger
 from mylo.tools.base import Tier
@@ -263,5 +264,18 @@ async def run_turn(
 
     # Final compression with the standard window for between-turn savings.
     conversation.history = compress_old_tool_results(conversation.history)
+
+    # Per-turn telemetry — measures the caching/dedup win across iterations.
+    log.info(
+        "llm.turn_usage",
+        model=model,
+        input_tokens=usage_total.get("input_tokens", 0),
+        output_tokens=usage_total.get("output_tokens", 0),
+        cache_read_tokens=usage_total.get("cache_read_input_tokens", 0),
+        cache_write_tokens=usage_total.get("cache_creation_input_tokens", 0),
+        cache_hit_ratio=round(cache_hit_ratio(usage_total), 3),
+        estimated_usd=round(estimate_usd(usage_total, model), 4),
+        truncated=truncated,
+    )
 
     yield DoneEvent(stop_reason=stop_reason, usage=usage_total, truncated=truncated)
