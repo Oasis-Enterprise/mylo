@@ -62,6 +62,13 @@ Entity ID rules (CRITICAL for dashboards and automations):
   device types. Every entity reference will be validated against the
   registry before the dry-run preview — hallucinated IDs will be
   rejected with did_you_mean suggestions.
+- GATHER IN BULK: for a whole-dashboard or whole-home job, make ONE
+  broad query_entities call (omit domain for a full area, or omit all
+  filters with limit=2000 for the whole home) — detail=minimal already
+  returns every entity_id. Do NOT fan out into one query per area or
+  per domain; that wastes dozens of calls. Query once, then build from
+  the ids you got back. The ids you've already fetched stay available
+  to you — never re-query the same scope.
 - If modify_dashboard returns invalid_entity_refs, fix EVERY listed
   reference using the did_you_mean suggestions, then retry. Do not
   skip any.

@@ -91,12 +91,13 @@ class QueryEntitiesParams(BaseModel):
         description="Include user-hidden entities.",
     )
     limit: int = Field(
-        default=50,
+        default=200,
         ge=1,
         le=2000,
         description=(
-            "Max entities to return. Default 50 — enough for most queries. "
-            "Raise only if you specifically need more."
+            "Max entities to return. Default 200. For a bulk gather (e.g. "
+            "building a dashboard) raise to 2000 to get everything in ONE "
+            "call rather than many small ones."
         ),
     )
 
@@ -155,17 +156,6 @@ def _match(
 
 
 async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
-    # Hard cap: detail=standard or full with limit>100 would return
-    # 10K-15K tokens in one result. Force minimal to prevent history
-    # bloat and rate-limit spikes.
-    if params.detail != "minimal" and params.limit > 100:
-        params = params.model_copy(update={"detail": "minimal"})
-        log.info(
-            "query_entities.detail_downgraded",
-            reason="limit > 100 with non-minimal detail",
-            limit=params.limit,
-        )
-
     filt = params.filter
 
     target_area_id: str | None = None
@@ -208,7 +198,20 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
     truncated = len(matched) > params.limit
     entries = matched[: params.limit]
 
-    if params.detail == "minimal":
+    # Hard cap: returning standard/full detail for >100 entities would be
+    # 10K-15K tokens. Downgrade to minimal based on how many rows we'd
+    # actually emit (not the limit param) so detail=full still works on a
+    # narrow filter even when the default limit is high.
+    detail = params.detail
+    if detail != "minimal" and len(entries) > 100:
+        detail = "minimal"
+        log.info(
+            "query_entities.detail_downgraded",
+            reason=">100 entities with non-minimal detail",
+            returned=len(entries),
+        )
+
+    if detail == "minimal":
         shaped = [shape_entity_minimal(e, states.get(e.entity_id), ctx.registries) for e in entries]
     else:
         shaped = [
@@ -216,7 +219,7 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
                 e,
                 states.get(e.entity_id),
                 ctx.registries,
-                include_attributes=params.detail == "full",
+                include_attributes=detail == "full",
             )
             for e in entries
         ]
@@ -233,14 +236,17 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
 TOOL = ToolDefinition(
     name="query_entities",
     description=(
-        "Search entities. ALWAYS use the narrowest filter possible — prefer "
-        "area + domain over broad scans. For 'what lights are on' use "
-        "domain=light + state=on, not a full entity dump. For area-specific "
-        "questions, always include the area filter. Default detail=minimal "
-        "returns entity_id + name + state + area (~30 tokens each). Only "
-        "use detail=standard or detail=full when you need attributes for "
-        "a small number of entities. Check the topology summary first — "
-        "it may already answer the question without a tool call."
+        "Search entities. Match the filter to the JOB: for a narrow question "
+        "('what lights are on') use the narrowest filter (domain=light + "
+        "state=on). But for a BULK gather (building a dashboard, auditing a "
+        "whole area/home) do ONE broad query, not many small ones — omit "
+        "domain to get every entity in an area, or omit all filters with "
+        "limit=2000 to get the whole home. detail=minimal (the default) "
+        "already returns the exact entity_id for every result, so a single "
+        "broad minimal query gives you all the ids you need; don't re-query "
+        "per-domain. Use detail=standard/full only for attributes on a few "
+        "entities. Check the topology summary first — it may already answer "
+        "the question without a tool call."
     ),
     params_model=QueryEntitiesParams,
     tier=Tier.READ,

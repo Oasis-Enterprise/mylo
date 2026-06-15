@@ -237,3 +237,45 @@ async def test_friendly_name_prefers_state_attribute_over_registry_fallback(
     )
     e = result.data["entities"][0]
     assert e["friendly_name"] == "Living Room Lamp 1"
+
+
+async def test_detail_downgrades_to_minimal_above_100_returned() -> None:
+    """detail=full is forced to minimal when >100 rows would be returned
+    (token-bomb guard), but stays full on a narrow match even with the
+    high default limit."""
+    reg = Registries()
+    reg.entities = {
+        f"light.l{i}": EntityEntry.from_raw(
+            {"entity_id": f"light.l{i}", "original_name": f"L{i}", "platform": "hue", "labels": []}
+        )
+        for i in range(150)
+    }
+    states = [
+        {"entity_id": f"light.l{i}", "state": "on", "attributes": {"brightness": 5}}
+        for i in range(150)
+    ]
+    ctx = make_ctx(
+        ws_client=_FakeClient(states),
+        registries=reg,
+        tmp_path=__import__("pathlib").Path("/tmp"),
+    )
+    tool_registry._reset_for_tests()
+    tool_registry.load_all()
+    try:
+        # 150 returned at full detail → downgraded to minimal (no attributes).
+        big = await execute(
+            "query_entities", {"filter": {"domain": "light"}, "detail": "full"}, ctx
+        )
+        assert big.status.value == "ok"
+        assert big.data["entities_found"] == 150
+        assert all("key_attributes" not in e for e in big.data["entities"])
+        # Narrow match keeps full detail despite the high default limit.
+        small = await execute(
+            "query_entities",
+            {"filter": {"pattern": "light.l1$"}, "detail": "full"},
+            ctx,
+        )
+        assert small.data["entities_found"] == 1
+        assert "key_attributes" in small.data["entities"][0]
+    finally:
+        tool_registry._reset_for_tests()
