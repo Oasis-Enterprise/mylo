@@ -49,6 +49,43 @@ from mylo.logging_setup import get_logger
 log = get_logger(__name__)
 
 
+def _with_history_cache_breakpoint(
+    messages: list[ProviderMessage],
+) -> list[ProviderMessage]:
+    """Return a copy of ``messages`` with an ephemeral cache breakpoint on
+    the last content block of the last message.
+
+    Copy-on-write: the message dict, its content list, and the annotated
+    block are all copied, so the caller's history (which persists to disk)
+    is never mutated. A string content is promoted to a single text block.
+    Returns the input unchanged if there's nothing annotatable.
+    """
+    if not messages:
+        return messages
+
+    out = list(messages)
+    last = dict(out[-1])
+    content = last.get("content")
+
+    if isinstance(content, str):
+        if not content:
+            return messages
+        last["content"] = [
+            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+        ]
+    elif isinstance(content, list) and content and isinstance(content[-1], dict):
+        new_content = list(content)
+        tail = dict(new_content[-1])
+        tail["cache_control"] = {"type": "ephemeral"}
+        new_content[-1] = tail
+        last["content"] = new_content
+    else:
+        return messages
+
+    out[-1] = last
+    return out
+
+
 class AnthropicProvider:
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
@@ -91,11 +128,18 @@ class AnthropicProvider:
                 entry["cache_control"] = {"type": "ephemeral"}
             cached_tools.append(entry)
 
+        # Cache the conversation history too: a moving breakpoint on the
+        # last block. Within an agentic turn the history is append-only, so
+        # each iteration reads the prior history from cache (~90% off) and
+        # only writes its new tail. Copy-on-write so we never mutate the
+        # caller's history (it flushes to SQLite).
+        cached_messages = _with_history_cache_breakpoint(messages)
+
         async def _call() -> Any:
             return await self._client.messages.create(
                 model=model,
                 system=system_blocks,  # type: ignore[arg-type]
-                messages=messages,  # type: ignore[arg-type]
+                messages=cached_messages,  # type: ignore[arg-type]
                 tools=cached_tools,  # type: ignore[arg-type]
                 max_tokens=max_tokens,
             )

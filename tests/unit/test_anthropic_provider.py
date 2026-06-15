@@ -100,3 +100,45 @@ async def test_gives_up_after_exhausting_backoff() -> None:
         await provider.message(system="sys", messages=[], tools=[], model="claude-x")
 
     assert create.await_count == 4
+
+
+def test_history_cache_breakpoint_annotates_last_block_copy_on_write() -> None:
+    from mylo.llm.anthropic_provider import _with_history_cache_breakpoint
+
+    original = [
+        {"role": "user", "content": "hello"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "{}"},
+                {"type": "tool_result", "tool_use_id": "t2", "content": "{}"},
+            ],
+        },
+    ]
+    import copy
+
+    snapshot = copy.deepcopy(original)
+    out = _with_history_cache_breakpoint(original)
+
+    # Last block of the last message gets the breakpoint.
+    assert out[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    # Earlier block in the same message is untouched.
+    assert "cache_control" not in out[-1]["content"][0]
+    # Copy-on-write: the caller's history is byte-for-byte unchanged.
+    assert original == snapshot
+
+
+def test_history_cache_breakpoint_promotes_string_content() -> None:
+    from mylo.llm.anthropic_provider import _with_history_cache_breakpoint
+
+    out = _with_history_cache_breakpoint([{"role": "user", "content": "hi"}])
+    block = out[-1]["content"][0]
+    assert block["type"] == "text"
+    assert block["text"] == "hi"
+    assert block["cache_control"] == {"type": "ephemeral"}
+
+
+def test_history_cache_breakpoint_empty_is_noop() -> None:
+    from mylo.llm.anthropic_provider import _with_history_cache_breakpoint
+
+    assert _with_history_cache_breakpoint([]) == []
