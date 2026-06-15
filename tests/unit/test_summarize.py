@@ -166,3 +166,55 @@ def test_query_dashboard_summary_list_survives_compression() -> None:
     assert isinstance(views, list), f"view list stripped: {payload!r}"
     assert len(views) == 6
     assert views[0]["path"] == "view_0"
+
+
+def test_query_entities_compression_preserves_entity_ids() -> None:
+    """Compressing a query_entities result must KEEP the entity_ids — the
+    model re-queries endlessly when they're dropped. State/attributes/names
+    can go; the ids are the load-bearing bytes for building dashboards."""
+    entities = [
+        {
+            "entity_id": f"light.room_{i}",
+            "name": f"Room {i} Light",
+            "domain": "light",
+            "state": "on",
+            "area": "living_room",
+        }
+        for i in range(40)
+    ]
+    envelope = {
+        "status": "ok",
+        "data": {
+            "entities_found": 40,
+            "summary": "40 lights (40 on)",
+            "entities": entities,
+            "total_before_limit": 40,
+        },
+    }
+    history = [
+        {"role": "user", "content": "list the lights"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "t1", "name": "query_entities", "input": {}}],
+        },
+        _tool_result_msg("t1", envelope),
+        _assistant_text("Found 40 lights."),
+        _assistant_text("Anything else?"),
+    ]
+
+    compressed = compress_old_tool_results(history, keep_last_n_turns=1)
+    block = next(
+        m["content"][0]
+        for m in compressed
+        if m.get("role") == "user" and isinstance(m.get("content"), list)
+    )
+    payload = json.loads(block["content"])
+    # It IS compressed (the bulky fields are gone)…
+    assert payload.get("compressed") is True
+    assert "40 lights" in payload.get("summary", "")
+    # …but every entity_id survives.
+    ids = payload.get("entity_ids")
+    assert isinstance(ids, list) and len(ids) == 40
+    assert "light.room_0" in ids and "light.room_39" in ids
+    # And it's genuinely smaller than the raw result.
+    assert len(json.dumps(payload)) < len(json.dumps(envelope))

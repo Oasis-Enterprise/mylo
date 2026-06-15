@@ -142,9 +142,13 @@ def _summarize_tool_result(raw_content: str) -> str | None:
 
     parts: list[str] = [f"status: {status}"]
 
-    # query_entities summary.
+    # query_entities — keep the entity_ids, drop the bulky state/attributes.
+    # The ids are what the model needs to build dashboards/automations;
+    # dropping them (as we used to) made the model re-query the same
+    # entities over and over. The ids are far smaller than the full rows.
     if "entities" in data and isinstance(data["entities"], list):
-        count = len(data["entities"])
+        entities = data["entities"]
+        count = len(entities)
         total = data.get("total_before_limit", count)
         summary_line = data.get("summary")
         parts.append(f"returned {count} of {total} entities")
@@ -152,7 +156,15 @@ def _summarize_tool_result(raw_content: str) -> str | None:
             parts.append(f"summary: {summary_line}")
         if data.get("truncated"):
             parts.append("(truncated)")
-        return json.dumps({"status": status, "compressed": True, "summary": ". ".join(parts)})
+        ids = [e["entity_id"] for e in entities if isinstance(e, dict) and e.get("entity_id")]
+        return json.dumps(
+            {
+                "status": status,
+                "compressed": True,
+                "summary": ". ".join(parts),
+                "entity_ids": ids,
+            }
+        )
 
     # query_devices.
     if "devices" in data and isinstance(data["devices"], list):
