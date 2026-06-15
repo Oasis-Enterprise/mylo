@@ -46,8 +46,10 @@ grep -qE "^## \[$VERSION\]" CHANGELOG.md \
   || die "no '## [$VERSION]' section in CHANGELOG.md — add the release notes first, then re-run"
 
 # ── Bump all three version locations ────────────────────────────────────────
-perl -i -pe "s/^version: \".*\"/version: \"$VERSION\"/ if \$. < 10" config.yaml
-perl -i -pe "s/^version = \".*\"/version = \"$VERSION\"/ unless \$done++" pyproject.toml
+# Each bump targets only the first matching line (flag set on a successful
+# match, not per-line) so a stray 'version =' elsewhere can't be hit.
+perl -i -pe "if (!\$seen && s/^version: \".*\"/version: \"$VERSION\"/) {\$seen=1}" config.yaml
+perl -i -pe "if (!\$seen && s/^version = \".*\"/version = \"$VERSION\"/) {\$seen=1}" pyproject.toml
 perl -i -pe "s/^__version__ = \".*\"/__version__ = \"$VERSION\"/" src/mylo/__init__.py
 
 # Verify all three landed.
