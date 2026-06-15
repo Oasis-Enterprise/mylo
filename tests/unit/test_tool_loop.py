@@ -467,3 +467,64 @@ async def test_usage_is_summed_across_iterations(
     # 20+10 from tool turn plus 10+5 from text turn.
     assert done.usage["input_tokens"] == 30
     assert done.usage["output_tokens"] == 15
+
+
+async def test_identical_read_calls_deduped_and_nudged(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    """Identical read calls within a turn are served from the per-turn cache
+    (handler runs once) and a nudge is injected once repeats persist."""
+    runs = {"n": 0}
+
+    async def _counted(params: _Params, _ctx: Any) -> ToolResult:
+        runs["n"] += 1
+        return ToolResult.ok({"value": params.value})
+
+    tool_registry.register(
+        ToolDefinition(
+            name="counted",
+            description="counts executions",
+            params_model=_Params,
+            tier=Tier.READ,
+            handler=_counted,
+        )
+    )
+
+    # Same read 3 times, then the model ends the turn.
+    provider = _FakeProvider(
+        [
+            _tool_turn("c1", "counted", {"value": 7}),
+            _tool_turn("c2", "counted", {"value": 7}),
+            _tool_turn("c3", "counted", {"value": 7}),
+            _text_turn("done", stop_reason="end_turn"),
+        ]
+    )
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+
+    _ = [
+        e
+        async for e in run_turn(
+            user_message="go",
+            conversation=_conv,
+            provider=provider,
+            ctx=ctx,
+            system="",
+            tools=[],
+            model="fake",
+            max_iterations=8,
+        )
+    ]
+
+    # Executed exactly once; the 2nd and 3rd identical calls were served
+    # from the per-turn dedup cache.
+    assert runs["n"] == 1
+    # The nudge text was injected into history after repeats crossed the
+    # threshold.
+    text_blocks = [
+        b.get("text", "")
+        for m in _conv.history
+        if isinstance(m.get("content"), list)
+        for b in m["content"]
+        if isinstance(b, dict) and b.get("type") == "text"
+    ]
+    assert any("already fetched" in t.lower() for t in text_blocks)

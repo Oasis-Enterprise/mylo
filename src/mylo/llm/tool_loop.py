@@ -38,8 +38,10 @@ from mylo.conversation.manager import ConversationManager
 from mylo.conversation.summarize import compress_old_tool_results
 from mylo.llm.provider import Provider, ProviderMessage
 from mylo.logging_setup import get_logger
+from mylo.tools.base import Tier
 from mylo.tools.context import ToolContext
 from mylo.tools.executor import execute
+from mylo.tools.registry import get as _get_tool_def
 
 log = get_logger(__name__)
 
@@ -47,6 +49,19 @@ log = get_logger(__name__)
 # This ceiling is a backstop that forces compaction only if a single turn
 # grows toward the model's context window — well above any normal turn.
 _HISTORY_SAFETY_CEILING_TOKENS = 150_000
+
+# Loop-guard: after this many identical repeats of a read call within a
+# turn, nudge the model to stop re-querying and use what it already has.
+_REPEAT_NUDGE_THRESHOLD = 2
+
+
+def _read_call_key(name: str, tool_input: dict[str, Any]) -> str | None:
+    """Stable dedup key for an identical READ tool call, or None for
+    non-read tools (writes/actions are never deduped)."""
+    tool_def = _get_tool_def(name)
+    if tool_def is None or tool_def.tier != Tier.READ:
+        return None
+    return f"{name}:{json.dumps(tool_input, sort_keys=True, default=str)}"
 
 
 # ─── Events ──────────────────────────────────────────────────────────────────
@@ -114,6 +129,11 @@ async def run_turn(
     stop_reason = ""
     truncated = False
 
+    # Per-turn loop-guard: identical read calls are served from here
+    # instead of re-executing, and repeats past a threshold trigger a nudge.
+    seen_reads: dict[str, dict[str, Any]] = {}
+    repeat_counts: dict[str, int] = {}
+
     for _iteration in range(max_iterations):
         messages: list[ProviderMessage] = conversation.as_provider_messages()
 
@@ -171,9 +191,22 @@ async def run_turn(
         # the agent is reaching for during slow tool runs. Emit the
         # ToolResultEvent immediately after each call completes.
         tool_results: list[dict[str, Any]] = []
+        nudge_repeat = False
         for call in response.tool_calls:
             yield ToolCallEvent(name=call.name, input=call.input, id=call.id)
-            envelope = (await execute(call.name, call.input, ctx)).to_dict()
+            key = _read_call_key(call.name, call.input)
+            if key is not None and key in seen_reads:
+                # Identical read already run this turn — reuse it, don't
+                # re-execute. Count the repeat; nudge once it persists.
+                envelope = seen_reads[key]
+                repeat_counts[key] = repeat_counts.get(key, 0) + 1
+                if repeat_counts[key] >= _REPEAT_NUDGE_THRESHOLD:
+                    nudge_repeat = True
+                log.info("llm.tool_loop.dedup_read", tool=call.name, repeats=repeat_counts[key])
+            else:
+                envelope = (await execute(call.name, call.input, ctx)).to_dict()
+                if key is not None and envelope.get("status") == "ok":
+                    seen_reads[key] = envelope
             tool_results.append(envelope)
             yield ToolResultEvent(
                 name=call.name,
@@ -184,7 +217,7 @@ async def run_turn(
             )
 
         # Feed the tool results back as a user turn with tool_result blocks.
-        result_blocks = [
+        result_blocks: list[dict[str, Any]] = [
             {
                 "type": "tool_result",
                 "tool_use_id": call.id,
@@ -192,6 +225,18 @@ async def run_turn(
             }
             for call, envelope in zip(response.tool_calls, tool_results, strict=True)
         ]
+        if nudge_repeat:
+            result_blocks.append(
+                {
+                    "type": "text",
+                    "text": (
+                        "You've already fetched this exact data earlier in this "
+                        "turn and it hasn't changed. Use the results you already "
+                        "have (entity ids are included) and proceed — do not "
+                        "query the same thing again."
+                    ),
+                }
+            )
         await conversation.append("user", result_blocks, prompt_version=prompt_version)
 
         # NB: history is intentionally append-only WITHIN a turn now. We do
