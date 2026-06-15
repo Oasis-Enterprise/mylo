@@ -70,9 +70,7 @@ def _with_history_cache_breakpoint(
     if isinstance(content, str):
         if not content:
             return messages
-        new_content = [
-            {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-        ]
+        new_content = [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}]
     elif isinstance(content, list) and content and isinstance(content[-1], dict):
         new_content = list(content)
         tail = dict(new_content[-1])

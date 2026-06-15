@@ -57,10 +57,11 @@ grep -qE "^version: \"$VERSION\"" config.yaml || die "config.yaml bump failed"
 grep -qE "^version = \"$VERSION\"" pyproject.toml || die "pyproject.toml bump failed"
 grep -qE "^__version__ = \"$VERSION\"" src/mylo/__init__.py || die "__init__.py bump failed"
 
-# ── CI gate ─────────────────────────────────────────────────────────────────
-echo "release: running ruff + unit tests…"
+# ── CI gate (mirror .github/workflows/ci.yml exactly) ───────────────────────
+echo "release: running ruff + mypy + unit tests…"
 .venv/bin/ruff check src tests
 .venv/bin/ruff format --check src tests
+.venv/bin/mypy src
 .venv/bin/python -m pytest tests/unit -q
 
 # ── Commit + annotated tag (notes from the changelog section) ────────────────
