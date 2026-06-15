@@ -5,7 +5,19 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.1] — 2026-06-14
+## [1.4.0] — 2026-06-15
+
+### Changed
+- **Much cheaper, faster AI on big tasks.** Large requests (e.g. "redesign my whole dashboard") used to spiral — the agent re-queried the same entities hundreds of times, burned millions of tokens, and kept stopping to ask you to continue. Reworked how the agent reuses what it has already gathered and how the conversation is cached:
+  - The agent now keeps the entity IDs it looked up instead of discarding them mid-task, so it stops re-querying the same things.
+  - It gathers in one broad query instead of dozens of narrow ones (and the default result size is larger).
+  - The conversation history is now reused from cache across the steps of a single turn (~90% cheaper on the repeated context) instead of being re-sent at full price every step.
+  - Identical repeat lookups within a turn are served from a per-turn cache, with a nudge to move on if it keeps repeating.
+  - Result: far fewer tokens and dollars per task, and complex jobs finish in one turn without "continue" prompts.
+
+### Added
+- **Cost & cache telemetry** — each turn now reports an estimated USD cost and cache-hit ratio (in logs and the chat response), so usage is measurable.
+
 
 ### Fixed
 - **Fewer "keep going" prompts on long tasks** — the agent's per-turn step limit was raised from 8 to 25, so multi-step jobs (e.g. redesigning a dashboard with many entity lookups) finish in one turn. If the limit is still reached, the turn now ends with an explicit pause message ("reply continue and I'll pick up where I left off") instead of stopping silently.
