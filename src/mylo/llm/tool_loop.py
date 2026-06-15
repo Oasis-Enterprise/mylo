@@ -43,6 +43,11 @@ from mylo.tools.executor import execute
 
 log = get_logger(__name__)
 
+# History is append-only within a turn so the prompt cache stays warm.
+# This ceiling is a backstop that forces compaction only if a single turn
+# grows toward the model's context window — well above any normal turn.
+_HISTORY_SAFETY_CEILING_TOKENS = 150_000
+
 
 # ─── Events ──────────────────────────────────────────────────────────────────
 
@@ -112,9 +117,10 @@ async def run_turn(
     for _iteration in range(max_iterations):
         messages: list[ProviderMessage] = conversation.as_provider_messages()
 
-        # Token-size guard: if the serialized history is too large,
-        # force aggressive compression before calling the provider.
-        # Prevents 30K+ token histories from blowing the rate limit.
+        # Safety ceiling: history is append-only within a turn (cheap via
+        # prompt caching), but a pathological turn could still approach the
+        # model's context window. Only then do we force compaction. This is
+        # a backstop, not the routine path.
         history_chars = sum(
             len(json.dumps(m["content"], default=str))
             if not isinstance(m["content"], str)
@@ -122,9 +128,9 @@ async def run_turn(
             for m in messages
         )
         estimated_tokens = history_chars // 4  # rough char-to-token ratio
-        if estimated_tokens > 12_000:
+        if estimated_tokens > _HISTORY_SAFETY_CEILING_TOKENS:
             log.info(
-                "llm.history_too_large",
+                "llm.history_ceiling_hit",
                 estimated_tokens=estimated_tokens,
                 compressing=True,
             )
@@ -188,11 +194,14 @@ async def run_turn(
         ]
         await conversation.append("user", result_blocks, prompt_version=prompt_version)
 
-        # Compress after EACH iteration, not after the whole turn.
-        # Without this, iteration 2 pays full price for iteration 1's
-        # raw result (~8K tokens for a query_entities), and iteration 3
-        # pays for both. On a 3-tool turn this saves 10-15K tokens.
-        conversation.history = compress_old_tool_results(conversation.history, keep_last_n_turns=1)
+        # NB: history is intentionally append-only WITHIN a turn now. We do
+        # NOT compress between iterations — doing so dropped the entity_ids
+        # the model had just gathered (forcing endless re-queries) and
+        # rewrote earlier bytes every round, defeating the prompt cache.
+        # Keeping the prefix stable lets each iteration's prior history be
+        # served from cache (~90% off). Between-turn compression still runs
+        # at the end of the loop. The safety ceiling below is the only
+        # mid-turn compaction, and only on a genuinely runaway turn.
     else:
         # Loop exhausted while the model still wanted tools — it was cut
         # off mid-task. Surface that explicitly so the paused turn doesn't
