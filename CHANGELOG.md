@@ -5,6 +5,79 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] — 2026-06-14
+
+### Fixed
+- **Fewer "keep going" prompts on long tasks** — the agent's per-turn step limit was raised from 8 to 25, so multi-step jobs (e.g. redesigning a dashboard with many entity lookups) finish in one turn. If the limit is still reached, the turn now ends with an explicit pause message ("reply continue and I'll pick up where I left off") instead of stopping silently.
+- **Dashboard `update_view`** — guidance so the model assembles the complete replacement view before previewing, and prefers `add_cards`/`replace_card` for incremental edits. Avoids an empty-preview `missing_param` error on view rebuilds.
+- **In-app version tag** — the version shown under the Mylo name now reflects the real release (it had been stuck at 1.1.7). `__version__`, `pyproject`, and `config.yaml` are kept aligned.
+
+## [1.3.0] — 2026-06-14
+
+### Added
+- **Scenes** — `modify_scene` creates / updates / deletes / activates scenes, with a "snapshot current entity states" convenience on create.
+- **Zones** — `modify_zones` creates / updates / deletes zones (latitude/longitude/radius/passive) with partial-merge updates; the built-in `home` zone is protected.
+- **Automation & script trace debugging** — `query_traces` (read-only) inspects run traces to answer "why did/didn't this run": trigger, step outcomes, where it stopped, and errors.
+- **More helpers** — `manage_helpers` now also manages `schedule` (weekly on/off) and `input_button` helpers.
+- **Batch dry-run approvals** — when several changes are previewed in one turn, the approval card lists them all and applies them together with one click.
+
+## [1.2.2] — 2026-06-13
+
+### Fixed
+- **Runaway behavioral patterns** — pattern detection accumulated unbounded near-duplicate patterns (10k+ on a large instance), bloating `context.yaml` until memory sync exceeded the model context window. Pattern ids are now bucketed to 30-min slots so nightly drift updates the existing pattern instead of minting a new one; the pruner drops behavioral patterns not re-confirmed in 21 days and hard-caps the list at 200; nightly sync self-heals a bloated list. Use the Memory tab's prune (or `POST /api/memory/prune`) to clear an existing backlog without the LLM.
+
+## [1.2.1] — 2026-06-13
+
+### Fixed
+- **Memory sync on large instances** — sync failed with "prompt is too long" because the reconciler sent the entire memory file (including machine-state sections and the full new-entity list) to the model. It now sends only the sections it reconciles, carries machine-owned state over verbatim, samples the state diff, and degrades gracefully if the payload is still too large.
+
+## [1.2.0] — 2026-06-12
+
+### Added
+- **Learned-norms monitoring** — replaces fixed-threshold alerts with per-entity learned profiles ("quiet until confident"). Duration and while-away alerts only fire when a device deviates from its own learned history, and only after enough observation (~2 weeks). Alerts explain the norm in plain English ("on for 8h — longest you've left it is 6h").
+- **Per-finding dismiss** in the catch-up banner — dismiss one finding (7-day cooldown) or all at once.
+
+### Fixed
+- **The ever-growing alert list** — monitor findings are now deduplicated, capped at 5, auto-resolve when the condition clears, and expire after 48h. The legacy backlog is cleared automatically on first run after updating.
+- **Sensor anomaly noise** — statistical alerts now require a stronger deviation (3.5σ) sustained across two consecutive checks; one-hour blips no longer notify. Presence is decided only from definitive person states, so a tracker outage can't trigger away-alerts.
+
+## [1.1.7] — 2026-05-25
+
+### Added
+- **Sections-layout dashboard support** — `replace_card` / `remove_card` / `add_cards` accept `section_index` to target a specific section's cards on HA sections-layout views, avoiding full-view rewrites. `query_dashboard` reports layout type and per-section card counts.
+
+## [1.1.6] — 2026-05-25
+
+### Fixed
+- Dashboard query results preserved across conversation compression.
+- Retry on Anthropic 5xx responses, including 529 "overloaded".
+
+## [1.1.5] — 2026-05-19
+
+### Changed
+- Automation/script reload switched to the optimistic apply + background-verify pattern for HA's slow reload operations.
+
+## [1.1.4] — 2026-05-18
+
+### Fixed
+- Reconciler unicode stripping for LLM-emitted invisible characters.
+- Suggestion suppression for infrastructure devices (network switches, cameras, servers) that are intentionally always-on.
+
+## [1.1.3] — 2026-05-17
+
+### Added
+- Proactive suggestions contained in Mylo's catch-up banner instead of firing as standalone notifications.
+
+## [1.1.2] — 2026-05-16
+
+### Added
+- Actionable mobile notifications (accept/reject from the notification) and a `notification_method` config option.
+
+## [1.1.1] — 2026-05-15
+
+### Fixed
+- Internal fixes and version alignment.
+
 ## [1.1.0] — 2026-05-15
 
 ### Added
