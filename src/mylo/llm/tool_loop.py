@@ -72,6 +72,10 @@ class ToolResultEvent:
 class DoneEvent:
     stop_reason: str
     usage: dict[str, int]
+    # True when the turn ended because it hit max_iterations while the
+    # model still wanted to use tools — i.e. it was cut off mid-task, not
+    # naturally finished. Lets the UI distinguish "paused" from "done".
+    truncated: bool = False
 
 
 # Union type alias for consumers.
@@ -90,7 +94,7 @@ async def run_turn(
     system: str,
     tools: list[dict[str, Any]],
     model: str,
-    max_iterations: int = 8,
+    max_iterations: int = 25,
     prompt_version: str | None = None,
 ) -> AsyncIterator[LoopEvent]:
     """Run one user-initiated turn to completion.
@@ -103,6 +107,7 @@ async def run_turn(
 
     usage_total: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
     stop_reason = ""
+    truncated = False
 
     for _iteration in range(max_iterations):
         messages: list[ProviderMessage] = conversation.as_provider_messages()
@@ -189,9 +194,20 @@ async def run_turn(
         # pays for both. On a 3-tool turn this saves 10-15K tokens.
         conversation.history = compress_old_tool_results(conversation.history, keep_last_n_turns=1)
     else:
+        # Loop exhausted while the model still wanted tools — it was cut
+        # off mid-task. Surface that explicitly so the paused turn doesn't
+        # look like a completed one (otherwise the user has to guess and
+        # type "keep going").
         log.warning("llm.tool_loop.max_iterations_hit", iterations=max_iterations)
+        truncated = True
+        yield TextEvent(
+            text=(
+                f"I paused after {max_iterations} steps to check in — there's more to "
+                'do here. Reply "continue" and I\'ll pick up where I left off.'
+            )
+        )
 
     # Final compression with the standard window for between-turn savings.
     conversation.history = compress_old_tool_results(conversation.history)
 
-    yield DoneEvent(stop_reason=stop_reason, usage=usage_total)
+    yield DoneEvent(stop_reason=stop_reason, usage=usage_total, truncated=truncated)

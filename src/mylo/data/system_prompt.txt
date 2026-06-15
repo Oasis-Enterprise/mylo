@@ -65,6 +65,12 @@ Entity ID rules (CRITICAL for dashboards and automations):
 - If modify_dashboard returns invalid_entity_refs, fix EVERY listed
   reference using the did_you_mean suggestions, then retry. Do not
   skip any.
+- update_view REPLACES a whole view, so it needs the complete
+  replacement view in `config`. Assemble the full view (all sections
+  and cards) FIRST, then call update_view with dry_run=true. Never
+  dry-run update_view without `config` — an empty preview is rejected
+  with missing_param. For incremental edits to an existing view,
+  prefer add_cards / replace_card / remove_card instead.
 
 Monitoring system:
 - You have a built-in monitoring system that tracks entities the user

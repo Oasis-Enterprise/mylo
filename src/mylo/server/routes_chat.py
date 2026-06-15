@@ -425,7 +425,11 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
             elif isinstance(event, DoneEvent):
                 await emit(
                     "done",
-                    {"stop_reason": event.stop_reason, "usage": event.usage},
+                    {
+                        "stop_reason": event.stop_reason,
+                        "usage": event.usage,
+                        "truncated": event.truncated,
+                    },
                 )
     except Exception as exc:
         log.exception("chat.turn_failed")

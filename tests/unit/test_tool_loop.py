@@ -261,6 +261,39 @@ async def test_max_iterations_caps_runaway_loops(
     done = [e for e in events if isinstance(e, DoneEvent)]
     assert len(call_events) == 3  # exactly max_iterations tool rounds
     assert done[0].stop_reason == "tool_use"  # model never ended turn
+    # The cap-hit must be surfaced, not silent: a pause message + flag.
+    assert done[0].truncated is True
+    text_events = [e for e in events if isinstance(e, TextEvent)]
+    assert any("continue" in e.text.lower() for e in text_events)
+
+
+async def test_natural_completion_is_not_truncated(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    # One tool round, then the model ends the turn on its own.
+    provider = _FakeProvider(
+        [
+            _tool_turn("toolu_1", "echo", {"value": 1}),
+            _text_turn("all done", stop_reason="end_turn"),
+        ]
+    )
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+    events = [
+        e
+        async for e in run_turn(
+            user_message="do one thing",
+            conversation=_conv,
+            provider=provider,
+            ctx=ctx,
+            system="",
+            tools=[],
+            model="fake",
+            max_iterations=5,
+        )
+    ]
+    done = [e for e in events if isinstance(e, DoneEvent)]
+    assert done[0].stop_reason == "end_turn"
+    assert done[0].truncated is False
 
 
 async def test_conversation_hydrates_from_storage(tmp_path: Path) -> None:
