@@ -160,6 +160,14 @@ async def run_turn(
             )
             messages = conversation.as_provider_messages()
 
+        # Defensive: trim/repair can yield an empty list if the stored
+        # history is in a broken state (e.g. corrupted after a conversation
+        # reset). Anthropic 400s on an empty messages array; fall back to
+        # the user's current turn so the request still goes through.
+        if not messages:
+            log.warning("llm.empty_messages_fallback")
+            messages = [ProviderMessage(role="user", content=user_message)]
+
         response = await provider.message(
             system=system,
             messages=messages,

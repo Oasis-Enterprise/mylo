@@ -439,7 +439,27 @@ def _carry_over_machine_sections(original: MemoryFile, merged: MemoryFile) -> No
 # ─── Output parsing ──────────────────────────────────────────────────────────
 
 
-_CODE_FENCE_RE = re.compile(r"^```[a-zA-Z]*\n(.*?)\n```\s*$", re.DOTALL)
+_FENCE_OPEN_RE = re.compile(r"^\s*```[a-zA-Z0-9]*\s*$")
+_FENCE_CLOSE_RE = re.compile(r"^\s*```\s*$")
+
+
+def _strip_code_fence(text: str) -> str:
+    """Strip a surrounding markdown code fence if present.
+
+    Line-wise and tolerant: if the first line is an opening fence
+    (``` ```yaml ``` or ``` ``` ```), drop it, plus a trailing closing
+    ``` ``` ``` if there is one. The old whole-string regex required BOTH
+    fences and failed when the model emitted ``` ```yaml ``` with the
+    close missing or trailing junk — leaving the backtick to break the
+    YAML parser.
+    """
+    lines = text.split("\n")
+    if not lines or not _FENCE_OPEN_RE.match(lines[0]):
+        return text
+    body = lines[1:]
+    if body and _FENCE_CLOSE_RE.match(body[-1]):
+        body = body[:-1]
+    return "\n".join(body)
 
 
 def _parse_reconciler_output(text: str) -> MemoryFile:
@@ -460,9 +480,7 @@ def _parse_reconciler_output(text: str) -> MemoryFile:
     while stripped and (ord(stripped[0]) < 32 or ord(stripped[0]) == 127):
         stripped = stripped[1:]
 
-    fence_match = _CODE_FENCE_RE.match(stripped)
-    if fence_match:
-        stripped = fence_match.group(1)
+    stripped = _strip_code_fence(stripped)
 
     try:
         parsed = load_yaml(stripped)

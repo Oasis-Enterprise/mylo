@@ -166,6 +166,40 @@ async def test_text_only_response_ends_turn(tmp_path: Path, _conv: ConversationM
     assert _conv.history[0]["content"] == "hi"
 
 
+async def test_empty_messages_falls_back_to_user_turn(
+    tmp_path: Path, _conv: ConversationManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A broken/corrupted history can make trim+repair yield an empty list.
+    # Anthropic 400s on an empty messages array ("at least one message is
+    # required"); the loop must fall back to the user's current turn so the
+    # request still goes through instead of crashing.
+    monkeypatch.setattr(ConversationManager, "as_provider_messages", lambda self: [])
+    provider = _FakeProvider([_text_turn("recovered")])
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+
+    events = [
+        e
+        async for e in run_turn(
+            user_message="please help",
+            conversation=_conv,
+            provider=provider,
+            ctx=ctx,
+            system="you are a test",
+            tools=[],
+            model="fake-model",
+        )
+    ]
+
+    done = [e for e in events if isinstance(e, DoneEvent)]
+    assert len(done) == 1
+    # The provider was called with a non-empty messages list carrying the
+    # user's turn — never an empty array.
+    sent = provider.calls[0]["messages"]
+    assert sent, "provider must never receive an empty messages list"
+    assert sent[-1]["role"] == "user"
+    assert sent[-1]["content"] == "please help"
+
+
 async def test_tool_call_then_final_text(tmp_path: Path, _conv: ConversationManager) -> None:
     provider = _FakeProvider(
         [

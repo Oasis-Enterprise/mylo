@@ -1,0 +1,73 @@
+# Copyright 2026 Maxwell Monson / Oasis Enterprise LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for reconciler output parsing — especially code-fence stripping.
+
+Haiku is told not to wrap its YAML in markdown fences but occasionally
+does anyway. A truncated or unclosed ``` ```yaml ``` fence used to slip
+through the old whole-string regex (which required a matching close) and
+break the YAML parser on the leading backtick. These tests pin the
+tolerant, line-wise behavior.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from mylo.memory.reconciler import _parse_reconciler_output, _strip_code_fence
+
+_YAML_BODY = "version: 2\nnotes:\n  - id: n1\n    content: hello world\n"
+
+
+def test_parses_bare_yaml() -> None:
+    mf = _parse_reconciler_output(_YAML_BODY)
+    assert mf.version == 2
+    assert len(mf.notes) == 1
+
+
+def test_parses_fenced_yaml_with_closing_fence() -> None:
+    fenced = f"```yaml\n{_YAML_BODY}```"
+    mf = _parse_reconciler_output(fenced)
+    assert mf.version == 2
+    assert len(mf.notes) == 1
+
+
+def test_parses_fenced_yaml_without_closing_fence() -> None:
+    # The regression: model opened a ```yaml fence but never closed it.
+    # The old regex required both fences and left the backtick in place,
+    # raising ScannerError. The tolerant stripper drops the open fence.
+    fenced = f"```yaml\n{_YAML_BODY}"
+    mf = _parse_reconciler_output(fenced)
+    assert mf.version == 2
+    assert len(mf.notes) == 1
+
+
+def test_parses_bare_fence_no_language() -> None:
+    fenced = f"```\n{_YAML_BODY}```"
+    mf = _parse_reconciler_output(fenced)
+    assert mf.version == 2
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("```yaml\nfoo: 1\n```", "foo: 1"),
+        ("```yaml\nfoo: 1", "foo: 1"),  # no close
+        ("```\nfoo: 1\n```", "foo: 1"),
+        ("foo: 1", "foo: 1"),  # no fence — unchanged
+        ("```json\nfoo: 1\n```", "foo: 1"),  # other language tag
+    ],
+)
+def test_strip_code_fence(text: str, expected: str) -> None:
+    assert _strip_code_fence(text) == expected

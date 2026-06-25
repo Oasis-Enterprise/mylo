@@ -5,6 +5,12 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] — 2026-06-24
+
+### Fixed
+- **Memory sync no longer chokes on fenced output** — the nightly reconciler occasionally wrapped its YAML in a ```` ```yaml ```` code fence without a matching close (or with trailing text), which slipped past the old strip step and broke the parser ("found character '`' that cannot start any token"), so the memory failed to sync. The fence is now stripped line-by-line and tolerates a missing or misplaced closing fence.
+- **Chat no longer crashes on a corrupted conversation start** — if a stored conversation's history trimmed down to nothing (e.g. after a reset), the agent could send an empty message list and get a hard 400 ("at least one message is required"). It now falls back to your current message so the turn still goes through.
+
 ## [1.4.0] — 2026-06-15
 
 ### Changed
