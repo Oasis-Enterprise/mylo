@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Cost & cache telemetry** — each turn now reports an estimated USD cost and cache-hit ratio (in logs and the chat response), so usage is measurable.
 
+## [1.3.1] — 2026-06-14
 
 ### Fixed
 - **Fewer "keep going" prompts on long tasks** — the agent's per-turn step limit was raised from 8 to 25, so multi-step jobs (e.g. redesigning a dashboard with many entity lookups) finish in one turn. If the limit is still reached, the turn now ends with an explicit pause message ("reply continue and I'll pick up where I left off") instead of stopping silently.

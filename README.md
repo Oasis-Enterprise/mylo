@@ -4,7 +4,7 @@ A persistent, memory-aware AI agent that lives inside your Home Assistant as a s
 
 Mylo connects deeply to your HA instance over websocket — it knows your entities, devices, areas, automations, dashboards, integrations, and learned preferences. It can read, create, and modify your HA configuration, control devices, detect anomalies, and proactively surface issues. It remembers across sessions.
 
-> **Status:** v1.1.0. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
+> **Status:** v1.4.0. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
 
 ## Install
 
@@ -99,7 +99,7 @@ Create HA helpers through conversation instead of clicking through Settings → 
 
 **Tools used:** `manage_helpers`
 
-Supports all 7 helper types: input_boolean, input_number, input_select, input_text, input_datetime, timer, and counter. All type-specific options (min/max, step, options, duration, etc.) are available. Immediate via websocket — no file writes or reload needed.
+Supports all 9 helper types: input_boolean, input_number, input_select, input_text, input_datetime, input_button, timer, counter, and schedule (weekly on/off). All type-specific options (min/max, step, options, duration, weekly time blocks, etc.) are available. Immediate via websocket — no file writes or reload needed.
 
 ### Build scripts
 
@@ -112,6 +112,41 @@ Create, update, and delete reusable action sequences — scripts that can be cal
 **Tools used:** `modify_script`
 
 Scripts are stored alongside automations in `packages/agent.yaml`. Same dry-run → approve → write → reload flow as automations with automatic rollback on failure.
+
+### Build scenes
+
+Create, edit, and activate scenes — including snapshotting the current state of a room.
+
+- "Save the living room exactly as it is now as a scene called movie night"
+- "Make a 'bedtime' scene that turns off all lights and locks the doors"
+- "Activate the morning scene"
+
+**Tools used:** `modify_scene`
+
+On create, Mylo can snapshot the live state and attributes of the entities you name. Same dry-run → approve → write → rollback flow as automations.
+
+### Manage zones
+
+Create, edit, and delete zones (home/work/school) that drive presence automations.
+
+- "Add a work zone at my office address with a 150m radius"
+- "Create a school zone for the kids"
+
+**Tools used:** `modify_zones`
+
+The built-in `home` zone is protected from edits. Updates merge — only the fields you change are touched.
+
+### Debug automations and scripts
+
+Ask *why* an automation did or didn't run — Mylo reads HA's run traces.
+
+- "Why didn't my morning routine fire today?"
+- "Show me the last run of the porch light automation"
+- "What stopped the away-mode script?"
+
+**Tools used:** `query_traces`
+
+Returns the trigger, which steps ran, where it stopped, and any error — the fastest way to debug an automation without digging through HA's trace UI.
 
 ### Query entity history
 
@@ -164,14 +199,16 @@ Set up sensor monitoring through conversation — Mylo discovers your sensors an
 
 **Tools used:** `manage_monitored`, `query_entities`
 
-**What happens after setup:**
-- **Hourly:** Availability sweep detects newly-unavailable entities, stale automations (>48h since last trigger), and lights/switches left on while everyone is away.
-- **Hourly:** Proactive suggestions — "Kitchen lights are on and you're away. Want me to turn them off?" Also detects locks unlocked >30 minutes and devices running >4 hours.
-- **Nightly:** Baseline recompute from HA's long-term statistics (7-day mean + standard deviation per monitored sensor).
-- **Nightly:** Behavioral pattern detection — analyzes 14 days of state transitions to learn recurring behaviors ("light.kitchen turns off around 23:00 on weekdays").
-- **Hourly:** Anomaly detection — z-score check against sensor baselines.
+**Learned norms — confidence over frequency.** Instead of fixed rules ("light on > 4 hours"), Mylo learns what's normal for *each* device from a rolling history of its state changes, and only flags genuine deviations. A device earns the right to be alerted on — it stays quiet until Mylo has watched it long enough (~2 weeks) to know its normal behavior, so you don't get a wall of noise on day one.
 
-**Proactive suggestions learn from your responses.** Each suggestion tracks how many times you accepted, rejected, or ignored it. After 5 rejections, Mylo stops suggesting. After 3 acceptances of the same pattern, Mylo offers to create an automation: "I've turned off the kitchen lights for you 3 times when you leave. Want me to automate this?" If you agree, Mylo builds the automation and stops suggesting.
+**What it watches:**
+- **Duration anomalies** — a device left on/unlocked/open far longer than *its own* history. "Kitchen light has been on 8h — the longest you've ever left it is 6h." Locks and doors get tighter margins.
+- **On while away** — a light or switch on while everyone's out, but only when that's unusual for that entity (a porch light you always leave on won't nag).
+- **Sensor anomalies** — a z-score check against a 7-day baseline (mean + standard deviation), recomputed nightly — but a finding fires only on a strong deviation (3.5σ) sustained across two consecutive checks, so one-hour blips don't alert.
+- **Availability sweep** (hourly) — newly-unavailable entities and stale automations (>48h since last trigger).
+- **Behavioral patterns** (nightly) — learns recurring time-of-day behaviors from 14 days of transitions ("light.kitchen turns off around 23:00 on weekdays").
+
+**Findings stay clean.** They're deduplicated, capped at a handful, auto-resolve the moment the condition clears, expire after 48h, and can be dismissed with a 7-day snooze. Presence is decided only from definitive person states, so a tracker glitch at 3am can't trigger an "away" alert while you're in bed. Everything surfaces in the catch-up banner when you next open Mylo, not as a stream of pings.
 
 ### Control notifications
 
@@ -188,11 +225,10 @@ Mylo's proactive notifications respect your preferences. Configure globally or s
 |------|-------------------|
 | `stale_automation` | Automations that haven't fired in >48h |
 | `unavailable` | Entities that went unavailable |
-| `anomaly` | Z-score anomaly alerts |
+| `anomaly` | Sensor z-score anomaly alerts |
+| `duration_anomaly` | A device on/unlocked/open far longer than its learned norm |
+| `while_away` | A device on while away when that's unusual for it |
 | `sync_conflict` | Memory sync conflict alerts |
-| `on_while_away` | Lights/switches on while nobody is home |
-| `unlocked_too_long` | Locks unlocked for >30 minutes |
-| `device_running_long` | Devices on for >4 hours |
 | `*` | All proactive notifications |
 
 Suppressions can be **global** (all of a type) or **entity-scoped** (just `sensor.sprinkler_system`). They're stored in memory and persist across sessions.
@@ -233,13 +269,14 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 |-------------|-------------|---------|
 | **Result summarization** | After the model processes a tool result, the full payload is replaced with a compact summary in conversation history | ~7,800 tokens saved per subsequent turn for a typical entity query |
 | **Minimal detail queries** | Entity queries default to `detail=minimal` (~30 tokens/entity) instead of full attributes (~150 tokens/entity) | 5x reduction on broad queries |
-| **Default limit 50** | Entity queries return max 50 results by default instead of dumping everything | Prevents 200-entity payloads |
-| **Read-only result cache** | Identical read-only tool calls within 120 seconds return cached results | Eliminates redundant HA queries |
+| **One broad gather** | For a big task Mylo makes a single broad query (default limit 200) instead of dozens of narrow ones, and keeps the entity IDs it fetched so it never re-queries the same scope | Turns a hundreds-of-lookups task into a handful |
+| **Conversation history caching** | Within a turn the prior history is reused from Anthropic's prompt cache across each step instead of being re-sent at full price | ~90% off the repeated context — the biggest lever on long tasks |
+| **Repeat-read dedup** | Identical read calls within a turn are served from a per-turn cache (with a nudge to move on); read results are also cached for 120s across turns | Eliminates redundant HA queries and re-query loops |
 | **Topology routing** | The home topology in the system prompt often answers questions without a tool call at all | Saves entire tool call round trips |
-| **Intra-turn compression** | Tool results are compressed after each iteration in multi-tool turns, not after the whole turn | 5–15K tokens saved per complex turn |
-| **Prompt cache optimization** | System prompt stays stable across turns (timestamp moved to user message) so Anthropic's cache hits reliably | ~5,500 tokens at 90% discount per turn |
-| **Rate limit retry** | Anthropic 429 errors retry with exponential backoff instead of crashing | Prevents panic-retry amplification |
-| **History size guard** | Conversation history over ~12K tokens triggers aggressive compression before the API call | Prevents rate limit saturation |
+| **Prompt cache optimization** | System prompt + tool definitions stay stable across turns (timestamp lives on the user message) so Anthropic's cache hits reliably | ~5,500+ tokens at ~90% discount per turn |
+| **Cost & cache telemetry** | Every turn reports an estimated USD cost and cache-hit ratio (logs + chat response) | Makes spend measurable, not a mystery |
+| **Rate limit retry** | Anthropic 429 / 5xx (incl. 529 overloaded) retry with exponential backoff instead of crashing | Prevents panic-retry amplification |
+| **History safety ceiling** | A turn only compacts if it grows toward the context-window limit (~150K tokens); otherwise history stays append-only and cache-friendly | Backstop without breaking the cache |
 | **Budget warnings** | When session cost hits 80% of the configured cap, Mylo mentions it naturally (disabled for Ollama) | Prevents surprise bills |
 
 **Session budget:** Configurable per-session cap (default $0.50). The UI footer shows running cost and token budget.
