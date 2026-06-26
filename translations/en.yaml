@@ -1,12 +1,15 @@
 configuration:
   api_key:
-    name: Anthropic API Key
+    name: LLM API Key
     description: >-
-      Your Anthropic API key. BYOK — Mylo uses your key directly, nothing is
-      proxied through Oasis Enterprise servers.
+      API key for your chosen provider (Anthropic, OpenAI, or Gemini). BYOK —
+      Mylo uses your key directly, nothing is proxied through Oasis Enterprise
+      servers. Leave blank when using Ollama (local).
   llm_provider:
     name: LLM Provider
-    description: Which model provider to use. Only `anthropic` is supported in v1.
+    description: >-
+      Which model provider to use: `anthropic`, `openai`, `gemini`, or `ollama`
+      (run a local model for free). Set the matching key/URL fields below.
   model:
     name: Conversation Model
     description: Model used for conversations. Default is Claude Sonnet 4.6.

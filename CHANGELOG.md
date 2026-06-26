@@ -5,6 +5,12 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] — 2026-06-25
+
+### Fixed
+- **Config page no longer claims Anthropic-only.** The LLM Provider help text still said *"Only `anthropic` is supported in v1"* even though OpenAI, Gemini, and Ollama have all been wired up — it now lists every supported provider.
+- **API key is no longer required for local models.** The key field was marked required, forcing Ollama users to enter an Anthropic key they don't need. It's now optional (leave it blank for Ollama), and the field is relabeled "LLM API Key" since it serves whichever provider you pick.
+
 ## [1.4.1] — 2026-06-24
 
 ### Fixed

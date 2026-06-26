@@ -41,7 +41,7 @@ options:
   log_level: INFO
 
 schema:
-  api_key: password
+  api_key: "password?"
   llm_provider: list(anthropic|openai|gemini|ollama)
   model: str
   reconciliation_model: str
