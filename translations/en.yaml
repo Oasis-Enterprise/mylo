@@ -18,6 +18,18 @@ configuration:
     description: >-
       Model used for nightly memory reconciliation. Default is Claude Haiku —
       faster and cheaper since this is structured YAML merging.
+  session_budget_usd:
+    name: Session Budget (USD)
+    description: >-
+      Soft per-conversation budget. Mylo warns — it does not block — when a
+      session's estimated cost passes 80%. Estimates only; ignored for local
+      Ollama models.
+  monthly_budget_usd:
+    name: Monthly Budget (USD)
+    description: >-
+      Soft monthly budget. Mylo warns — it does not block — when this month's
+      estimated spend passes 80%. Resets each calendar month. Estimates only;
+      ignored for local Ollama models.
   sync_frequency:
     name: Memory Sync Frequency
     description: How often Mylo reconciles conversation notes into its memory file.
