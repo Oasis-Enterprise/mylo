@@ -73,6 +73,8 @@ def assemble_system_prompt(
     base_prompt: LoadedPrompt | None = None,
     session_cost_usd: float = 0.0,
     session_budget_usd: float = 0.50,
+    monthly_spent_usd: float = 0.0,
+    monthly_budget_usd: float = 0.0,
     is_local_provider: bool = False,
 ) -> AssembledPrompt:
     """Build the full system prompt for one turn.
@@ -158,6 +160,19 @@ def assemble_system_prompt(
                 "Mention this naturally if the user asks another complex "
                 "question. Prefer narrow queries and the topology summary "
                 "over broad entity scans to conserve tokens."
+            )
+
+    # Monthly budget warning — same soft nudge, on the persistent
+    # month-to-date spend rather than the session. Skipped for local
+    # providers (cost is $0). This is a warning, not a hard stop.
+    if not is_local_provider and monthly_budget_usd > 0 and monthly_spent_usd > 0:
+        ratio = monthly_spent_usd / monthly_budget_usd
+        if ratio >= 0.80:
+            parts.append(
+                f"MONTHLY COST NOTE: This month has used ${monthly_spent_usd:.2f} "
+                f"of the ${monthly_budget_usd:.2f} monthly budget ({ratio:.0%}). "
+                "Mention this naturally if the user asks another complex "
+                "question, and prefer cheaper, narrower queries."
             )
 
     system = "\n\n---\n\n".join(parts)

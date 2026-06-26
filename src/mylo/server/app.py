@@ -39,6 +39,7 @@ from mylo.conversation.storage import ConversationStorage
 from mylo.ha.registries import Registries
 from mylo.ha.ws_client import HaWsClient
 from mylo.llm.anthropic_provider import AnthropicProvider
+from mylo.llm.usage_ledger import UsageLedger
 from mylo.logging_setup import get_logger
 from mylo.memory.store import MemoryStore
 from mylo.monitor.scheduler import start_scheduler, stop_scheduler
@@ -66,6 +67,7 @@ class AppKeys:
     HA_TIMEZONE = web.AppKey("ha_timezone", str)
     SCHEDULER = web.AppKey("scheduler", object)
     TRANSITIONS = web.AppKey("transitions", object)
+    USAGE_LEDGER = web.AppKey("usage_ledger", UsageLedger)
 
 
 _DEFAULT_MODELS: dict[str, str] = {
@@ -205,6 +207,9 @@ async def _startup(app: web.Application) -> None:
     memory_store = MemoryStore(mylo_data_dir=config.mylo_data_dir)
     await memory_store.load()
     app[AppKeys.MEMORY] = memory_store
+
+    # Persistent monthly spend ledger (drives the monthly-budget warning).
+    app[AppKeys.USAGE_LEDGER] = UsageLedger(mylo_data_dir=config.mylo_data_dir)
 
     # State transition logger — subscribes to state_changed events
     # and records on/off transitions for behavioral pattern detection.

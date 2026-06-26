@@ -353,6 +353,11 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     )
     tools = request.app[AppKeys.TOOLS_JSON]
     config = request.app[AppKeys.CONFIG]
+    is_local = config.llm_provider == "ollama"
+    # Persistent month-to-date spend drives the monthly-budget warning.
+    # (Session cost is client-side; the monthly total lives server-side.)
+    ledger = request.app[AppKeys.USAGE_LEDGER]
+    monthly_spent = ledger.month_spent()
 
     # Full four-layer system prompt. The assembler reads live registries
     # + memory + the latest user turn and picks which memory sections /
@@ -367,7 +372,9 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         timezone=request.app.get(AppKeys.HA_TIMEZONE),
         session_cost_usd=session_cost,
         session_budget_usd=config.session_budget_usd,
-        is_local_provider=config.llm_provider == "ollama",
+        monthly_spent_usd=monthly_spent,
+        monthly_budget_usd=config.monthly_budget_usd,
+        is_local_provider=is_local,
     )
     system_text = assembled.system
 
@@ -424,21 +431,20 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
                     },
                 )
             elif isinstance(event, DoneEvent):
+                turn_cost = estimate_usd(event.usage, config.model, is_local=is_local)
+                # Accumulate into the persistent monthly total (returns the
+                # new month-to-date so the UI can show it immediately).
+                month_to_date = ledger.record(turn_cost)
                 await emit(
                     "done",
                     {
                         "stop_reason": event.stop_reason,
                         "usage": event.usage,
                         "truncated": event.truncated,
-                        "estimated_usd": round(
-                            estimate_usd(
-                                event.usage,
-                                config.model,
-                                is_local=config.llm_provider == "ollama",
-                            ),
-                            4,
-                        ),
+                        "estimated_usd": round(turn_cost, 4),
                         "cache_hit_ratio": round(cache_hit_ratio(event.usage), 3),
+                        "monthly_spent_usd": round(month_to_date, 4),
+                        "monthly_budget_usd": config.monthly_budget_usd,
                     },
                 )
     except Exception as exc:

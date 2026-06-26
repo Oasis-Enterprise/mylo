@@ -325,3 +325,39 @@ def test_assembler_skips_references_when_no_task(tmp_path: Path) -> None:
     )
     assert "REFERENCE EXAMPLES" not in result.system
     assert result.task_type is None
+
+
+def _assemble_with_monthly(tmp_path: Path, *, spent: float, budget: float, local: bool = False):
+    return assemble_system_prompt(
+        registries=None,
+        memory=empty_memory(),
+        conversation_text="hello",
+        mylo_data_dir=tmp_path,
+        base_prompt=LoadedPrompt(text="identity", version="v"),
+        monthly_spent_usd=spent,
+        monthly_budget_usd=budget,
+        is_local_provider=local,
+    )
+
+
+def test_monthly_warning_fires_at_80_percent(tmp_path: Path) -> None:
+    result = _assemble_with_monthly(tmp_path, spent=12.0, budget=15.0)
+    assert "MONTHLY COST NOTE" in result.system
+    assert "$12.00" in result.system
+    assert "80%" in result.system
+
+
+def test_monthly_warning_silent_below_threshold(tmp_path: Path) -> None:
+    result = _assemble_with_monthly(tmp_path, spent=5.0, budget=15.0)
+    assert "MONTHLY COST NOTE" not in result.system
+
+
+def test_monthly_warning_skipped_for_local_provider(tmp_path: Path) -> None:
+    # Local models are free; a monthly $ warning is meaningless.
+    result = _assemble_with_monthly(tmp_path, spent=99.0, budget=15.0, local=True)
+    assert "MONTHLY COST NOTE" not in result.system
+
+
+def test_monthly_warning_off_when_budget_zero(tmp_path: Path) -> None:
+    result = _assemble_with_monthly(tmp_path, spent=99.0, budget=0.0)
+    assert "MONTHLY COST NOTE" not in result.system
