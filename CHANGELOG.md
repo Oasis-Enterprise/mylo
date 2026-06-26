@@ -5,6 +5,14 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] — 2026-06-25
+
+### Added
+- **Monthly budget now actually does something.** `monthly_budget_usd` was a setting that did nothing. Mylo now tracks estimated spend across the calendar month (persisted, survives restarts) and gives a gentle heads-up once you pass 80% of the budget — a soft warning, **not a hard block**, so your assistant never goes dark mid-task. Resets each month. Both budget fields now have help text spelling out that they warn rather than block.
+
+### Fixed
+- **Accurate cost estimates for every provider.** Cost estimates assumed Anthropic pricing for everyone, so Gemini and OpenAI figures were wrong (roughly 10× too high for Gemini Flash) and local Ollama models showed a cost when they're free. Added current Gemini (2.5 Pro/Flash/Flash-Lite, 3 Pro) and OpenAI (GPT-5.x) pricing, and local models now correctly show **$0**.
+
 ## [1.4.2] — 2026-06-25
 
 ### Fixed
