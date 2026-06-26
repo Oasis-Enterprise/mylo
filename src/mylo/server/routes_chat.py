@@ -430,7 +430,14 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
                         "stop_reason": event.stop_reason,
                         "usage": event.usage,
                         "truncated": event.truncated,
-                        "estimated_usd": round(estimate_usd(event.usage, config.model), 4),
+                        "estimated_usd": round(
+                            estimate_usd(
+                                event.usage,
+                                config.model,
+                                is_local=config.llm_provider == "ollama",
+                            ),
+                            4,
+                        ),
                         "cache_hit_ratio": round(cache_hit_ratio(event.usage), 3),
                     },
                 )

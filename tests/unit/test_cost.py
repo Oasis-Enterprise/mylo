@@ -37,6 +37,36 @@ def test_estimate_usd_unknown_model_falls_back_to_sonnet() -> None:
     assert estimate_usd(usage, "some-future-model") == pytest.approx(3.0)
 
 
+@pytest.mark.parametrize(
+    ("model", "in_rate", "out_rate"),
+    [
+        ("claude-haiku-4-5", 1.0, 5.0),
+        ("claude-haiku-4-5-20251001", 1.0, 5.0),  # dated snapshot → base rates
+        ("claude-opus-4-8", 5.0, 25.0),
+        ("gemini-2.5-flash", 0.30, 2.50),
+        ("gemini-2.5-flash-lite", 0.10, 0.40),
+        ("gemini-2.5-pro", 1.25, 10.0),
+        ("gemini-3-pro-preview", 2.0, 12.0),
+        ("gpt-5.5", 5.0, 30.0),
+        ("gpt-5.4", 2.50, 15.0),
+        ("gpt-5.4-mini", 0.75, 4.50),
+        ("gpt-5.4-nano", 0.20, 1.25),
+    ],
+)
+def test_estimate_usd_per_model_input_output(model: str, in_rate: float, out_rate: float) -> None:
+    assert estimate_usd({"input_tokens": 1_000_000}, model) == pytest.approx(in_rate)
+    assert estimate_usd({"output_tokens": 1_000_000}, model) == pytest.approx(out_rate)
+
+
+def test_local_model_is_free() -> None:
+    # Ollama / self-hosted: tokens cost nothing, even though the model id
+    # isn't in the price table (would otherwise hit the Sonnet fallback).
+    usage = {"input_tokens": 5_000_000, "output_tokens": 5_000_000}
+    assert estimate_usd(usage, "llama3.1", is_local=True) == 0.0
+    # Same usage priced as a remote model is decidedly not free.
+    assert estimate_usd(usage, "claude-sonnet-4-6") > 0.0
+
+
 def test_estimate_usd_missing_fields_default_zero() -> None:
     assert estimate_usd({}, "claude-sonnet-4-6") == 0.0
 
