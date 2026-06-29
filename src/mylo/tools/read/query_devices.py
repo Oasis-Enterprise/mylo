@@ -27,7 +27,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.ha.registries import DeviceEntry, EntityEntry
-from mylo.tools.base import Tier, ToolDefinition, ToolResult
+from mylo.tools.base import Tier, ToolDefinition, ToolResult, bound_rows
 from mylo.tools.context import ToolContext
 from mylo.tools.formatters import shape_device
 from mylo.tools.registry import register
@@ -144,21 +144,27 @@ async def handler(params: QueryDevicesParams, ctx: ToolContext) -> ToolResult:
         if _matches(ctx, device, filt, target_area_id, pattern):
             matched.append(device)
 
-    truncated = len(matched) > params.limit
-    shown = matched[: params.limit]
+    # Uniform row bounding: keep the head, report the true total + a hint.
+    bounded = bound_rows(
+        matched,
+        max_rows=params.limit,
+        hint="Narrow with area, integration, or name filters to see the rest.",
+    )
+    shown = bounded["rows"]
 
     shaped = [
         shape_device(d, ctx.registries, include_entities=params.include_entities) for d in shown
     ]
 
     envelope: dict[str, Any] = {
-        "devices_found": len(matched),
+        "devices_found": bounded["total"],
         "devices": shaped,
     }
     if area_name is not None:
         envelope["area"] = area_name
-    if truncated:
+    if bounded.get("truncated"):
         envelope["truncated"] = True
+        envelope["hint"] = bounded["hint"]
     # Manufacturer summary — cheap insight for queries without a pattern.
     by_manufacturer: dict[str, int] = {}
     for d in shown:

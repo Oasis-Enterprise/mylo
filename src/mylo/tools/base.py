@@ -196,3 +196,22 @@ def _strip_titles(schema: Any) -> Any:
     if isinstance(schema, list):
         return [_strip_titles(x) for x in schema]
     return schema
+
+
+def bound_rows[RowT](
+    rows: list[RowT], *, max_rows: int, hint: str = "Narrow with filters to see the rest."
+) -> dict[str, Any]:
+    """Bound a result row list uniformly across read tools.
+
+    Keeps at most ``max_rows`` rows but always reports the TRUE total and a
+    truncation flag + hint, so the model can tell results were cut and knows
+    to narrow — instead of silently receiving a truncated list. This is the
+    head-N pattern the read tools already use, centralized so every tool
+    bounds the same way.
+    """
+    shown = rows[:max_rows]
+    env: dict[str, Any] = {"rows": shown, "total": len(rows)}
+    if len(rows) > max_rows:
+        env["truncated"] = True
+        env["hint"] = hint
+    return env
