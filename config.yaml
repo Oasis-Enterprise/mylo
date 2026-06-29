@@ -38,6 +38,9 @@ options:
   notification_method: auto
   session_budget_usd: 0.50
   monthly_budget_usd: 15.00
+  context_budget_factor: 0.6
+  context_output_reserve_tokens: 8000
+  working_set_max_entities: 40
   log_level: INFO
 
 schema:
@@ -55,4 +58,7 @@ schema:
   notification_method: list(auto|mobile|persistent|off)
   session_budget_usd: "float(0,100)?"
   monthly_budget_usd: "float(0,1000)?"
+  context_budget_factor: "float(0.1,0.95)?"
+  context_output_reserve_tokens: "int(1000,64000)?"
+  working_set_max_entities: "int(0,200)?"
   log_level: list(DEBUG|INFO|WARNING|ERROR)

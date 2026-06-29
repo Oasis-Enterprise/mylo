@@ -30,6 +30,19 @@ configuration:
       Soft monthly budget. Mylo warns — it does not block — when this month's
       estimated spend passes 80%. Resets each calendar month. Estimates only;
       ignored for local Ollama models.
+  context_budget_factor:
+    name: Context Budget Factor
+    description: >-
+      Fraction of the model's context window Mylo may spend on the prompt.
+      Lower = cheaper/faster, higher = more context per turn. Default 0.6.
+  context_output_reserve_tokens:
+    name: Output Reserve (tokens)
+    description: Tokens held back from the budget for the model's reply.
+  working_set_max_entities:
+    name: Working Set Size
+    description: >-
+      Max entities pre-loaded into the prompt per turn. Anything else is
+      still reachable by query. 0 disables pre-loading.
   sync_frequency:
     name: Memory Sync Frequency
     description: How often Mylo reconciles conversation notes into its memory file.

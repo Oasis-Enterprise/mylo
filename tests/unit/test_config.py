@@ -41,6 +41,9 @@ def test_load_config_defaults_when_no_options_file(monkeypatch, tmp_path: Path) 
     assert cfg.ha_config_dir == tmp_path
     assert cfg.mylo_data_dir == tmp_path / ".mylo"
     assert cfg.api_key == ""
+    assert cfg.context_budget_factor == 0.6
+    assert cfg.context_output_reserve_tokens == 8000
+    assert cfg.working_set_max_entities == 40
 
 
 def test_load_config_reads_options_file(monkeypatch, tmp_path: Path) -> None:
