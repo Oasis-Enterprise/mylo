@@ -375,6 +375,10 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         monthly_spent_usd=monthly_spent,
         monthly_budget_usd=config.monthly_budget_usd,
         is_local_provider=is_local,
+        model=config.model,
+        budget_factor=config.context_budget_factor,
+        output_reserve=config.context_output_reserve_tokens,
+        working_set_max_entities=config.working_set_max_entities,
     )
     system_text = assembled.system
 

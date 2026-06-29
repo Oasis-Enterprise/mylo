@@ -28,6 +28,7 @@ from mylo.context.memory_injection import build_memory_section
 from mylo.context.references import available_references, load_task_context
 from mylo.context.selector import ALWAYS_ON, select_sections
 from mylo.context.task_detector import detect_task_type
+from mylo.context.tokens import estimate_tokens
 from mylo.context.topology import build_topology, format_topology
 from mylo.ha.registries import AreaEntry, DeviceEntry, EntityEntry, Registries
 from mylo.memory.schema import HouseholdMember, Note, empty_memory
@@ -311,6 +312,23 @@ def test_assembler_skips_topology_without_registries(tmp_path: Path) -> None:
         base_prompt=base,
     )
     assert "HOME TOPOLOGY:" not in result.system
+
+
+def test_assembled_prompt_respects_budget(tmp_path: Path) -> None:
+    reg = _fake_registries()
+    result = assemble_system_prompt(
+        registries=reg,
+        memory=empty_memory(),
+        conversation_text="lights",
+        mylo_data_dir=tmp_path,
+        base_prompt=LoadedPrompt(text="identity", version="v"),
+        model="claude-haiku-4-5",
+        budget_factor=0.0009,  # 200_000 * 0.0009 = 180 tokens
+        output_reserve=0,
+    )
+    assert estimate_tokens(result.system) <= 180
+    # Identity is highest priority — it survives even a tiny budget.
+    assert "identity" in result.system
 
 
 def test_assembler_skips_references_when_no_task(tmp_path: Path) -> None:

@@ -35,11 +35,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mylo.context.basic_prompt import LoadedPrompt, load_system_prompt
+from mylo.context.budget import ContextBudget, Surface, TextSurface
 from mylo.context.memory_injection import build_memory_section
 from mylo.context.references import load_task_context
 from mylo.context.selector import select_sections
+from mylo.context.surfaces import TopologySurface
 from mylo.context.task_detector import detect_task_type
-from mylo.context.topology import build_topology, format_topology
+from mylo.context.working_set import WorkingSetSurface
 from mylo.ha.registries import Registries
 from mylo.logging_setup import get_logger
 from mylo.memory.schema import MemoryFile, Suggestion
@@ -76,6 +78,10 @@ def assemble_system_prompt(
     monthly_spent_usd: float = 0.0,
     monthly_budget_usd: float = 0.0,
     is_local_provider: bool = False,
+    model: str = "claude-sonnet-4-6",
+    budget_factor: float = 0.6,
+    output_reserve: int = 8000,
+    working_set_max_entities: int = 40,
 ) -> AssembledPrompt:
     """Build the full system prompt for one turn.
 
@@ -92,44 +98,111 @@ def assemble_system_prompt(
     """
     layer1 = base_prompt if base_prompt is not None else load_system_prompt()
 
-    parts: list[str] = [layer1.text]
+    # Build priority-ordered surfaces, then let the budget render them so
+    # the assembled prompt is provably bounded regardless of home size.
+    # Highest priority first; conflicts are split out of the memory block
+    # into their own high-priority surface so a safety-critical conflict is
+    # never the thing budget pressure drops.
+    surfaces: list[Surface] = [TextSurface("identity", layer1.text)]
 
-    # Layer 2 — Home topology.
-    if registries is not None and registries.entities:
-        topology = build_topology(registries, memory=memory)
-        parts.append(format_topology(topology))
-
-    # Layer 3 — Memory (selective).
     sections = select_sections(conversation_text, memory=memory)
-    memory_text = build_memory_section(
-        memory,
-        mylo_data_dir=mylo_data_dir,
-        timezone=timezone,
-        sections=sections,
-    )
-    if memory_text:
-        parts.append(memory_text)
+
+    if "conflicts" in sections:
+        conflicts_text = build_memory_section(
+            memory, mylo_data_dir=mylo_data_dir, timezone=timezone, sections={"conflicts"}
+        )
+        if conflicts_text:
+            surfaces.append(TextSurface("critical_memory", conflicts_text))
 
     # Layer 4 — Task references, only when we have a confident match.
     task_type = detect_task_type(conversation_text)
     if task_type is not None:
         references_text = load_task_context(task_type, mylo_data_dir=mylo_data_dir)
         if references_text:
-            parts.append(
-                f"REFERENCE EXAMPLES (task: {task_type}) — use these as "
-                f"few-shot patterns, not gospel:\n\n{references_text}"
+            surfaces.append(
+                TextSurface(
+                    "task_refs",
+                    f"REFERENCE EXAMPLES (task: {task_type}) — use these as "
+                    f"few-shot patterns, not gospel:\n\n{references_text}",
+                )
             )
 
-    # Cold-start hints — lightweight nudges that help the model guide
-    # new users toward useful setup steps. Only surface when the
-    # relevant section is genuinely empty.
+    # Layer 2 — Home topology + relevance-ranked working set (elastic).
+    if registries is not None and registries.entities:
+        surfaces.append(TopologySurface(registries, memory=memory))
+        surfaces.append(
+            WorkingSetSurface(
+                registries,
+                conversation_text=conversation_text,
+                monitored=set(memory.monitored_entities),
+                states=None,
+                max_entities=working_set_max_entities,
+            )
+        )
+
+    # Layer 3 — remaining memory sections (conflicts rendered above).
+    rest_sections = sections - {"conflicts"}
+    memory_text = build_memory_section(
+        memory, mylo_data_dir=mylo_data_dir, timezone=timezone, sections=rest_sections
+    )
+    if memory_text:
+        surfaces.append(TextSurface("memory", memory_text))
+
+    # Low-priority atomic blocks — first to drop under budget pressure.
+    for name, text in _low_priority_blocks(
+        memory,
+        is_local_provider=is_local_provider,
+        session_cost_usd=session_cost_usd,
+        session_budget_usd=session_budget_usd,
+        monthly_spent_usd=monthly_spent_usd,
+        monthly_budget_usd=monthly_budget_usd,
+    ):
+        surfaces.append(TextSurface(name, text))
+
+    budget = ContextBudget.for_model(model, factor=budget_factor, output_reserve=output_reserve)
+    assembled = budget.render(surfaces)
+    system = assembled.text
+
+    log.info(
+        "context.budget",
+        prompt_version=layer1.version,
+        task_type=task_type,
+        total=budget.total_tokens,
+        used=assembled.tokens_used,
+        trimmed=assembled.trimmed,
+        allocations=assembled.allocations,
+    )
+
+    return AssembledPrompt(
+        system=system,
+        prompt_version=layer1.version,
+        task_type=task_type,
+        sections=frozenset(sections),
+    )
+
+
+def _low_priority_blocks(
+    memory: MemoryFile,
+    *,
+    is_local_provider: bool,
+    session_cost_usd: float,
+    session_budget_usd: float,
+    monthly_spent_usd: float,
+    monthly_budget_usd: float,
+) -> list[tuple[str, str]]:
+    """Build the low-priority prompt blocks as (name, text) pairs.
+
+    These are nudges and notes that should be the first to drop when the
+    context budget is tight, so they live below the load-bearing layers.
+    """
+    blocks: list[tuple[str, str]] = []
+
     hints = _cold_start_hints(memory)
     if hints:
-        parts.append("SETUP HINTS (mention naturally if relevant, don't force):\n" + hints)
+        blocks.append(
+            ("hints", "SETUP HINTS (mention naturally if relevant, don't force):\n" + hints)
+        )
 
-    # Pending actions — proactive findings from the hourly sweep that
-    # haven't been shown to the user yet. Mention them naturally at
-    # the start of conversation ("I noticed while you were away...").
     pending = [pa for pa in memory.pending_actions if not pa.resolved]
     if pending:
         action_lines = [
@@ -140,57 +213,40 @@ def assemble_system_prompt(
         ]
         for pa in pending:
             action_lines.append(f"- {pa.message}")
-        parts.append("\n".join(action_lines))
+        blocks.append(("pending", "\n".join(action_lines)))
 
-    # Automation proposals — suggestions that have been accepted
-    # enough times that we should offer to create an automation.
     proposals = _automation_proposals(memory)
     if proposals:
-        parts.append(proposals)
+        blocks.append(("proposals", proposals))
 
-    # Budget warning — when session cost approaches the configured cap,
-    # tell the model so it can mention it naturally. Skipped for local
-    # providers (Ollama) where cost is $0.
     if not is_local_provider and session_budget_usd > 0 and session_cost_usd > 0:
         ratio = session_cost_usd / session_budget_usd
         if ratio >= 0.80:
-            parts.append(
-                f"COST NOTE: This session has used ${session_cost_usd:.2f} of "
-                f"the ${session_budget_usd:.2f} budget ({ratio:.0%}). "
-                "Mention this naturally if the user asks another complex "
-                "question. Prefer narrow queries and the topology summary "
-                "over broad entity scans to conserve tokens."
+            blocks.append(
+                (
+                    "cost_note",
+                    f"COST NOTE: This session has used ${session_cost_usd:.2f} of "
+                    f"the ${session_budget_usd:.2f} budget ({ratio:.0%}). "
+                    "Mention this naturally if the user asks another complex "
+                    "question. Prefer narrow queries and the topology summary "
+                    "over broad entity scans to conserve tokens.",
+                )
             )
 
-    # Monthly budget warning — same soft nudge, on the persistent
-    # month-to-date spend rather than the session. Skipped for local
-    # providers (cost is $0). This is a warning, not a hard stop.
     if not is_local_provider and monthly_budget_usd > 0 and monthly_spent_usd > 0:
         ratio = monthly_spent_usd / monthly_budget_usd
         if ratio >= 0.80:
-            parts.append(
-                f"MONTHLY COST NOTE: This month has used ${monthly_spent_usd:.2f} "
-                f"of the ${monthly_budget_usd:.2f} monthly budget ({ratio:.0%}). "
-                "Mention this naturally if the user asks another complex "
-                "question, and prefer cheaper, narrower queries."
+            blocks.append(
+                (
+                    "monthly_cost_note",
+                    f"MONTHLY COST NOTE: This month has used ${monthly_spent_usd:.2f} "
+                    f"of the ${monthly_budget_usd:.2f} monthly budget ({ratio:.0%}). "
+                    "Mention this naturally if the user asks another complex "
+                    "question, and prefer cheaper, narrower queries.",
+                )
             )
 
-    system = "\n\n---\n\n".join(parts)
-
-    log.debug(
-        "context.assembled",
-        prompt_version=layer1.version,
-        task_type=task_type,
-        sections=sorted(sections),
-        system_chars=len(system),
-    )
-
-    return AssembledPrompt(
-        system=system,
-        prompt_version=layer1.version,
-        task_type=task_type,
-        sections=frozenset(sections),
-    )
+    return blocks
 
 
 def _cold_start_hints(memory: MemoryFile) -> str:
