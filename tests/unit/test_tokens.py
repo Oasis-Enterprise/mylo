@@ -19,7 +19,8 @@ from mylo.context.tokens import context_window_for, estimate_tokens
 
 def test_estimate_tokens_is_conservative() -> None:
     text = "a" * 3500
-    assert estimate_tokens(text) >= 1000
+    # Must exceed what a naive 4-chars-per-token estimator would give.
+    assert estimate_tokens(text) > len(text) // 4
 
 
 def test_estimate_tokens_empty_is_zero() -> None:

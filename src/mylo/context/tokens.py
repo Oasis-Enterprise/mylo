@@ -57,7 +57,7 @@ def context_window_for(model: str) -> int:
     """Usable context window for ``model`` (dated snapshots match base)."""
     if model in _CONTEXT_WINDOWS:
         return _CONTEXT_WINDOWS[model]
-    for key, window in _CONTEXT_WINDOWS.items():
+    for key in sorted(_CONTEXT_WINDOWS, key=len, reverse=True):
         if model.startswith(key):
-            return window
+            return _CONTEXT_WINDOWS[key]
     return _DEFAULT_WINDOW
