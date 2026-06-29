@@ -159,6 +159,9 @@ def format_topology(topology: dict[str, Any]) -> str:
             if "note" in entry:
                 lines.append(f"    note: {entry['note']}")
 
+        if topology.get("areas_truncated"):
+            lines.append("  # (low-population areas omitted to fit context budget)")
+
     integrations = topology.get("integrations")
     if integrations:
         lines.append(f"integrations: {integrations}")
