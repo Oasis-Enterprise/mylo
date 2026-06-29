@@ -1,0 +1,36 @@
+# Copyright 2026 Maxwell Monson / Oasis Enterprise LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+from mylo.context.tokens import context_window_for, estimate_tokens
+
+
+def test_estimate_tokens_is_conservative() -> None:
+    text = "a" * 3500
+    assert estimate_tokens(text) >= 1000
+
+
+def test_estimate_tokens_empty_is_zero() -> None:
+    assert estimate_tokens("") == 0
+
+
+def test_context_window_known_models() -> None:
+    assert context_window_for("claude-sonnet-4-6") == 1_000_000
+    assert context_window_for("claude-haiku-4-5") == 200_000
+    assert context_window_for("claude-haiku-4-5-20251001") == 200_000
+
+
+def test_context_window_unknown_model_is_conservative() -> None:
+    assert context_window_for("some-future-model") == 200_000
