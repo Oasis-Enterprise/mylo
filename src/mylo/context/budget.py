@@ -47,6 +47,12 @@ class Surface(Protocol):
 
 @dataclass(slots=True, frozen=True)
 class AssembledContext:
+    """Result of rendering surfaces under a budget.
+
+    ``trimmed`` is True if any surface emitted nothing — whether from
+    budget pressure or because it had no content to contribute.
+    """
+
     text: str
     tokens_used: int
     allocations: list[tuple[str, int]]
@@ -90,12 +96,17 @@ class ContextBudget:
         trimmed = False
         for surface in surfaces:
             rendered = surface.render(remaining)
-            if rendered.tokens > remaining:
+            # Re-estimate from the actual text — never trust a surface's
+            # self-reported count, so a buggy/under-reporting surface can't
+            # blow the budget. This is what makes the invariant hold.
+            actual = estimate_tokens(rendered.text) if rendered.text else 0
+            if actual > remaining:
                 rendered = Rendered(text="", tokens=0)
-            allocations.append((surface.name, rendered.tokens))
+                actual = 0
+            allocations.append((surface.name, actual))
             if rendered.text:
                 parts.append(rendered.text)
-                remaining -= rendered.tokens
+                remaining -= actual
             else:
                 trimmed = True
         return AssembledContext(
