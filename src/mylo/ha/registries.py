@@ -32,10 +32,24 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from mylo.ha.ws_client import HaWsClient, Subscription
+from mylo.ha.ws_client import CommandTimeout, HaWsClient, Subscription
 from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
+
+# When we have no entity count yet (bootstrap), assume a mid-size home so
+# the first fetch gets a generous-but-bounded timeout.
+_BOOTSTRAP_FETCH_SIZE = 2000
+
+
+def _adaptive_timeout(entity_count: int) -> float:
+    """Scale the registry-fetch timeout with instance size.
+
+    The full ``*_registry/list`` calls are O(entities), so a fixed 60s
+    floor times out on large registries. Scale up proportionally, capped
+    so a hung HA can't block forever.
+    """
+    return min(300.0, max(60.0, entity_count / 50.0))
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,20 +213,34 @@ class Registries:
 
     # ─── Fetch ──────────────────────────────────────────────────────────────
 
+    async def _fetch_all(self, timeout: float) -> tuple[Any, Any, Any, Any]:  # noqa: ASYNC109
+        assert self._client is not None
+        return await asyncio.gather(
+            self._client.send_command("config/entity_registry/list", timeout=timeout),
+            self._client.send_command("config/device_registry/list", timeout=timeout),
+            self._client.send_command("config/area_registry/list", timeout=timeout),
+            self._client.send_command("config/label_registry/list", timeout=timeout),
+        )
+
     async def refresh(self, *, force: bool = False) -> None:
         async with self._refresh_lock:
             now = time.monotonic()
             if not force and (now - self._last_full_refresh) < self._REFRESH_DEBOUNCE:
                 log.debug("ha.registries.refresh_skipped_debounced")
                 return
-            assert self._client is not None
-            entities_raw, devices_raw, areas_raw, labels_raw = await asyncio.gather(
-                self._client.send_command("config/entity_registry/list"),
-                self._client.send_command("config/device_registry/list"),
-                self._client.send_command("config/area_registry/list"),
-                self._client.send_command("config/label_registry/list"),
-                return_exceptions=False,
-            )
+            timeout = _adaptive_timeout(len(self.entities) or _BOOTSTRAP_FETCH_SIZE)
+            try:
+                entities_raw, devices_raw, areas_raw, labels_raw = await self._fetch_all(timeout)
+            except (CommandTimeout, TimeoutError):
+                log.warning("ha.registries.refresh_timeout_retrying", timeout=timeout)
+                try:
+                    entities_raw, devices_raw, areas_raw, labels_raw = await self._fetch_all(
+                        timeout * 2
+                    )
+                except (CommandTimeout, TimeoutError):
+                    # Degrade: keep the warm registry rather than clearing it.
+                    log.error("ha.registries.refresh_failed_keeping_warm")
+                    return
             self._replace_entities(entities_raw)
             self._replace_devices(devices_raw)
             self._replace_areas(areas_raw)
@@ -228,18 +256,27 @@ class Registries:
 
     async def refresh_for(self, event_type: str) -> None:
         assert self._client is not None
-        if event_type == "entity_registry_updated":
-            raw = await self._client.send_command("config/entity_registry/list")
-            self._replace_entities(raw)
-        elif event_type == "device_registry_updated":
-            raw = await self._client.send_command("config/device_registry/list")
-            self._replace_devices(raw)
-        elif event_type == "area_registry_updated":
-            raw = await self._client.send_command("config/area_registry/list")
-            self._replace_areas(raw)
-        elif event_type == "label_registry_updated":
-            raw = await self._client.send_command("config/label_registry/list")
-            self._replace_labels(raw)
+        timeout = _adaptive_timeout(len(self.entities) or _BOOTSTRAP_FETCH_SIZE)
+        try:
+            if event_type == "entity_registry_updated":
+                raw = await self._client.send_command(
+                    "config/entity_registry/list", timeout=timeout
+                )
+                self._replace_entities(raw)
+            elif event_type == "device_registry_updated":
+                raw = await self._client.send_command(
+                    "config/device_registry/list", timeout=timeout
+                )
+                self._replace_devices(raw)
+            elif event_type == "area_registry_updated":
+                raw = await self._client.send_command("config/area_registry/list", timeout=timeout)
+                self._replace_areas(raw)
+            elif event_type == "label_registry_updated":
+                raw = await self._client.send_command("config/label_registry/list", timeout=timeout)
+                self._replace_labels(raw)
+        except (CommandTimeout, TimeoutError):
+            # Degrade: a slow single-registry refresh keeps the warm copy.
+            log.warning("ha.registries.refresh_for_timeout_keeping_warm", event_type=event_type)
 
     def _replace_entities(self, raw: Any) -> None:
         items = raw if isinstance(raw, list) else []
