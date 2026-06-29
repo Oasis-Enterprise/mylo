@@ -878,9 +878,10 @@ async def test_machine_sections_carried_over_untouched(tmp_path: Path) -> None:
     assert "sensor.keep_me" not in sent
 
 
-async def test_oversized_semantic_memory_degrades_gracefully(tmp_path: Path) -> None:
-    """If even the semantic sections exceed the budget, skip the LLM call and
-    return a degraded result instead of letting the API 400."""
+async def test_oversized_semantic_memory_compacts_and_reconciles(tmp_path: Path) -> None:
+    """A memory too big for the window is compacted to fit so the LLM merge
+    still runs (instead of being skipped), and the notes dropped from the
+    payload are re-attached afterward rather than lost."""
     store = MemoryStore(mylo_data_dir=tmp_path)
     await store.load()
 
@@ -904,9 +905,12 @@ async def test_oversized_semantic_memory_degrades_gracefully(tmp_path: Path) -> 
         now=NOW,
     )
 
-    assert result.updated is None
-    assert "too large" in result.summary
-    assert provider.calls == []
+    # The LLM was called (no longer skipped) and a merge was produced.
+    assert provider.calls != []
+    assert result.updated is not None
+    assert "too large" not in result.summary
+    # The notes compacted out of the payload were re-attached, not lost.
+    assert len(result.updated.notes) > 500
 
 
 # ─── Pattern bloat guards (staleness + cap) ──────────────────────────────────

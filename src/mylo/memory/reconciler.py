@@ -36,17 +36,20 @@ existing app-level singleton.
 
 from __future__ import annotations
 
+import copy
 import re
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from mylo.context.tokens import estimate_tokens
 from mylo.ha.registries import Registries
 from mylo.logging_setup import get_logger
 from mylo.memory.pruner import PruneReport, plan_prune
-from mylo.memory.schema import MemoryFile, empty_memory
+from mylo.memory.schema import MemoryFile, Note, empty_memory
 from mylo.memory.scratchpad import ScratchpadEntry, read_scratchpad
 from mylo.memory.store import MemoryStore
 from mylo.validators.yaml_parser import dump_yaml, load_yaml
@@ -76,10 +79,9 @@ _DIFF_SAMPLE_CAP = 50
 
 # Approximate ceiling for the assembled user payload. Anthropic's hard
 # limit is 200k tokens for input + output combined; we stay well under
-# to leave room for the system prompt and the model's reply. Rough
-# 4-chars-per-token heuristic — deliberately conservative.
+# to leave room for the system prompt and the model's reply. Sizing uses
+# the shared conservative estimator (mylo.context.tokens.estimate_tokens).
 _PAYLOAD_TOKEN_BUDGET = 150_000
-_CHARS_PER_TOKEN = 4
 
 
 # ─── Provider interface (narrow) ─────────────────────────────────────────────
@@ -150,6 +152,71 @@ class ReconcileResult:
         return self.updated is not None
 
 
+# ─── Payload compaction ──────────────────────────────────────────────────────
+
+
+def _note_protected(note: Note) -> bool:
+    """User-confirmed and critical notes are never compacted out."""
+    return note.source == "user_confirmed" or note.metadata.priority == "critical"
+
+
+def compact_payload_sections(
+    memory: MemoryFile, *, budget_tokens: int
+) -> tuple[MemoryFile, str, dict[str, list[Any]]]:
+    """Return a copy of ``memory`` whose serialized size fits ``budget_tokens``,
+    compacting the most expendable sections first (patterns, then plain
+    notes). Critical items (user_confirmed / critical-priority notes) are
+    never dropped.
+
+    Returns ``(compacted_memory, marker, dropped)`` where ``dropped`` maps
+    each section to the items removed — the caller re-attaches these after
+    the merge so compaction never loses data. Drops in chunks to keep this
+    O(rounds times n), not O(n squared).
+    """
+    work = copy.deepcopy(memory)
+    dropped: dict[str, list[Any]] = {"notes": [], "patterns": []}
+    if estimate_tokens(work.model_dump_json()) <= budget_tokens:
+        return work, "", dropped
+
+    counts: Counter[str] = Counter()
+    for section in ("patterns", "notes"):
+        items = list(getattr(work, section, []))
+        if section == "notes":
+            protected = [n for n in items if _note_protected(n)]
+            droppable = [n for n in items if not _note_protected(n)]
+        else:
+            protected = []
+            droppable = list(items)
+        while droppable and estimate_tokens(work.model_dump_json()) > budget_tokens:
+            chunk = max(1, len(droppable) // 10)
+            removed = droppable[-chunk:]
+            del droppable[-chunk:]
+            dropped[section].extend(removed)
+            counts[section] += len(removed)
+            setattr(work, section, protected + droppable)
+        setattr(work, section, protected + droppable)
+
+    marker = "; ".join(f"+{n} {sec} compacted" for sec, n in counts.items())
+    return work, marker, dropped
+
+
+def _reattach_compacted(merged: MemoryFile, dropped: dict[str, list[Any]]) -> None:
+    """Re-add items dropped from the payload only to fit context.
+
+    They skipped this pass's reconciliation, so add back any whose id isn't
+    already present in the merged result (the LLM never saw them and so
+    can't have changed them).
+    """
+    existing_note_ids = {n.id for n in merged.notes}
+    for note in dropped.get("notes", []):
+        if note.id not in existing_note_ids:
+            merged.notes.append(note)
+    existing_pattern_ids = {p.id for p in merged.patterns}
+    for pattern in dropped.get("patterns", []):
+        if pattern.id not in existing_pattern_ids:
+            merged.patterns.append(pattern)
+
+
 # ─── Public entrypoint ───────────────────────────────────────────────────────
 
 
@@ -213,12 +280,23 @@ async def run_sync(
         )
 
     prompt = _build_system_prompt()
-    user_msg = _build_user_payload(memory, scratchpad, diff)
+    # Compact the payload so it always fits the window — drop the most
+    # expendable notes/patterns from what the LLM sees (re-attached
+    # untouched after the merge so nothing is lost), rather than skipping
+    # the merge entirely on a large memory.
+    payload_budget = _PAYLOAD_TOKEN_BUDGET - estimate_tokens(prompt)
+    memory_for_payload, compaction_marker, dropped = compact_payload_sections(
+        memory, budget_tokens=payload_budget
+    )
+    user_msg = _build_user_payload(memory_for_payload, scratchpad, diff)
+    if compaction_marker:
+        user_msg += f"\n\n# NOTE: memory compacted to fit context — {compaction_marker}"
+        log.warning("memory.reconciler_compacted", detail=compaction_marker)
 
-    # Backstop: even with machine state excluded, a home with thousands
-    # of notes/conflicts could still exceed the context window. Skip the
-    # LLM call and degrade gracefully rather than letting the API 400.
-    est_tokens = (len(prompt) + len(user_msg)) // _CHARS_PER_TOKEN
+    # Final hard backstop: if even the compacted payload won't fit (e.g.
+    # protected notes alone exceed the window), skip the LLM merge and
+    # degrade gracefully rather than letting the API 400.
+    est_tokens = estimate_tokens(prompt) + estimate_tokens(user_msg)
     if est_tokens > _PAYLOAD_TOKEN_BUDGET:
         log.error(
             "memory.reconciler_payload_too_large",
@@ -259,6 +337,9 @@ async def run_sync(
 
     merged = _protect_user_sections(memory, proposed, scratchpad, current)
     _carry_over_machine_sections(memory, merged)
+    # Restore items that were dropped from the payload only to fit context —
+    # they skipped this pass's reconciliation but must not be lost.
+    _reattach_compacted(merged, dropped)
     merged.last_sync = current.replace(microsecond=0).isoformat()
 
     conflicts_added = len(merged.pending_conflicts()) - len(memory.pending_conflicts())
