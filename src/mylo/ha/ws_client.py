@@ -151,6 +151,9 @@ class HaWsClient:
     # Backoff schedule in seconds; jittered.
     _BACKOFF = (1.0, 2.0, 4.0, 8.0, 16.0, 30.0)
 
+    # Bound on buffered events between the read loop and the event worker.
+    _EVENT_QUEUE_MAX = 2048
+
     def __init__(
         self,
         url: str,
@@ -178,6 +181,12 @@ class HaWsClient:
         self._subs: list[Subscription] = []
 
         self._on_ready_callbacks: list[Callable[[], Awaitable[None]]] = []
+
+        # Events are dispatched off the read loop via this queue + a worker,
+        # so a callback that issues a command can't block the read loop (and
+        # thus deadlock its own command's response).
+        self._event_queue: asyncio.Queue[tuple[Subscription, dict[str, Any]]] | None = None
+        self._events_dropped = 0
 
     # ─── Lifecycle ───────────────────────────────────────────────────────────
 
@@ -404,13 +413,19 @@ class HaWsClient:
             # responses. Spawn as a task so it runs concurrently with the
             # read loop; otherwise a resubscribe awaits a response that
             # nothing will ever deliver.
+            self._event_queue = asyncio.Queue(maxsize=self._EVENT_QUEUE_MAX)
+            worker = asyncio.create_task(self._event_worker(self._event_queue))
             post_ready = asyncio.create_task(self._post_ready_setup())
             try:
                 await self._read_loop(ws)
             finally:
                 post_ready.cancel()
+                worker.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await post_ready
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await worker
+                self._event_queue = None
         self._ws = None
 
     async def _post_ready_setup(self) -> None:
@@ -486,6 +501,44 @@ class HaWsClient:
             if sub is None or sub.cancelled:
                 return
             event = data.get("event") or {}
+            # Hand off to the worker; never await the callback here, or a
+            # callback that issues a command would block the read loop that
+            # must deliver that command's response.
+            self._enqueue_event(sub, event)
+            return
+
+        if msg_type == "pong":
+            return
+
+        log.debug("ha.ws.unhandled_message", data=data)
+
+    def _enqueue_event(self, sub: Subscription, event: dict[str, Any]) -> None:
+        queue = self._event_queue
+        if queue is None:
+            return
+        try:
+            queue.put_nowait((sub, event))
+        except asyncio.QueueFull:
+            # Drop the oldest event to bound memory under a storm; count it
+            # so the loss is visible rather than silent.
+            with contextlib.suppress(asyncio.QueueEmpty):
+                queue.get_nowait()
+                self._events_dropped += 1
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait((sub, event))
+
+    async def _event_worker(
+        self, queue: asyncio.Queue[tuple[Subscription, dict[str, Any]]]
+    ) -> None:
+        """Drain the event queue, awaiting callbacks one at a time in order.
+
+        Runs off the read loop, so a callback that issues ``send_command``
+        gets its response delivered normally instead of deadlocking.
+        """
+        while True:
+            sub, event = await queue.get()
+            if sub.cancelled:
+                continue
             try:
                 await sub.callback(event)
             except Exception as exc:
@@ -494,9 +547,3 @@ class HaWsClient:
                     event_type=sub.event_type,
                     error=str(exc),
                 )
-            return
-
-        if msg_type == "pong":
-            return
-
-        log.debug("ha.ws.unhandled_message", data=data)
