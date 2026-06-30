@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from mylo.ha.registries import EntityEntry, Registries, _adaptive_timeout
@@ -65,6 +66,23 @@ async def test_refresh_for_keeps_warm_data_on_timeout() -> None:
     reg._client = _Client()  # type: ignore[assignment]
     reg.entities = {"light.kitchen": _entity("light.kitchen")}
 
-    await reg.refresh_for("entity_registry_updated")  # must not raise
+    await reg.refresh_for("entity_registry_updated")  # schedules a debounced flush
+    await asyncio.sleep(0.4)  # let the debounced refetch run + time out
 
     assert "light.kitchen" in reg.entities
+
+
+async def test_registry_events_coalesce_into_one_refetch() -> None:
+    calls = {"n": 0}
+
+    class _Client:
+        async def send_command(self, type_: str, **kwargs: Any) -> Any:
+            calls["n"] += 1
+            return []
+
+    reg = Registries()
+    reg._client = _Client()  # type: ignore[assignment]
+    # Fire 10 entity-registry events rapidly.
+    await asyncio.gather(*[reg.refresh_for("entity_registry_updated") for _ in range(10)])
+    await asyncio.sleep(0.4)  # let the debounce window elapse
+    assert calls["n"] <= 2

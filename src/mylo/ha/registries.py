@@ -171,6 +171,13 @@ class Registries:
     # back on startup; the second one is wasted work.
     _REFRESH_DEBOUNCE: float = 0.5
 
+    # Debounce + coalescing for ``*_registry_updated`` events. A busy
+    # instance can fire dozens in a burst; each one used to trigger a full
+    # refetch. Collapse a burst into a single refetch after a quiet window.
+    _REFRESH_FOR_DEBOUNCE: float = 0.3
+    _pending_refreshes: set[str] = field(default_factory=set)
+    _refresh_for_task: asyncio.Task[None] | None = None
+
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 
     @classmethod
@@ -255,28 +262,41 @@ class Registries:
             )
 
     async def refresh_for(self, event_type: str) -> None:
+        # Record the event and schedule a single coalesced flush; a burst of
+        # events collapses into one refetch after the debounce window.
+        self._pending_refreshes.add(event_type)
+        if self._refresh_for_task is None or self._refresh_for_task.done():
+            self._refresh_for_task = asyncio.create_task(self._flush_refreshes())
+
+    async def _flush_refreshes(self) -> None:
+        await asyncio.sleep(self._REFRESH_FOR_DEBOUNCE)
+        pending = self._pending_refreshes
+        self._pending_refreshes = set()
         assert self._client is not None
         timeout = _adaptive_timeout(len(self.entities) or _BOOTSTRAP_FETCH_SIZE)
         try:
-            if event_type == "entity_registry_updated":
-                raw = await self._client.send_command(
-                    "config/entity_registry/list", timeout=timeout
+            if "entity_registry_updated" in pending:
+                self._replace_entities(
+                    await self._client.send_command("config/entity_registry/list", timeout=timeout)
                 )
-                self._replace_entities(raw)
-            elif event_type == "device_registry_updated":
-                raw = await self._client.send_command(
-                    "config/device_registry/list", timeout=timeout
+            if "device_registry_updated" in pending:
+                self._replace_devices(
+                    await self._client.send_command("config/device_registry/list", timeout=timeout)
                 )
-                self._replace_devices(raw)
-            elif event_type == "area_registry_updated":
-                raw = await self._client.send_command("config/area_registry/list", timeout=timeout)
-                self._replace_areas(raw)
-            elif event_type == "label_registry_updated":
-                raw = await self._client.send_command("config/label_registry/list", timeout=timeout)
-                self._replace_labels(raw)
+            if "area_registry_updated" in pending:
+                self._replace_areas(
+                    await self._client.send_command("config/area_registry/list", timeout=timeout)
+                )
+            if "label_registry_updated" in pending:
+                self._replace_labels(
+                    await self._client.send_command("config/label_registry/list", timeout=timeout)
+                )
         except (CommandTimeout, TimeoutError):
-            # Degrade: a slow single-registry refresh keeps the warm copy.
-            log.warning("ha.registries.refresh_for_timeout_keeping_warm", event_type=event_type)
+            # Degrade: a slow registry refresh keeps the warm copy.
+            log.warning("ha.registries.refresh_for_timeout_keeping_warm", pending=sorted(pending))
+        # Events that arrived during the fetch get their own debounced flush.
+        if self._pending_refreshes:
+            self._refresh_for_task = asyncio.create_task(self._flush_refreshes())
 
     def _replace_entities(self, raw: Any) -> None:
         items = raw if isinstance(raw, list) else []
