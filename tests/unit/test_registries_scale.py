@@ -17,14 +17,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from mylo.ha.registries import EntityEntry, Registries, _adaptive_timeout
+from mylo.ha.registries import EntityEntry, Registries, _registry_fetch_timeout
 from mylo.ha.ws_client import CommandTimeout
 
 
-def test_adaptive_timeout_scales_with_size() -> None:
-    assert _adaptive_timeout(200) == 60.0  # floor
-    assert _adaptive_timeout(5000) > 60.0  # scales up
-    assert _adaptive_timeout(50_000) <= 300.0  # capped
+def test_registry_fetch_timeout_is_fixed_generous() -> None:
+    # No longer size-scaled: a fixed generous backstop now the deadlock and
+    # registry storms are handled at the source.
+    assert _registry_fetch_timeout() == 120.0
 
 
 def _entity(eid: str) -> EntityEntry:

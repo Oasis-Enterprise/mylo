@@ -37,19 +37,15 @@ from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# When we have no entity count yet (bootstrap), assume a mid-size home so
-# the first fetch gets a generous-but-bounded timeout.
-_BOOTSTRAP_FETCH_SIZE = 2000
 
+def _registry_fetch_timeout() -> float:
+    """Generous fixed backstop for a registry list fetch.
 
-def _adaptive_timeout(entity_count: int) -> float:
-    """Scale the registry-fetch timeout with instance size.
-
-    The full ``*_registry/list`` calls are O(entities), so a fixed 60s
-    floor times out on large registries. Scale up proportionally, capped
-    so a hung HA can't block forever.
+    With event dispatch off the read loop (no deadlock) and registry storms
+    coalesced, the list returns in seconds; this is only a backstop against a
+    genuinely wedged HA, not a per-size knob.
     """
-    return min(300.0, max(60.0, entity_count / 50.0))
+    return 120.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,7 +231,7 @@ class Registries:
             if not force and (now - self._last_full_refresh) < self._REFRESH_DEBOUNCE:
                 log.debug("ha.registries.refresh_skipped_debounced")
                 return
-            timeout = _adaptive_timeout(len(self.entities) or _BOOTSTRAP_FETCH_SIZE)
+            timeout = _registry_fetch_timeout()
             try:
                 entities_raw, devices_raw, areas_raw, labels_raw = await self._fetch_all(timeout)
             except (CommandTimeout, TimeoutError):
@@ -273,7 +269,7 @@ class Registries:
         pending = self._pending_refreshes
         self._pending_refreshes = set()
         assert self._client is not None
-        timeout = _adaptive_timeout(len(self.entities) or _BOOTSTRAP_FETCH_SIZE)
+        timeout = _registry_fetch_timeout()
         try:
             if "entity_registry_updated" in pending:
                 self._replace_entities(
