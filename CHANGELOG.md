@@ -5,6 +5,19 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0b2] — 2026-06-30
+
+> ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
+
+### Fixed
+- **The WebSocket no longer deadlocks itself — the big one.** The connection's read loop was waiting on event handlers inline, so whenever Home Assistant fired a registry-update event, the handler's own follow-up request could never get a reply and timed out after 60 seconds — and while it was stuck, *every other* command (including saving labels or automations) timed out too. Events are now handled off the read loop, so commands flow freely. This is the root cause behind the "Mylo's WebSocket is slow" behavior on large instances.
+- **Config writes during a busy moment no longer hang.** Reads briefly wait for the connection to recover (a quick reconnect is now invisible); writes fail fast with a clear "not applied, retry" instead of hanging — and if a write was sent but its confirmation was lost, Mylo says so rather than silently risking a double-apply.
+- **Registry-update storms are coalesced.** A burst of registry changes collapses into a single refresh instead of one expensive refetch per event.
+- **No more `Cannot write to closing transport` error spam** when you navigate away mid-response, and background verify survives a brief reconnect.
+
+### Added
+- **Connection health signal** (state, consecutive failures, last-ready, in-flight commands) logged for visibility.
+
 ## [1.5.0b1] — 2026-06-29
 
 > ⚠️ **BETA — test at your own risk.** This is a pre-release for testing the new scale-hardening work on large instances. Back up your `context.yaml` before updating. If anything misbehaves, report it; a stable `1.5.0` will follow once it's proven out.
