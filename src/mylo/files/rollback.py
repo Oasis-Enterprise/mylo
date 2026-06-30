@@ -595,8 +595,11 @@ async def _record_background_failure(
                 "notification_id": f"mylo_verify_failed_{path.stem}",
             },
         )
-    except Exception:
-        log.exception("background_verify.notification_failed")
+    except Exception as exc:
+        # Best-effort notify: if HA is unreachable (reconnecting), degrade to
+        # a warning rather than a traceback — the verify result is already
+        # recorded in the audit log above.
+        log.warning("background_verify.notification_unsendable", error=str(exc))
 
 
 # ─── Verifiers ───────────────────────────────────────────────────────────────

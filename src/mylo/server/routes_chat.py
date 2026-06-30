@@ -32,12 +32,14 @@ so the UI can offer a ``/clear`` button.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from collections.abc import AsyncIterator
 from typing import Any
 
 from aiohttp import web
+from aiohttp.client_exceptions import ClientConnectionResetError
 
 from mylo.context.assembler import assemble_system_prompt
 from mylo.context.memory_injection import render_current_time
@@ -53,6 +55,20 @@ from mylo.llm.tool_loop import (
 from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
+
+
+async def _safe_emit(response: Any, name: str, data: dict[str, Any]) -> None:
+    """Write one SSE event, swallowing a closed-transport write.
+
+    When the user navigates away mid-turn the client is gone; a failed write
+    ends the turn quietly instead of cascading tracebacks through the error
+    handler and ``write_eof``.
+    """
+    payload = f"event: {name}\ndata: {json.dumps(data, default=str)}\n\n"
+    try:
+        await response.write(payload.encode("utf-8"))
+    except (ConnectionResetError, ClientConnectionResetError):
+        return
 
 
 def register_chat_routes(app: web.Application) -> None:
@@ -402,8 +418,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     await response.prepare(request)
 
     async def emit(name: str, data: dict[str, Any]) -> None:
-        payload = f"event: {name}\ndata: {json.dumps(data, default=str)}\n\n"
-        await response.write(payload.encode("utf-8"))
+        await _safe_emit(response, name, data)
 
     try:
         async for event in _turn_events(
@@ -455,7 +470,8 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         log.exception("chat.turn_failed")
         await emit("error", {"message": str(exc), "type": type(exc).__name__})
     finally:
-        await response.write_eof()
+        with contextlib.suppress(ConnectionResetError, ClientConnectionResetError):
+            await response.write_eof()
     return response
 
 
