@@ -1,6 +1,6 @@
 [project]
 name = "mylo"
-version = "1.5.0b1"
+version = "1.5.0b2"
 description = "AI agent that lives inside Home Assistant."
 readme = "README.md"
 requires-python = ">=3.12"
