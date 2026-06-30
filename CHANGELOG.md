@@ -5,6 +5,20 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0b1] — 2026-06-29
+
+> ⚠️ **BETA — test at your own risk.** This is a pre-release for testing the new scale-hardening work on large instances. Back up your `context.yaml` before updating. If anything misbehaves, report it; a stable `1.5.0` will follow once it's proven out.
+
+### Added
+- **Scale hardening — Mylo now stays fast and reliable on large homes (2,000+ entities).** A single context-budget authority makes the assembled prompt provably bounded regardless of home size, so big instances stop hitting "prompt too long" and runaway costs:
+  - The system prompt is assembled from priority-ordered "surfaces" within a token budget derived from the model's context window (configurable via `context_budget_factor` / `context_output_reserve_tokens`). Safety-critical conflicts are never the thing dropped under pressure.
+  - A relevance-ranked **working set** pre-loads the entities most likely relevant to your message (configurable via `working_set_max_entities`), so the model needs fewer lookups — anything else is still one query away.
+  - **Memory sync no longer fails on large memories.** The nightly reconciler now compacts an oversized payload to fit the window (and re-attaches what it set aside, so nothing is lost) instead of skipping the merge.
+  - **Registry fetches survive big instances.** The HA registry load now scales its timeout to instance size and keeps the last-known data on a slow fetch, instead of timing out at a fixed 60s.
+
+### Changed
+- Read-tool results bound uniformly through a shared helper (true total + a "narrow your filters" hint when truncated).
+
 ## [1.4.3] — 2026-06-25
 
 ### Added

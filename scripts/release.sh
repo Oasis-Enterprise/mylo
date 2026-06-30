@@ -28,8 +28,11 @@ cd "$ROOT"
 die() { echo "release: $*" >&2; exit 1; }
 
 VERSION="${1:-}"
-[[ -n "$VERSION" ]] || die "usage: scripts/release.sh <version>  (e.g. 1.3.2)"
-[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "version must be X.Y.Z, got '$VERSION'"
+[[ -n "$VERSION" ]] || die "usage: scripts/release.sh <version>  (e.g. 1.3.2 or 1.5.0b1)"
+# X.Y.Z, optionally a PEP 440 pre-release suffix (a/b/rc + number) for
+# betas — e.g. 1.5.0b1. HA orders 1.4.3 < 1.5.0b1 < 1.5.0 correctly.
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]] \
+  || die "version must be X.Y.Z or X.Y.Z(a|b|rc)N, got '$VERSION'"
 
 TAG="v$VERSION"
 
