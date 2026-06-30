@@ -181,6 +181,7 @@ async def apply_with_rollback(
     try:
         await client.send_command(
             "call_service",
+            write=True,
             domain=reload_service[0],
             service=reload_service[1],
             timeout=call_timeout,
@@ -314,6 +315,7 @@ async def _rollback(
     try:
         await client.send_command(
             "call_service",
+            write=True,
             domain=reload_service[0],
             service=reload_service[1],
         )
@@ -447,6 +449,7 @@ async def _background_verify_reload_all(
         try:
             await client.send_command(
                 "call_service",
+                write=True,
                 domain="homeassistant",
                 service="reload_all",
                 timeout=5.0,
@@ -579,6 +582,7 @@ async def _record_background_failure(
     try:
         await client.send_command(
             "call_service",
+            write=True,
             domain="persistent_notification",
             service="create",
             service_data={

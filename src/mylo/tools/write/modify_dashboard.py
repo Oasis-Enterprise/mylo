@@ -137,7 +137,9 @@ async def _save_dashboard(
     ctx: ToolContext, dashboard_id: str | None, config: dict[str, Any]
 ) -> None:
     """Write the full dashboard config back to HA."""
-    await ctx.ws_client.send_command("lovelace/config/save", url_path=dashboard_id, config=config)
+    await ctx.ws_client.send_command(
+        "lovelace/config/save", write=True, url_path=dashboard_id, config=config
+    )
 
 
 async def handler(params: ModifyDashboardParams, ctx: ToolContext) -> ToolResult:

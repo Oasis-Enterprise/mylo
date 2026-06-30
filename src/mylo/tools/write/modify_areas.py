@@ -97,7 +97,9 @@ async def handler(params: ModifyAreasParams, ctx: ToolContext) -> ToolResult:
 
 async def _create(ctx: ToolContext, name: str) -> ToolResult:
     try:
-        result = await ctx.ws_client.send_command("config/area_registry/create", name=name)
+        result = await ctx.ws_client.send_command(
+            "config/area_registry/create", write=True, name=name
+        )
     except CommandError as exc:
         return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
     area_id = result.get("area_id") if isinstance(result, dict) else None
@@ -107,7 +109,7 @@ async def _create(ctx: ToolContext, name: str) -> ToolResult:
 async def _rename(ctx: ToolContext, area_id: str, new_name: str) -> ToolResult:
     try:
         await ctx.ws_client.send_command(
-            "config/area_registry/update", area_id=area_id, name=new_name
+            "config/area_registry/update", write=True, area_id=area_id, name=new_name
         )
     except CommandError as exc:
         return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
@@ -116,7 +118,7 @@ async def _rename(ctx: ToolContext, area_id: str, new_name: str) -> ToolResult:
 
 async def _delete(ctx: ToolContext, area_id: str) -> ToolResult:
     try:
-        await ctx.ws_client.send_command("config/area_registry/delete", area_id=area_id)
+        await ctx.ws_client.send_command("config/area_registry/delete", write=True, area_id=area_id)
     except CommandError as exc:
         return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
     return ToolResult.ok({"action": "delete", "area_id": area_id})
@@ -127,7 +129,7 @@ async def _assign_devices(ctx: ToolContext, area_id: str, device_ids: list[str])
     for did in device_ids:
         try:
             await ctx.ws_client.send_command(
-                "config/device_registry/update", device_id=did, area_id=area_id
+                "config/device_registry/update", write=True, device_id=did, area_id=area_id
             )
             results.append({"device_id": did, "ok": True})
         except CommandError as exc:
@@ -152,7 +154,7 @@ async def _assign_entities(ctx: ToolContext, area_id: str, entity_ids: list[str]
     for eid in entity_ids:
         try:
             await ctx.ws_client.send_command(
-                "config/entity_registry/update", entity_id=eid, area_id=area_id
+                "config/entity_registry/update", write=True, entity_id=eid, area_id=area_id
             )
             results.append({"entity_id": eid, "ok": True})
         except CommandError as exc:

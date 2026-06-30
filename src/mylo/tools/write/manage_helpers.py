@@ -215,7 +215,7 @@ async def _create_helper(ctx: ToolContext, params: ManageHelpersParams) -> ToolR
     payload = _build_payload(params)
 
     try:
-        result = await ctx.ws_client.send_command(cmd, **payload)
+        result = await ctx.ws_client.send_command(cmd, write=True, **payload)
     except CommandError as exc:
         return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
 
@@ -242,7 +242,7 @@ async def _update_helper(ctx: ToolContext, params: ManageHelpersParams) -> ToolR
     payload[f"{params.helper_type}_id"] = params.helper_id
 
     try:
-        await ctx.ws_client.send_command(cmd, **payload)
+        await ctx.ws_client.send_command(cmd, write=True, **payload)
     except CommandError as exc:
         return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
 
@@ -263,7 +263,7 @@ async def _delete_helper(ctx: ToolContext, params: ManageHelpersParams) -> ToolR
     delete_payload: dict[str, Any] = {f"{params.helper_type}_id": params.helper_id}
 
     try:
-        await ctx.ws_client.send_command(cmd, **delete_payload)
+        await ctx.ws_client.send_command(cmd, write=True, **delete_payload)
     except CommandError as exc:
         return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
 

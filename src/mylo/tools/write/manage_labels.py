@@ -87,7 +87,7 @@ async def handler(params: ManageLabelsParams, ctx: ToolContext) -> ToolResult:
             if params.color:
                 create_kwargs["color"] = params.color
             result = await ctx.ws_client.send_command(
-                "config/label_registry/create", **create_kwargs
+                "config/label_registry/create", write=True, **create_kwargs
             )
         except CommandError as exc:
             return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
@@ -123,6 +123,7 @@ async def _update_labels(
                 new_labels = sorted(current | {label_id}) if add else sorted(current - {label_id})
                 await ctx.ws_client.send_command(
                     "config/entity_registry/update",
+                    write=True,
                     entity_id=target,
                     labels=new_labels,
                 )
@@ -132,6 +133,7 @@ async def _update_labels(
                 new_labels = sorted(current | {label_id}) if add else sorted(current - {label_id})
                 await ctx.ws_client.send_command(
                     "config/device_registry/update",
+                    write=True,
                     device_id=target,
                     labels=new_labels,
                 )

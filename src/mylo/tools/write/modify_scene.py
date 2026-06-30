@@ -109,6 +109,7 @@ async def handler(params: ModifySceneParams, ctx: ToolContext) -> ToolResult:
 
         await ctx.ws_client.send_command(
             "call_service",
+            write=True,
             domain="scene",
             service="turn_on",
             target={"entity_id": entity_id},

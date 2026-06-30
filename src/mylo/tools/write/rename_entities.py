@@ -156,7 +156,7 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
             # the websocket mid-call. We fail fast and trust that HA
             # will finish processing; a background task verifies.
             await ctx.ws_client.send_command(
-                "config/entity_registry/update", timeout=10.0, **update_kwargs
+                "config/entity_registry/update", write=True, timeout=10.0, **update_kwargs
             )
             rename_results.append({"entity_id": entry.entity_id, "ok": True})
         except CommandTimeout:
@@ -347,6 +347,7 @@ async def _record_rename_failure(
     try:
         await client.send_command(
             "call_service",
+            write=True,
             domain="persistent_notification",
             service="create",
             service_data={
@@ -447,7 +448,9 @@ async def _apply_cascade(
             if old_id not in config_str:
                 return {"ref": ref, "ok": True, "replacements": 0}
             updated = _deep_replace(config, old_id, new_id)
-            await ctx.ws_client.send_command("lovelace/config/save", url_path=did, config=updated)
+            await ctx.ws_client.send_command(
+                "lovelace/config/save", write=True, url_path=did, config=updated
+            )
             return {"ref": ref, "ok": True, "replacements": config_str.count(old_id)}
     except Exception as exc:
         return {"ref": ref, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
