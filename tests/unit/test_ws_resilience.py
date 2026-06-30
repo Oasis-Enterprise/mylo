@@ -113,3 +113,17 @@ async def test_read_waits_for_ready_then_succeeds() -> None:
     ws.push_server_text({"id": cmd["id"], "type": "result", "success": True, "result": {"v": 1}})
     assert await task == {"v": 1}
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_health_reports_ready_and_counters() -> None:
+    ws = _FakeWS()
+    session = _FakeSession([ws])
+    client = await _ready_client(ws, session)
+    h = client.health
+    assert h["state"] == "ready"
+    assert h["consecutive_failures"] == 0
+    assert h["last_ready_at"] is not None
+    assert "events_dropped" in h
+    assert "in_flight_commands" in h
+    await client.close()

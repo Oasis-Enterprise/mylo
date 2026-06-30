@@ -36,6 +36,7 @@ import asyncio
 import contextlib
 import enum
 import random
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Self
@@ -209,6 +210,10 @@ class HaWsClient:
         self._event_queue: asyncio.Queue[tuple[Subscription, dict[str, Any]]] | None = None
         self._events_dropped = 0
 
+        # Health counters.
+        self._consecutive_failures = 0
+        self._last_ready_at: float | None = None
+
     # ─── Lifecycle ───────────────────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -250,6 +255,17 @@ class HaWsClient:
     @property
     def state(self) -> State:
         return self._state
+
+    @property
+    def health(self) -> dict[str, Any]:
+        """At-a-glance connection health for logging / diagnostics."""
+        return {
+            "state": self._state.value,
+            "consecutive_failures": self._consecutive_failures,
+            "last_ready_at": self._last_ready_at,
+            "in_flight_commands": len(self._pending),
+            "events_dropped": self._events_dropped,
+        }
 
     async def wait_ready(self, timeout: float | None = None) -> None:  # noqa: ASYNC109
         # Public API: callers pass a timeout; we map it to asyncio.wait_for.
@@ -426,6 +442,7 @@ class HaWsClient:
                 await self._connect_once()
                 attempt = 0  # reset backoff after a successful session
             except Exception as exc:
+                self._consecutive_failures += 1
                 log.warning(
                     "ha.ws.session_error",
                     error=str(exc),
@@ -473,7 +490,9 @@ class HaWsClient:
             await self._authenticate(ws)
             self._state = State.READY
             self._ready_event.set()
-            log.info("ha.ws.ready")
+            self._last_ready_at = time.monotonic()
+            self._consecutive_failures = 0
+            log.info("ha.ws.health", **self.health)
 
             # Post-ready work (resubscriptions, on_ready callbacks) issues
             # commands that only resolve when the read loop is consuming
