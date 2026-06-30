@@ -30,7 +30,7 @@ import pytest
 
 from mylo.ha.ws_client import (
     CommandError,
-    ConnectionClosed,
+    ConnectionUnavailable,
     HaWsClient,
     State,
     _derive_ws_url,
@@ -261,11 +261,20 @@ async def test_send_command_error_raises() -> None:
     await client.close()
 
 
-async def test_send_command_before_ready_raises() -> None:
+async def test_read_before_ready_waits_then_unavailable() -> None:
+    # Reads wait for the connection up to connect_wait, then surface
+    # ConnectionUnavailable (the connection never came up here).
     session = _FakeSession([_FakeWS()])
     client = _make_client(session)
-    with pytest.raises(ConnectionClosed):
-        await client.send_command("ping")
+    with pytest.raises(ConnectionUnavailable):
+        await client.send_command("ping", connect_wait=0.1)
+
+
+async def test_write_before_ready_fails_fast() -> None:
+    session = _FakeSession([_FakeWS()])
+    client = _make_client(session)
+    with pytest.raises(ConnectionUnavailable):
+        await client.send_command("ping", write=True)
 
 
 async def test_multiple_commands_interleave() -> None:

@@ -80,6 +80,27 @@ class CommandTimeout(HaError):
         self.timeout = timeout
 
 
+class ConnectionUnavailable(HaError):
+    """Raised when a command can't be sent because the connection isn't ready.
+
+    Writes raise this immediately (fail-fast, definitely not applied); reads
+    raise it only after the connect-wait window elapses without a connection.
+    """
+
+
+class IndeterminateWrite(HaError):
+    """Raised when a write was sent but the connection dropped before its
+    result arrived — we cannot know whether HA applied it. Never retried
+    automatically; the caller must re-check state before retrying."""
+
+    def __init__(self, type_: str) -> None:
+        super().__init__(
+            f"write {type_!r} was sent but not confirmed (connection dropped); "
+            "re-check state before retrying"
+        )
+        self.type = type_
+
+
 class State(enum.Enum):
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
@@ -248,7 +269,9 @@ class HaWsClient:
         self,
         type_: str,
         *,
+        write: bool = False,
         timeout: float = 60.0,  # noqa: ASYNC109 - public API maps to asyncio.wait_for
+        connect_wait: float = 10.0,
         **payload: Any,
     ) -> Any:
         """Send a command and await the ``result`` field of the response.
@@ -257,44 +280,88 @@ class HaWsClient:
         list-style endpoints (e.g. ``config/entity_registry/list``) return a
         list, and some return ``None``.
 
-        ``timeout`` bounds how long we'll wait for HA to reply. On timeout
-        the pending command is cancelled and :class:`CommandTimeout` is
-        raised — callers (tool handlers) can turn that into a structured
-        ToolResult so the model sees the failure as data rather than a
-        hang.
+        Reads (``write=False``, the default) wait up to ``connect_wait`` for
+        the connection to be READY and retry once across a reconnect — a
+        transient blip is invisible. Writes (``write=True``) fail fast with
+        :class:`ConnectionUnavailable` when not ready, and raise
+        :class:`IndeterminateWrite` if sent but unconfirmed — never silently
+        retried, so a config edit is never double-applied.
 
-        Raises :class:`ConnectionClosed` if not ready, :class:`CommandError`
-        if HA returns ``success: false``, :class:`CommandTimeout` on
-        timeout.
+        Raises :class:`CommandError` if HA returns ``success: false`` and
+        :class:`CommandTimeout` on timeout.
         """
-        if self._state is not State.READY or self._ws is None:
-            raise ConnectionClosed(f"not ready (state={self._state.value})")
+        if write:
+            return await self._send_write(type_, timeout_s=timeout, payload=payload)
+        return await self._send_read(
+            type_, timeout_s=timeout, connect_wait=connect_wait, payload=payload
+        )
 
+    def _register_pending(self, _payload: dict[str, Any]) -> tuple[int, _PendingCommand]:
         msg_id = self._next_id()
         pending = _PendingCommand()
         self._pending[msg_id] = pending
+        return msg_id, pending
 
-        message = {"id": msg_id, "type": type_, **payload}
-        try:
-            await self._ws.send_json(message)
-        except Exception:
-            self._pending.pop(msg_id, None)
-            raise
-
-        try:
-            response = await asyncio.wait_for(pending.future, timeout=timeout)
-        except TimeoutError as exc:
-            # Pending dict cleanup is belt-and-suspenders — the finally
-            # block below handles it too.
-            self._pending.pop(msg_id, None)
-            raise CommandTimeout(type_, timeout) from exc
-        finally:
-            self._pending.pop(msg_id, None)
-
+    def _unwrap(self, response: dict[str, Any]) -> Any:
         if not response.get("success", False):
             err = response.get("error") or {}
             raise CommandError(err.get("code", "unknown"), err.get("message", ""))
         return response.get("result")
+
+    async def _await_ready(self, connect_wait: float) -> None:
+        if self._state is State.READY:
+            return
+        await asyncio.wait_for(self._ready_event.wait(), timeout=connect_wait)
+
+    async def _send_write(self, type_: str, *, timeout_s: float, payload: dict[str, Any]) -> Any:
+        if self._state is not State.READY or self._ws is None:
+            raise ConnectionUnavailable(f"HA reconnecting; write {type_!r} not applied")
+        msg_id, pending = self._register_pending(payload)
+        try:
+            await self._ws.send_json({"id": msg_id, "type": type_, **payload})
+        except Exception as exc:
+            # Send itself failed -> not delivered -> not applied.
+            self._pending.pop(msg_id, None)
+            raise ConnectionUnavailable(f"HA reconnecting; write {type_!r} not applied") from exc
+        try:
+            response = await asyncio.wait_for(pending.future, timeout=timeout_s)
+        except TimeoutError as exc:
+            self._pending.pop(msg_id, None)
+            raise CommandTimeout(type_, timeout_s) from exc
+        except ConnectionClosed as exc:
+            # Sent, then the connection dropped before the result: unknown.
+            raise IndeterminateWrite(type_) from exc
+        finally:
+            self._pending.pop(msg_id, None)
+        return self._unwrap(response)
+
+    async def _send_read(
+        self, type_: str, *, timeout_s: float, connect_wait: float, payload: dict[str, Any]
+    ) -> Any:
+        last: Exception | None = None
+        for _attempt in range(2):  # initial + one retry across a reconnect
+            try:
+                await self._await_ready(connect_wait)
+            except TimeoutError as exc:
+                raise ConnectionUnavailable(f"HA not ready for read {type_!r}") from exc
+            msg_id, pending = self._register_pending(payload)
+            try:
+                if self._ws is None:
+                    raise ConnectionClosed("not ready")
+                await self._ws.send_json({"id": msg_id, "type": type_, **payload})
+                response = await asyncio.wait_for(pending.future, timeout=timeout_s)
+            except TimeoutError as exc:
+                self._pending.pop(msg_id, None)
+                raise CommandTimeout(type_, timeout_s) from exc
+            except (ConnectionClosed, ConnectionResetError) as exc:
+                # Dropped before/after send — reads are idempotent, retry once.
+                self._pending.pop(msg_id, None)
+                last = exc
+                continue
+            finally:
+                self._pending.pop(msg_id, None)
+            return self._unwrap(response)
+        raise ConnectionUnavailable(f"read {type_!r} failed across reconnect") from last
 
     # ─── Subscriptions ──────────────────────────────────────────────────────
 
