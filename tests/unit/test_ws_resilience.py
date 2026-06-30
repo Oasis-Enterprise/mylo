@@ -127,3 +127,32 @@ async def test_health_reports_ready_and_counters() -> None:
     assert "events_dropped" in h
     assert "in_flight_commands" in h
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_event_storm_does_not_block_a_write() -> None:
+    ws = _FakeWS()
+    session = _FakeSession([ws])
+    client = await _ready_client(ws, session)
+
+    async def slow_cb(_event: dict[str, Any]) -> None:
+        await client.send_command("get_states", connect_wait=5.0)
+
+    sub_task = asyncio.create_task(client.subscribe_events("entity_registry_updated", slow_cb))
+    sub_msg = await _wait_for_sent(ws, lambda m: m.get("type") == "subscribe_events")
+    ws.push_server_text({"id": sub_msg["id"], "type": "result", "success": True})
+    await sub_task
+
+    # Fire a burst of events; each callback issues a command.
+    for _ in range(5):
+        ws.push_server_text({"id": sub_msg["id"], "type": "event", "event": {}})
+
+    # Meanwhile a write must come back promptly, not stuck behind the storm.
+    async def do_write() -> Any:
+        return await client.send_command("config/label_registry/create", write=True, name="x")
+
+    write_task = asyncio.create_task(do_write())
+    wmsg = await _wait_for_sent(ws, lambda m: m.get("type") == "config/label_registry/create")
+    ws.push_server_text({"id": wmsg["id"], "type": "result", "success": True, "result": {"ok": 1}})
+    assert await write_task == {"ok": 1}
+    await client.close()
