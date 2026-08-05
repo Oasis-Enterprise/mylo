@@ -39,7 +39,14 @@ from mylo.tools.dashboard_refs import extract_entity_refs, validate_refs
 from mylo.tools.registry import register
 
 Action = Literal[
-    "create", "add_cards", "update_view", "replace_card", "remove_card", "update", "delete"
+    "create",
+    "add_cards",
+    "add_section",
+    "update_view",
+    "replace_card",
+    "remove_card",
+    "update",
+    "delete",
 ]
 
 
@@ -47,8 +54,11 @@ class ModifyDashboardParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Action = Field(
         description=(
-            "'create' a new view. "
-            "'add_cards' appends cards to an existing view. "
+            "'create' a new view (sections layout by default). "
+            "'add_cards' appends cards to an existing view (pass section_index "
+            "for sections-layout views). "
+            "'add_section' appends one whole section to a sections-layout view "
+            "— the incremental builder for new views. "
             "'update_view' replaces a single view by path (other views untouched). "
             "'replace_card' swaps one card in a view by index. "
             "'remove_card' deletes one card from a view by index. "
@@ -75,10 +85,30 @@ class ModifyDashboardParams(BaseModel):
         default=None,
         description=(
             "For 'add_cards': list of card configs to append to an existing "
-            "view. For 'create': alternative to putting cards inside config — "
-            "if both config.cards and this field are present, this field wins. "
-            "Build dashboards incrementally: create the view first with a few "
-            "cards, then add_cards in follow-up calls."
+            "view. For 'add_section': shorthand — the cards are wrapped in a "
+            "{type: grid, cards: [...]} section. For 'create': alternative to "
+            "putting cards inside config — if both config.cards and this field "
+            "are present, this field wins. On create these are auto-wrapped "
+            "into a single grid section unless layout='masonry'. Build "
+            "dashboards incrementally: create the view with its first section, "
+            "then add_section per remaining section."
+        ),
+    )
+    sections: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "For 'create'/'update_view': list of section dicts for a "
+            "sections-layout view, each {type: 'grid', cards: [...]}. Start "
+            "each section with a {type: heading, heading: ...} card. Shorthand "
+            "— avoids nesting in config."
+        ),
+    )
+    layout: Literal["sections", "masonry"] | None = Field(
+        default=None,
+        description=(
+            "For 'create': view layout. Defaults to 'sections' (modern HA "
+            "layout — headings stay attached to their cards). Pass 'masonry' "
+            "only when the user explicitly wants the legacy flat-cards layout."
         ),
     )
     view_path: str | None = Field(
@@ -147,6 +177,8 @@ async def handler(params: ModifyDashboardParams, ctx: ToolContext) -> ToolResult
         return await _create_view(ctx, params)
     if params.action == "add_cards":
         return await _add_cards(ctx, params)
+    if params.action == "add_section":
+        return await _add_section(ctx, params)
     if params.action == "update_view":
         return await _update_view(ctx, params)
     if params.action == "replace_card":
@@ -160,13 +192,44 @@ async def handler(params: ModifyDashboardParams, ctx: ToolContext) -> ToolResult
     return ToolResult.error("invalid_action", f"unknown action {params.action!r}")
 
 
-def _assemble_view(params: ModifyDashboardParams) -> dict[str, Any] | None:
+def _is_sections_view(view: dict[str, Any]) -> bool:
+    return view.get("type") == "sections" or isinstance(view.get("sections"), list)
+
+
+def _count_cards(view: dict[str, Any]) -> int:
+    if _is_sections_view(view):
+        return sum(
+            len(s.get("cards") or [])
+            for s in view.get("sections") or []
+            if isinstance(s, dict)
+        )
+    return len(view.get("cards") or [])
+
+
+def _view_entity_refs(view: dict[str, Any]) -> set[str]:
+    """Every entity ref in a view, whichever layout it uses.
+
+    Walks cards AND sections — validating only ``view.cards`` misses
+    every ref in a sections-layout view.
+    """
+    return extract_entity_refs([view.get("cards") or [], view.get("sections") or []])
+
+
+def _assemble_view(
+    params: ModifyDashboardParams, *, for_create: bool = False
+) -> dict[str, Any] | None:
     """Build a view dict from either config or the shorthand fields.
 
-    The shorthand (title/path/icon/theme/cards as top-level params)
-    is much easier for the model to produce than nesting everything
-    inside a config dict — especially for large card lists that push
-    the model's output limit.
+    The shorthand (title/path/icon/theme/cards/sections as top-level
+    params) is much easier for the model to produce than nesting
+    everything inside a config dict — especially for large card lists
+    that push the model's output limit.
+
+    New views default to the sections layout: a flat card list on
+    create is auto-wrapped into a single grid section unless
+    layout='masonry' is passed explicitly. Sections-shaped input never
+    gets a ``cards`` key injected — a view carrying both confuses HA
+    and the surgical card ops.
     """
     if params.config:
         view = dict(params.config)
@@ -184,18 +247,33 @@ def _assemble_view(params: ModifyDashboardParams) -> dict[str, Any] | None:
     if params.theme:
         view["theme"] = params.theme
 
+    if params.sections is not None:
+        view["sections"] = params.sections
+
+    if _is_sections_view(view):
+        view["type"] = "sections"
+        view.setdefault("sections", [])
+        if not view.get("cards"):
+            view.pop("cards", None)
+        return view
+
     # cards field wins over config.cards so the model can build
     # incrementally without re-passing the view wrapper each time.
-    if params.cards is not None:
-        view["cards"] = params.cards
-    if "cards" not in view:
-        view["cards"] = []
+    cards = params.cards if params.cards is not None else view.get("cards") or []
 
+    if for_create and params.layout != "masonry":
+        view["type"] = "sections"
+        view.setdefault("max_columns", 4)
+        view["sections"] = [{"type": "grid", "cards": cards}]
+        view.pop("cards", None)
+        return view
+
+    view["cards"] = cards
     return view
 
 
 async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolResult:
-    new_view = _assemble_view(params)
+    new_view = _assemble_view(params, for_create=True)
     if new_view is None:
         return ToolResult.error(
             "missing_param",
@@ -219,7 +297,7 @@ async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
     # against the live registry. If any are invalid, return the full
     # list with did_you_mean suggestions so the model self-corrects
     # before the user ever sees a broken preview.
-    entity_refs = extract_entity_refs(new_view.get("cards") or [])
+    entity_refs = _view_entity_refs(new_view)
     invalid = validate_refs(entity_refs, ctx.registries)
     if invalid:
         return ToolResult.error(
@@ -234,15 +312,19 @@ async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
     new_config = {**current, "views": views}
 
     diff = diff_structs(current, new_config)
+    layout = "sections" if _is_sections_view(new_view) else "masonry"
     preview: dict[str, Any] = {
         "dashboard_id": params.dashboard_id,
         "action": "create",
         "view_path": new_path,
         "view_title": new_view.get("title"),
-        "card_count": len(new_view.get("cards") or []),
+        "layout": layout,
+        "card_count": _count_cards(new_view),
         "entity_refs_validated": len(entity_refs),
         "diff": diff.to_dict(),
     }
+    if layout == "sections":
+        preview["section_count"] = len(new_view.get("sections") or [])
 
     if params.dry_run:
         preview["preview"] = True
@@ -334,6 +416,89 @@ async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolRes
     return ToolResult.ok({**preview, "preview": False})
 
 
+async def _add_section(ctx: ToolContext, params: ModifyDashboardParams) -> ToolResult:
+    """Append one section to a sections-layout view — the incremental
+    builder for new views (the sections analog of add_cards).
+    """
+    if not params.view_path:
+        return ToolResult.error("missing_param", "add_section requires 'view_path'")
+
+    section = params.config
+    if section is None and params.cards:
+        section = {"type": "grid", "cards": params.cards}
+    if section is None:
+        return ToolResult.error(
+            "missing_param",
+            "add_section requires 'config' (a section dict) or 'cards' "
+            "(wrapped into a grid section)",
+        )
+
+    current = await _fetch_dashboard(ctx, params.dashboard_id)
+    if current is None:
+        return ToolResult.error("dashboard_not_found", "dashboard not found")
+
+    views = list(current.get("views") or [])
+    target_idx: int | None = None
+    for i, v in enumerate(views):
+        if isinstance(v, dict) and v.get("path") == params.view_path:
+            target_idx = i
+            break
+
+    if target_idx is None:
+        return ToolResult.error(
+            "view_not_found",
+            f"no view with path {params.view_path!r}",
+            data={"available": [v.get("path") for v in views if isinstance(v, dict)]},
+        )
+
+    target_view = dict(views[target_idx])
+    if not _is_sections_view(target_view):
+        return ToolResult.error(
+            "not_sections_layout",
+            f"view {params.view_path!r} is not a sections-layout view — "
+            "use add_cards for masonry views",
+        )
+
+    entity_refs = extract_entity_refs([section])
+    invalid = validate_refs(entity_refs, ctx.registries)
+    if invalid:
+        return ToolResult.error(
+            "invalid_entity_refs",
+            f"{len(invalid)} entity reference(s) in the section don't exist in HA. "
+            "Fix them and retry. Use the EXACT entity_ids from query_entities or "
+            "query_dashboard — do NOT normalize or clean up entity names.",
+            data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
+        )
+
+    sections = list(target_view.get("sections") or [])
+    sections.append(section)
+    target_view["sections"] = sections
+    views[target_idx] = target_view
+
+    new_config = {**current, "views": views}
+    diff = diff_structs(current, new_config)
+    preview: dict[str, Any] = {
+        "dashboard_id": params.dashboard_id,
+        "action": "add_section",
+        "view_path": params.view_path,
+        "section_count": len(sections),
+        "cards_added": len(section.get("cards") or []),
+        "entity_refs_validated": len(entity_refs),
+        "diff": diff.to_dict(),
+    }
+
+    if params.dry_run:
+        preview["preview"] = True
+        return ToolResult.ok(preview)
+
+    try:
+        await _save_dashboard(ctx, params.dashboard_id, new_config)
+    except CommandError as exc:
+        return ToolResult.error("ha_error", f"{exc.code}: {exc.message}")
+
+    return ToolResult.ok({**preview, "preview": False})
+
+
 async def _update_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolResult:
     """Replace a single view by path — all other views stay untouched."""
     if not params.view_path:
@@ -370,7 +535,7 @@ async def _update_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
     if "path" not in new_view:
         new_view["path"] = params.view_path
 
-    entity_refs = extract_entity_refs(new_view.get("cards") or [])
+    entity_refs = _view_entity_refs(new_view)
     invalid = validate_refs(entity_refs, ctx.registries)
     if invalid:
         return ToolResult.error(
@@ -384,14 +549,18 @@ async def _update_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
     new_config = {**current, "views": views}
 
     diff = diff_structs(current, new_config)
+    layout = "sections" if _is_sections_view(new_view) else "masonry"
     preview: dict[str, Any] = {
         "dashboard_id": params.dashboard_id,
         "action": "update_view",
         "view_path": params.view_path,
-        "card_count": len(new_view.get("cards") or []),
+        "layout": layout,
+        "card_count": _count_cards(new_view),
         "entity_refs_validated": len(entity_refs),
         "diff": diff.to_dict(),
     }
+    if layout == "sections":
+        preview["section_count"] = len(new_view.get("sections") or [])
 
     if params.dry_run:
         preview["preview"] = True
@@ -691,17 +860,20 @@ TOOL = ToolDefinition(
     name="modify_dashboard",
     description=(
         "Create, update, or delete Lovelace dashboard views and cards. "
-        "Storage-mode dashboards only. Surgical operations available: "
-        "'update_view' replaces a single view by path (others untouched), "
-        "'replace_card' swaps one card by index, 'remove_card' deletes "
-        "one card by index. Prefer these over 'update' which replaces "
-        "the entire dashboard. For sections-layout views (query_dashboard "
-        "shows 'layout: sections'), pass section_index alongside "
-        "card_index to target a nested card. For new views, build "
-        "incrementally: 'create' with first batch of cards, then "
-        "'add_cards'. Use the shorthand fields (title, path, icon, cards) "
-        "instead of nesting in config. ALWAYS dry_run=true first. Changes "
-        "are immediate."
+        "Storage-mode dashboards only. New views default to the modern "
+        "sections layout: 'create' auto-wraps a flat card list into one "
+        "grid section (so later add_cards needs section_index=0), or pass "
+        "'sections' directly — one grid section per group, each led by a "
+        "{type: heading} card. Grow a view with 'add_section' (one section "
+        "per call). Surgical operations: 'update_view' replaces a single "
+        "view by path (others untouched), 'replace_card' swaps one card by "
+        "index, 'remove_card' deletes one card by index. Prefer these over "
+        "'update' which replaces the entire dashboard. For sections-layout "
+        "views (query_dashboard shows 'layout: sections'), pass "
+        "section_index alongside card_index to target a nested card. Use "
+        "the shorthand fields (title, path, icon, cards, sections) instead "
+        "of nesting in config. ALWAYS dry_run=true first. Changes are "
+        "immediate."
     ),
     params_model=ModifyDashboardParams,
     tier=Tier.MODIFY,
