@@ -668,6 +668,8 @@ def _preferences_empty(memory: MemoryFile) -> bool:
     return not any(
         [
             prefs.dashboard.card_style,
+            prefs.dashboard.layout_preference,
+            prefs.dashboard.theme,
             prefs.dashboard.notes,
             prefs.naming.convention,
             prefs.alerts.sensitivity,

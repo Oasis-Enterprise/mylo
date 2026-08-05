@@ -220,3 +220,43 @@ def test_build_memory_section_includes_household(tmp_path: Path) -> None:
     assert "Maxwell" in section
     assert "primary_user" in section
     assert "Works from home most days" in section
+
+
+def test_build_memory_section_renders_layout_and_theme_prefs(tmp_path: Path) -> None:
+    """Regression: layout_preference was stored but never rendered into
+    the prompt, so a recorded preference silently did nothing."""
+    from mylo.memory.schema import DashboardPreferences, Preferences
+
+    mem = MemoryFile(
+        preferences=Preferences(
+            dashboard=DashboardPreferences(
+                card_style="mushroom",
+                layout_preference="sections",
+                theme="noctis",
+            )
+        )
+    )
+    section = build_memory_section(mem, mylo_data_dir=tmp_path)
+    assert "layout=sections" in section
+    assert "theme=noctis" in section
+    assert "style=mushroom" in section
+
+
+def test_preferences_empty_counts_layout_and_theme() -> None:
+    """Regression: the reconciler's wipe-protection guard ignored
+    layout_preference (and theme), so a memory holding only those could
+    be silently dropped."""
+    from mylo.memory.reconciler import _preferences_empty
+    from mylo.memory.schema import DashboardPreferences, Preferences
+
+    only_layout = MemoryFile(
+        preferences=Preferences(dashboard=DashboardPreferences(layout_preference="sections"))
+    )
+    assert _preferences_empty(only_layout) is False
+
+    only_theme = MemoryFile(
+        preferences=Preferences(dashboard=DashboardPreferences(theme="noctis"))
+    )
+    assert _preferences_empty(only_theme) is False
+
+    assert _preferences_empty(MemoryFile()) is True

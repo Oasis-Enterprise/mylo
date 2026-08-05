@@ -138,11 +138,16 @@ def _render_household(memory: MemoryFile) -> str:
 def _render_preferences(memory: MemoryFile) -> str:
     prefs = memory.preferences
     parts: list[str] = []
-    if prefs.dashboard.card_style or prefs.dashboard.notes:
-        parts.append(
-            f"Dashboards: style={prefs.dashboard.card_style or '—'}, "
-            f"{prefs.dashboard.notes or ''}".strip()
-        )
+    dash = prefs.dashboard
+    if dash.card_style or dash.layout_preference or dash.theme or dash.notes:
+        bits = [f"style={dash.card_style or '—'}"]
+        if dash.layout_preference:
+            bits.append(f"layout={dash.layout_preference}")
+        if dash.theme:
+            bits.append(f"theme={dash.theme}")
+        if dash.notes:
+            bits.append(dash.notes)
+        parts.append("Dashboards: " + ", ".join(bits))
     if prefs.naming.convention:
         parts.append(f"Naming convention: {prefs.naming.convention}")
     if prefs.alerts.sensitivity or prefs.alerts.quiet_hours:

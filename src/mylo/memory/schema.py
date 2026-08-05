@@ -78,6 +78,7 @@ class DashboardPreferences(BaseModel):
 
     card_style: str | None = None
     layout_preference: str | None = None
+    theme: str | None = None
     notes: str | None = None
 
 
