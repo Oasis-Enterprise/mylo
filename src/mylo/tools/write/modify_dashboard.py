@@ -192,8 +192,7 @@ async def _check_view_schema(
     if not report.ok:
         return ToolResult.error(
             "dashboard_schema_issues",
-            "the card configs have structural problems — fix every listed "
-            "issue and retry",
+            "the card configs have structural problems — fix every listed issue and retry",
             data=report.to_dict(),
         )
     return [i.to_dict() for i in report.issues]
@@ -243,9 +242,7 @@ def _is_sections_view(view: dict[str, Any]) -> bool:
 def _count_cards(view: dict[str, Any]) -> int:
     if _is_sections_view(view):
         return sum(
-            len(s.get("cards") or [])
-            for s in view.get("sections") or []
-            if isinstance(s, dict)
+            len(s.get("cards") or []) for s in view.get("sections") or [] if isinstance(s, dict)
         )
     return len(view.get("cards") or [])
 
@@ -526,9 +523,7 @@ async def _add_section(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
             data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
         )
 
-    schema_warnings = await _check_view_schema(
-        ctx, {"type": "sections", "sections": [section]}
-    )
+    schema_warnings = await _check_view_schema(ctx, {"type": "sections", "sections": [section]})
     if isinstance(schema_warnings, ToolResult):
         return schema_warnings
 

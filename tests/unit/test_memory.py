@@ -254,9 +254,7 @@ def test_preferences_empty_counts_layout_and_theme() -> None:
     )
     assert _preferences_empty(only_layout) is False
 
-    only_theme = MemoryFile(
-        preferences=Preferences(dashboard=DashboardPreferences(theme="noctis"))
-    )
+    only_theme = MemoryFile(preferences=Preferences(dashboard=DashboardPreferences(theme="noctis")))
     assert _preferences_empty(only_theme) is False
 
     assert _preferences_empty(MemoryFile()) is True

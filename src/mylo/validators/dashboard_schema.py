@@ -74,9 +74,7 @@ KNOWN_NATIVE_CARD_TYPES: frozenset[str] = frozenset(
 )
 
 
-def validate_view(
-    view: dict[str, Any], installed_custom: set[str] | None
-) -> ValidationReport:
+def validate_view(view: dict[str, Any], installed_custom: set[str] | None) -> ValidationReport:
     """Structure-check one view. ``installed_custom`` is the set of
     available ``custom:*`` card types, or None when resources couldn't
     be listed (then custom types warn instead of erroring)."""

@@ -106,9 +106,7 @@ async def _check_dashboard_loaded(ctx: ToolContext, targets: list[str]) -> dict[
 
         if dash_key not in configs:
             try:
-                result = await ctx.ws_client.send_command(
-                    "lovelace/config", url_path=dash_key
-                )
+                result = await ctx.ws_client.send_command("lovelace/config", url_path=dash_key)
                 configs[dash_key] = result if isinstance(result, dict) else None
             except CommandError as exc:
                 configs[dash_key] = None
@@ -132,24 +130,20 @@ async def _check_dashboard_loaded(ctx: ToolContext, targets: list[str]) -> dict[
             results[target] = {"ok": False, "reason": "view not found"}
             continue
 
-        is_sections = view.get("type") == "sections" or isinstance(
-            view.get("sections"), list
-        )
+        is_sections = view.get("type") == "sections" or isinstance(view.get("sections"), list)
         entry: dict[str, Any] = {
             "ok": True,
             "layout": "sections" if is_sections else "masonry",
         }
         if is_sections:
             sections = view.get("sections")
-            broken = not isinstance(sections, list) or any(
-                not isinstance(s, dict) or not isinstance(s.get("cards"), list)
-                for s in sections
-            )
-            if broken:
+            if isinstance(sections, list) and all(
+                isinstance(s, dict) and isinstance(s.get("cards"), list) for s in sections
+            ):
+                entry["section_count"] = len(sections)
+            else:
                 entry["ok"] = False
                 entry["reason"] = "sections view has malformed sections (missing cards list)"
-            else:
-                entry["section_count"] = len(sections)
         else:
             entry["card_count"] = len(view.get("cards") or [])
         results[target] = entry

@@ -125,9 +125,7 @@ def test_installed_custom_card_passes():
 
 def test_custom_card_warns_when_resources_unknown():
     """installed_custom=None means we couldn't list resources — warn only."""
-    report = validate_view(
-        _sections_view([{"type": "custom:bubble-card"}]), installed_custom=None
-    )
+    report = validate_view(_sections_view([{"type": "custom:bubble-card"}]), installed_custom=None)
     assert report.ok
     assert any(i.severity == "warning" for i in report.issues)
 
@@ -269,9 +267,7 @@ async def test_add_cards_validates_schema(tmp_path):
     ctx = _ctx(
         tmp_path,
         {
-            "lovelace/config": {
-                "views": [{"path": "home", "title": "Home", "cards": []}]
-            },
+            "lovelace/config": {"views": [{"path": "home", "title": "Home", "cards": []}]},
         },
     )
     result = await execute(

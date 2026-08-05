@@ -76,9 +76,7 @@ def _load_tools():
 
 
 def _ctx(tmp_path: Path, responses: dict[str, Any]):
-    return make_ctx(
-        ws_client=_FakeClient(responses), registries=Registries(), tmp_path=tmp_path
-    )
+    return make_ctx(ws_client=_FakeClient(responses), registries=Registries(), tmp_path=tmp_path)
 
 
 async def test_dashboard_loaded_view_present(tmp_path):
