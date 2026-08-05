@@ -14,11 +14,11 @@
 
 """``verify_change`` — post-change sanity checks.
 
-Scope for M2 is minimal: check whether entities exist (``entity_exists``) and
-whether an automation entity is loaded and enabled (``automation_loaded``).
-The richer checks (``dashboard_loaded``, ``no_new_errors``,
-``service_available``, ``full_health``) land with the full rollback loop in
-M7 where they have real consumers.
+Implemented: ``entity_exists``, ``automation_loaded``, and
+``dashboard_loaded`` (does a saved view actually exist in the fetched
+dashboard config, with sane sections shape). The remaining checks
+(``no_new_errors``, ``service_available``, ``full_health``) land with
+the full rollback loop where they have real consumers.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.ha.states import get_all_states
+from mylo.ha.ws_client import CommandError
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.registry import register
@@ -48,7 +49,11 @@ class VerifyChangeParams(BaseModel):
     check_type: CheckType = Field(description="Which verification to perform.")
     targets: list[str] = Field(
         default_factory=list,
-        description="Entity IDs or automation IDs to verify, depending on check_type.",
+        description=(
+            "Entity IDs or automation IDs to verify, depending on check_type. "
+            "For 'dashboard_loaded': '<dashboard_id>:<view_path>' or a bare "
+            "'<view_path>' for the default dashboard."
+        ),
     )
     wait_seconds: float = Field(
         default=5.0,
@@ -91,6 +96,68 @@ async def _check_automation_loaded(ctx: ToolContext, targets: list[str]) -> dict
     return {"check": "automation_loaded", "all_ok": all_ok, "results": results}
 
 
+async def _check_dashboard_loaded(ctx: ToolContext, targets: list[str]) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+    configs: dict[str | None, dict[str, Any] | None] = {}
+
+    for target in targets:
+        dashboard_id, _, view_path = target.rpartition(":")
+        dash_key = dashboard_id or None
+
+        if dash_key not in configs:
+            try:
+                result = await ctx.ws_client.send_command(
+                    "lovelace/config", url_path=dash_key
+                )
+                configs[dash_key] = result if isinstance(result, dict) else None
+            except CommandError as exc:
+                configs[dash_key] = None
+                results[target] = {"ok": False, "reason": f"{exc.code}: {exc.message}"}
+                continue
+
+        config = configs[dash_key]
+        if config is None:
+            results[target] = {"ok": False, "reason": "dashboard config unavailable"}
+            continue
+
+        view = next(
+            (
+                v
+                for v in config.get("views") or []
+                if isinstance(v, dict) and v.get("path") == view_path
+            ),
+            None,
+        )
+        if view is None:
+            results[target] = {"ok": False, "reason": "view not found"}
+            continue
+
+        is_sections = view.get("type") == "sections" or isinstance(
+            view.get("sections"), list
+        )
+        entry: dict[str, Any] = {
+            "ok": True,
+            "layout": "sections" if is_sections else "masonry",
+        }
+        if is_sections:
+            sections = view.get("sections")
+            broken = not isinstance(sections, list) or any(
+                not isinstance(s, dict) or not isinstance(s.get("cards"), list)
+                for s in sections
+            )
+            if broken:
+                entry["ok"] = False
+                entry["reason"] = "sections view has malformed sections (missing cards list)"
+            else:
+                entry["section_count"] = len(sections)
+        else:
+            entry["card_count"] = len(view.get("cards") or [])
+        results[target] = entry
+
+    all_ok = bool(results) and all(r.get("ok") for r in results.values())
+    return {"check": "dashboard_loaded", "all_ok": all_ok, "results": results}
+
+
 async def handler(params: VerifyChangeParams, ctx: ToolContext) -> ToolResult:
     if params.wait_seconds > 0:
         await asyncio.sleep(params.wait_seconds)
@@ -99,6 +166,8 @@ async def handler(params: VerifyChangeParams, ctx: ToolContext) -> ToolResult:
         return ToolResult.ok(await _check_entity_exists(ctx, params.targets))
     if params.check_type == "automation_loaded":
         return ToolResult.ok(await _check_automation_loaded(ctx, params.targets))
+    if params.check_type == "dashboard_loaded":
+        return ToolResult.ok(await _check_dashboard_loaded(ctx, params.targets))
 
     return ToolResult.error(
         "not_implemented",
@@ -110,9 +179,11 @@ TOOL = ToolDefinition(
     name="verify_change",
     description=(
         "After a config change and reload, verify the change took effect. "
-        "M2 implements 'entity_exists' and 'automation_loaded'; richer "
-        "verifications are wired up alongside the write tools in a later "
-        "milestone."
+        "Implements 'entity_exists', 'automation_loaded', and "
+        "'dashboard_loaded' (targets: '<dashboard_id>:<view_path>' or bare "
+        "'<view_path>' for the default dashboard — checks the view exists "
+        "and its sections are well-formed). Richer verifications land in a "
+        "later milestone."
     ),
     params_model=VerifyChangeParams,
     tier=Tier.READ,
