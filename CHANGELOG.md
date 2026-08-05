@@ -5,6 +5,23 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0b3] — 2026-08-05
+
+> ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
+
+### Added
+- **Dashboards now come out tidy — sections layout by default.** New views use Home Assistant's modern sections layout with native heading cards, so section titles stay attached to their cards instead of drifting apart the way separate title cards do in the old masonry layout. A new `add_section` operation builds views one clean section at a time, and the design guidance (group by area or function, 4–8 cards per section, tile cards by default, wide cards spanning two columns) is baked into how Mylo builds.
+- **Mylo asks before it guesses.** When a dashboard request leaves real choices open — theme, style, which areas to include — Mylo asks one consolidated question with tappable option buttons right in the chat, then remembers your answer (theme and layout preferences persist across conversations).
+- **Theme and custom-card awareness.** Mylo now discovers which frontend themes you actually have installed (no more guessed theme names) and which HACS custom cards are registered — it only uses custom cards that exist, falling back to native cards otherwise, so generated dashboards never render "Custom element doesn't exist".
+- **Card configs are validated before you approve.** Every dashboard write is structure-checked (missing card types, uninstalled `custom:*` cards, malformed sections/stacks) and blocked with a fix list before the preview — and `verify_change` can now confirm a dashboard view actually loaded after apply.
+- **Clearer approval cards for dashboard changes.** Previews now say what's being built ("Create view "Kitchen" — sections layout, 3 sections, 12 cards", entities validated, schema warnings) instead of a generic "dry run".
+
+### Fixed
+- **Entity references inside sections-layout views were never validated** — a typo'd entity in a sections view sailed through to a broken card. All nested references are now checked with did-you-mean suggestions.
+- **Saved layout preferences were silently ignored.** A stored dashboard layout preference never reached the model (and could even be wiped by the nightly memory sync). It now shows up in every conversation and is protected.
+- **Requests like "make my home page look nicer" are now recognized as dashboard work**, so the dashboard reference examples load for them.
+- Dashboard builds have more output headroom (8k tokens), so a full view fits in one step instead of being assembled piecemeal.
+
 ## [1.5.0b2] — 2026-06-30
 
 > ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
