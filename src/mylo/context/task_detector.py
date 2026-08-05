@@ -46,6 +46,11 @@ _TASK_PATTERNS: dict[TaskType, tuple[tuple[str, int], ...]] = {
         (r"\bgauge\b", 1),
         (r"\bgraph\b", 1),
         (r"\bdisplay\b", 1),
+        (r"\b(home|main|overview)\s*(page|screen)\b", 2),
+        (r"\blook\s+(nicer|better|cleaner)\b", 2),
+        (r"\btidy\b", 1),
+        (r"\bredesign\b", 2),
+        (r"\btheme\b", 1),
     ),
     "automation": (
         (r"\bautomation\b", 2),

@@ -142,3 +142,14 @@ def test_history_cache_breakpoint_empty_is_noop() -> None:
     from mylo.llm.anthropic_provider import _with_history_cache_breakpoint
 
     assert _with_history_cache_breakpoint([]) == []
+
+
+def test_default_max_tokens_fits_a_full_view() -> None:
+    # 4096 forced piecemeal dashboard building; a whole sections view
+    # needs headroom. Must match provider.py and openai_provider.py.
+    import inspect
+
+    from mylo.llm.anthropic_provider import AnthropicProvider
+
+    sig = inspect.signature(AnthropicProvider.message)
+    assert sig.parameters["max_tokens"].default == 8192

@@ -226,6 +226,14 @@ def test_task_detector_picks_entity_management() -> None:
     )
 
 
+def test_task_detector_catches_home_page_phrasings() -> None:
+    # "make my home page look nicer" has no dashboard keyword but is
+    # unmistakably a dashboard job — the examples must load for it.
+    assert detect_task_type("make my home page look nicer") == "dashboard"
+    assert detect_task_type("can you tidy up the main screen") == "dashboard"
+    assert detect_task_type("redesign my overview page with a dark theme") == "dashboard"
+
+
 def test_task_detector_returns_none_for_casual_state_queries() -> None:
     assert detect_task_type("what lights are on in the kitchen") is None
 

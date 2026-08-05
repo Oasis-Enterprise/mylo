@@ -67,7 +67,7 @@ class OpenAIProvider:
         messages: list[ProviderMessage],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> ProviderResponse:
         oai_messages = _convert_messages(system, messages)
         oai_tools = _convert_tools(tools)

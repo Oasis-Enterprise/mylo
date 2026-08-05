@@ -1,57 +1,83 @@
-# Lovelace dashboard card examples. Mylo uses these as few-shot
-# references when building or modifying dashboards. Mushroom cards
-# appear heavily — they render well on mobile and are the common
-# choice for modern HA dashboards.
+# Lovelace dashboard examples. Mylo uses these as few-shot references
+# when building or modifying dashboards. The first example is the
+# canonical shape for every NEW view: sections layout, one grid
+# section per group, a heading card leading each section. Note this
+# comment block IS shown to the model.
 
-# Entities card — simple list with secondary info.
-- type: entities
+# ─── A complete sections view — the shape every new view should have.
+# Heading cards stay attached to their section (this is why titles
+# never drift in sections layout). Tile is the default entity card.
+# Wide cards get column_span on their section.
+- type: sections
   title: Kitchen
+  path: kitchen
+  icon: mdi:silverware-fork-knife
+  max_columns: 4
+  sections:
+    - type: grid
+      cards:
+        - type: heading
+          heading: Lights
+          icon: mdi:lightbulb
+        - type: tile
+          entity: light.kitchen_overhead
+        - type: tile
+          entity: light.kitchen_pendant
+    - type: grid
+      cards:
+        - type: heading
+          heading: Climate
+          icon: mdi:thermometer
+        - type: tile
+          entity: sensor.kitchen_temperature
+        - type: tile
+          entity: sensor.kitchen_humidity
+    - type: grid
+      column_span: 2
+      cards:
+        - type: heading
+          heading: History
+        - type: history-graph
+          entities:
+            - sensor.kitchen_temperature
+          hours_to_show: 24
+
+# ─── Native building blocks (always available, never break) ─────────
+
+# Entities card — dense readout when tiles would be too sparse.
+- type: entities
+  title: Diagnostics
   entities:
-    - entity: light.kitchen_overhead
-    - entity: light.kitchen_pendant
     - entity: sensor.kitchen_temperature
+    - entity: binary_sensor.kitchen_window
       secondary_info: last-changed
 
-# Grid of mushroom cards — compact at-a-glance view.
-- type: grid
-  columns: 2
-  square: false
-  cards:
-    - type: custom:mushroom-light-card
-      entity: light.living_room
-      show_brightness_control: true
-    - type: custom:mushroom-climate-card
-      entity: climate.living_room
-      show_temperature_control: true
-
-# Mini-graph for a single sensor's history.
-- type: custom:mini-graph-card
-  entities:
-    - entity: sensor.basement_humidity
-  hours_to_show: 24
-  points_per_hour: 4
-  line_width: 2
-  show:
-    labels: true
-    points: hover
-
-# Conditional card — only show when the garage door is open.
+# Conditional card — only show when something needs attention.
 - type: conditional
   conditions:
     - entity: cover.garage_door
       state: open
   card:
-    type: custom:mushroom-alert-card
+    type: tile
     entity: cover.garage_door
-    name: Garage door is open
-    icon: mdi:garage-open
+    color: red
 
-# Vertical stack pattern — one section per concern.
-- type: vertical-stack
-  cards:
-    - type: custom:mushroom-title-card
-      title: Office
-    - type: custom:mushroom-light-card
-      entity: light.office
-    - type: custom:mushroom-person-card
-      entity: person.resident
+# Markdown — free text; also the heading fallback on pre-2024.8 HA.
+- type: markdown
+  content: "## Notes\nBoiler service due in March."
+
+# ─── Custom cards — ONLY if query_dashboard_env lists them ──────────
+
+# Mushroom tiles (custom:mushroom-*) — pleasant compact cards, but a
+# hard error if the resource isn't installed. Inside a sections view
+# they still go under a heading card, never mushroom-title-card.
+- type: custom:mushroom-light-card
+  entity: light.living_room
+  show_brightness_control: true
+
+# Mini-graph (custom:mini-graph-card) — sparkline for one sensor.
+- type: custom:mini-graph-card
+  entities:
+    - entity: sensor.basement_humidity
+  hours_to_show: 24
+  line_width: 2

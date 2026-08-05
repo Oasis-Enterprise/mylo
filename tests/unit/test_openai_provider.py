@@ -108,3 +108,12 @@ def test_convert_tools_wraps_in_function() -> None:
     assert oai[0]["type"] == "function"
     assert oai[0]["function"]["name"] == "query_entities"
     assert oai[0]["function"]["parameters"]["type"] == "object"
+
+
+def test_default_max_tokens_fits_a_full_view() -> None:
+    import inspect
+
+    from mylo.llm.openai_provider import OpenAIProvider
+
+    sig = inspect.signature(OpenAIProvider.message)
+    assert sig.parameters["max_tokens"].default == 8192

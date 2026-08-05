@@ -84,5 +84,5 @@ class Provider(Protocol):
         messages: list[ProviderMessage],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> ProviderResponse: ...

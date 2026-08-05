@@ -106,7 +106,7 @@ class AnthropicProvider:
         messages: list[ProviderMessage],
         tools: list[dict[str, Any]],
         model: str,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> ProviderResponse:
         # Cache the system prompt.
         system_blocks: list[dict[str, Any]] = [
