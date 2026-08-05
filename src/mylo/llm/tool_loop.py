@@ -250,6 +250,15 @@ async def run_turn(
             )
         await conversation.append("user", result_blocks, prompt_version=prompt_version)
 
+        # ask_user pauses the turn HERE — after the tool_result is
+        # persisted (the next turn's history and UI hydration need it),
+        # before another provider round. Enforcing the pause in the loop
+        # means the model structurally cannot answer its own question;
+        # the user's reply arrives as the next chat message.
+        if any((env.get("data") or {}).get("await_user_input") for env in tool_results):
+            stop_reason = "awaiting_user_input"
+            break
+
         # NB: history is intentionally append-only WITHIN a turn now. We do
         # NOT compress between iterations — doing so dropped the entity_ids
         # the model had just gathered (forcing endless re-queries) and
