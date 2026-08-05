@@ -32,6 +32,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.files.diff import diff_structs
+from mylo.ha.lovelace_meta import get_themes
 from mylo.ha.ws_client import CommandError
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
@@ -172,7 +173,24 @@ async def _save_dashboard(
     )
 
 
+async def _check_theme(ctx: ToolContext, theme: str) -> ToolResult | None:
+    """Reject a theme HA doesn't have. Skipped when themes are unlistable."""
+    themes = await get_themes(ctx.ws_client)
+    if themes is None or theme in themes.names:
+        return None
+    return ToolResult.error(
+        "invalid_theme",
+        f"theme {theme!r} is not installed in HA — pick one of the "
+        "available themes (or omit theme to use the default)",
+        data={"available_themes": themes.names},
+    )
+
+
 async def handler(params: ModifyDashboardParams, ctx: ToolContext) -> ToolResult:
+    if params.theme:
+        theme_error = await _check_theme(ctx, params.theme)
+        if theme_error is not None:
+            return theme_error
     if params.action == "create":
         return await _create_view(ctx, params)
     if params.action == "add_cards":

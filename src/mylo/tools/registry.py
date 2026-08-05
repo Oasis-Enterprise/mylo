@@ -37,6 +37,7 @@ _DEFAULT_MODULES: tuple[str, ...] = (
     "mylo.tools.read.query_devices",
     "mylo.tools.read.query_automations",
     "mylo.tools.read.query_dashboard",
+    "mylo.tools.read.query_dashboard_env",
     "mylo.tools.read.query_logs",
     "mylo.tools.read.query_system",
     "mylo.tools.read.read_config_file",
