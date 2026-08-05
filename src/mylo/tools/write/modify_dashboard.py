@@ -32,12 +32,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.files.diff import diff_structs
-from mylo.ha.lovelace_meta import get_themes
+from mylo.ha.lovelace_meta import detect_custom_cards, get_resources, get_themes
 from mylo.ha.ws_client import CommandError
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.dashboard_refs import extract_entity_refs, validate_refs
 from mylo.tools.registry import register
+from mylo.validators.dashboard_schema import has_custom_card, validate_view
 
 Action = Literal[
     "create",
@@ -171,6 +172,31 @@ async def _save_dashboard(
     await ctx.ws_client.send_command(
         "lovelace/config/save", write=True, url_path=dashboard_id, config=config
     )
+
+
+async def _check_view_schema(
+    ctx: ToolContext, view: dict[str, Any]
+) -> ToolResult | list[dict[str, Any]]:
+    """Structure-check a view (or pseudo-view wrapping loose cards).
+
+    Returns a blocking ToolResult on errors, otherwise the list of
+    warning dicts to ride along in the preview. The lovelace-resources
+    lookup only happens when a custom:* card is actually present.
+    """
+    installed: set[str] | None = None
+    if has_custom_card(view):
+        resources = await get_resources(ctx.ws_client)
+        if resources is not None:
+            installed = detect_custom_cards(resources)
+    report = validate_view(view, installed_custom=installed)
+    if not report.ok:
+        return ToolResult.error(
+            "dashboard_schema_issues",
+            "the card configs have structural problems — fix every listed "
+            "issue and retry",
+            data=report.to_dict(),
+        )
+    return [i.to_dict() for i in report.issues]
 
 
 async def _check_theme(ctx: ToolContext, theme: str) -> ToolResult | None:
@@ -326,6 +352,10 @@ async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
             data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
         )
 
+    schema_warnings = await _check_view_schema(ctx, new_view)
+    if isinstance(schema_warnings, ToolResult):
+        return schema_warnings
+
     views.append(new_view)
     new_config = {**current, "views": views}
 
@@ -343,6 +373,8 @@ async def _create_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
     }
     if layout == "sections":
         preview["section_count"] = len(new_view.get("sections") or [])
+    if schema_warnings:
+        preview["schema_warnings"] = schema_warnings
 
     if params.dry_run:
         preview["preview"] = True
@@ -401,6 +433,10 @@ async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolRes
             data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
         )
 
+    schema_warnings = await _check_view_schema(ctx, {"cards": params.cards})
+    if isinstance(schema_warnings, ToolResult):
+        return schema_warnings
+
     target_view = dict(views[target_idx])
     resolved = _resolve_card_target(target_view, params.section_index)
     if isinstance(resolved, ToolResult):
@@ -421,6 +457,8 @@ async def _add_cards(ctx: ToolContext, params: ModifyDashboardParams) -> ToolRes
         "entity_refs_validated": len(entity_refs),
         "diff": diff.to_dict(),
     }
+    if schema_warnings:
+        preview["schema_warnings"] = schema_warnings
 
     if params.dry_run:
         preview["preview"] = True
@@ -488,6 +526,12 @@ async def _add_section(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
             data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
         )
 
+    schema_warnings = await _check_view_schema(
+        ctx, {"type": "sections", "sections": [section]}
+    )
+    if isinstance(schema_warnings, ToolResult):
+        return schema_warnings
+
     sections = list(target_view.get("sections") or [])
     sections.append(section)
     target_view["sections"] = sections
@@ -504,6 +548,8 @@ async def _add_section(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
         "entity_refs_validated": len(entity_refs),
         "diff": diff.to_dict(),
     }
+    if schema_warnings:
+        preview["schema_warnings"] = schema_warnings
 
     if params.dry_run:
         preview["preview"] = True
@@ -563,6 +609,10 @@ async def _update_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
             data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
         )
 
+    schema_warnings = await _check_view_schema(ctx, new_view)
+    if isinstance(schema_warnings, ToolResult):
+        return schema_warnings
+
     views[target_idx] = new_view
     new_config = {**current, "views": views}
 
@@ -579,6 +629,8 @@ async def _update_view(ctx: ToolContext, params: ModifyDashboardParams) -> ToolR
     }
     if layout == "sections":
         preview["section_count"] = len(new_view.get("sections") or [])
+    if schema_warnings:
+        preview["schema_warnings"] = schema_warnings
 
     if params.dry_run:
         preview["preview"] = True
@@ -701,6 +753,10 @@ async def _replace_card(ctx: ToolContext, params: ModifyDashboardParams) -> Tool
             data={"invalid_refs": invalid, "total_refs_checked": len(entity_refs)},
         )
 
+    schema_warnings = await _check_view_schema(ctx, {"cards": [params.config]})
+    if isinstance(schema_warnings, ToolResult):
+        return schema_warnings
+
     old_card_type = (
         cards[params.card_index].get("type", "unknown")
         if isinstance(cards[params.card_index], dict)
@@ -722,6 +778,8 @@ async def _replace_card(ctx: ToolContext, params: ModifyDashboardParams) -> Tool
         "entity_refs_validated": len(entity_refs),
         "diff": diff.to_dict(),
     }
+    if schema_warnings:
+        preview["schema_warnings"] = schema_warnings
 
     if params.dry_run:
         preview["preview"] = True
