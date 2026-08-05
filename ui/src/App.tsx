@@ -28,6 +28,7 @@ import { Composer } from "./components/Composer";
 import { Header, type Tab } from "./components/Header";
 import { MemoryTab } from "./components/MemoryTab";
 import { Message } from "./components/Message";
+import { QuestionCard, type PendingQuestion } from "./components/QuestionCard";
 import { hydrateFromMessages, isTurnComplete } from "./hydrate";
 import { useSession } from "./store";
 import type { ChatFragment, ChatItem, ToolCallRecord } from "./types";
@@ -193,6 +194,12 @@ export default function App() {
   const approvalContexts = findApprovalContexts(items);
   const approvalCount = approvalContexts.length;
 
+  // A pending ask_user question is derived from the items, not stored:
+  // it exists exactly when the latest assistant turn ended on an
+  // ask_user result with no user message after it. That makes reload
+  // hydration and dismissal (any user message) free.
+  const pendingQuestion = findPendingQuestion(items);
+
   const handleApply = useCallback(async () => {
     const message =
       approvalCount > 1
@@ -244,6 +251,15 @@ export default function App() {
                 data={catchup}
                 onDismiss={() => setCatchup(null)}
               />
+            ) : null}
+            {pendingQuestion && !sending ? (
+              <div style={{ paddingRight: 40 }}>
+                <QuestionCard
+                  question={pendingQuestion}
+                  onSelect={(label) => void handleSubmit(label)}
+                  disabled={sending}
+                />
+              </div>
             ) : null}
             {pendingApproval && approvalCount > 0 ? (
               <div style={{ paddingRight: 40 }}>
@@ -300,6 +316,38 @@ function detectPendingApproval(items: ChatItem[]): boolean {
     return false;
   }
   return false;
+}
+
+function findPendingQuestion(items: ChatItem[]): PendingQuestion | null {
+  // Walk backwards: a user message means the question (if any) was
+  // already answered; otherwise scan the most recent assistant turn
+  // for an ask_user result flagged await_user_input.
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.role === "user") return null;
+    if (item.role !== "assistant") continue;
+    for (let j = item.fragments.length - 1; j >= 0; j--) {
+      const frag = item.fragments[j];
+      if (frag.kind !== "tool" || frag.call.state !== "ok") continue;
+      const data = frag.call.data as Record<string, unknown> | undefined;
+      if (!data || data.await_user_input !== true) continue;
+      const rawOptions = Array.isArray(data.options) ? data.options : [];
+      return {
+        question: String(data.question ?? ""),
+        options: rawOptions
+          .filter((o): o is Record<string, unknown> => !!o && typeof o === "object")
+          .map((o) => ({
+            label: String(o.label ?? ""),
+            value: o.value ? String(o.value) : undefined,
+            description: o.description ? String(o.description) : undefined,
+          }))
+          .filter((o) => o.label),
+        allowFreeText: data.allow_free_text !== false,
+      };
+    }
+    return null;
+  }
+  return null;
 }
 
 interface ApprovalContext {
@@ -397,6 +445,44 @@ function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
     const tierLabel = String(data.tier ?? "TIER-3").toUpperCase();
 
     return { description, meta, tierLabel };
+  }
+
+  // Dashboard writes — say what's being built, not just "dry run":
+  // "Create view "Kitchen" — sections layout, 3 sections, 12 cards".
+  if (call.name === "modify_dashboard") {
+    const action = String(input.action ?? "modify");
+    const viewTitle = data.view_title ?? input.title;
+    const viewPath = data.view_path ?? input.view_path;
+    const target = viewTitle ? `view "${String(viewTitle)}"` : viewPath ? `view "${String(viewPath)}"` : "dashboard";
+
+    const details: string[] = [];
+    if (typeof data.layout === "string") details.push(`${data.layout} layout`);
+    if (typeof data.section_count === "number") {
+      details.push(`${data.section_count} section${data.section_count === 1 ? "" : "s"}`);
+    }
+    const cardCount = data.card_count ?? data.cards_added;
+    if (typeof cardCount === "number") {
+      details.push(`${cardCount} card${cardCount === 1 ? "" : "s"}`);
+    }
+
+    const actionLabel = action === "create" ? "Create" : action.replace(/_/g, " ");
+    const description =
+      `${actionLabel[0].toUpperCase()}${actionLabel.slice(1)} ${target}` +
+      (details.length > 0 ? ` — ${details.join(", ")}` : "");
+
+    const metaParts: string[] = [];
+    if (typeof data.entity_refs_validated === "number") {
+      metaParts.push(`entities validated: ${data.entity_refs_validated}`);
+    }
+    if (Array.isArray(data.schema_warnings) && data.schema_warnings.length > 0) {
+      metaParts.push(`schema warnings: ${data.schema_warnings.length}`);
+    }
+
+    return {
+      description,
+      meta: metaParts.length > 0 ? metaParts.join(" · ") : undefined,
+      tierLabel: "TIER-2",
+    };
   }
 
   return {
