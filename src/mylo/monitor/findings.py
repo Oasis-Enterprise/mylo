@@ -80,6 +80,13 @@ def upsert_finding(
     if in_cooldown(memory, finding_type, entity_id, now):
         return False
 
+    # User suppressions ("ignore this entity" via
+    # manage_notification_filters) are enforced HERE — the single choke
+    # point every producer flows through. A suppressed pair neither
+    # inserts nor refreshes.
+    if memory.is_notification_suppressed(finding_type, entity_id or None):
+        return False
+
     ts = now.isoformat(timespec="seconds")
     for pa in memory.pending_actions:
         if pa.type == finding_type and pa.entity_id == entity_id:

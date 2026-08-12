@@ -214,3 +214,56 @@ def test_upsert_while_in_cooldown_returns_false() -> None:
     result = _upsert(memory)
     assert result is False
     assert len(memory.pending_actions) == 0
+
+
+# ─── Suppression enforcement at the store choke point ───────────────────────
+#
+# "Ignore this entity" used to be enforced only in the notifier's send()
+# — with outbound notifications gone, the check lives here so
+# manage_notification_filters keeps meaning something: a suppressed
+# (type, entity) pair never enters or refreshes the findings list.
+
+
+def _suppress(memory, ftype, entity=None):
+    from mylo.memory.schema import NotificationSuppression
+
+    memory.notification_suppressions.append(
+        NotificationSuppression(type=ftype, entity=entity, reason="test", added=NOW.isoformat())
+    )
+
+
+def test_suppressed_entity_never_inserts() -> None:
+    memory = empty_memory()
+    _suppress(memory, "duration_anomaly", "light.kitchen")
+    assert _upsert(memory, entity_id="light.kitchen") is False
+    assert memory.pending_actions == []
+
+
+def test_suppressed_type_blocks_all_entities() -> None:
+    memory = empty_memory()
+    _suppress(memory, "duration_anomaly")  # no entity → type-wide
+    assert _upsert(memory, entity_id="light.a") is False
+    assert _upsert(memory, entity_id="light.b") is False
+    assert memory.pending_actions == []
+
+
+def test_wildcard_suppression_blocks_everything() -> None:
+    memory = empty_memory()
+    _suppress(memory, "*")
+    assert _upsert(memory, ftype="unavailable", entity_id="light.a") is False
+    assert memory.pending_actions == []
+
+
+def test_suppression_blocks_refresh_too() -> None:
+    memory = empty_memory()
+    assert _upsert(memory) is True
+    original_seen = memory.pending_actions[0].last_seen
+    _suppress(memory, "duration_anomaly", "light.kitchen")
+    assert _upsert(memory, now=NOW + timedelta(hours=2)) is False
+    assert memory.pending_actions[0].last_seen == original_seen
+
+
+def test_unsuppressed_pairs_unaffected() -> None:
+    memory = empty_memory()
+    _suppress(memory, "duration_anomaly", "light.other")
+    assert _upsert(memory, entity_id="light.kitchen") is True
