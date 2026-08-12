@@ -71,3 +71,52 @@ def test_parses_bare_fence_no_language() -> None:
 )
 def test_strip_code_fence(text: str, expected: str) -> None:
     assert _strip_code_fence(text) == expected
+
+
+# ─── []-for-string coercion (preferences) ───────────────────────────────────
+#
+# Haiku normalizes `null` string fields to `[]` when re-emitting the memory
+# YAML. The nightly sync failed for weeks on `preferences.dashboard.notes:
+# []` — pydantic wants str | None. Coerce empty containers to None on the
+# three preference models (mirrors Note._flatten_dict_scope).
+
+
+def test_parses_empty_list_for_string_preference_fields() -> None:
+    text = (
+        "version: 2\n"
+        "preferences:\n"
+        "  dashboard:\n"
+        "    card_style: mushroom\n"
+        "    notes: []\n"
+        "  alerts:\n"
+        "    quiet_hours: []\n"
+        "  naming:\n"
+        "    convention: []\n"
+    )
+    mf = _parse_reconciler_output(text)
+    assert mf.preferences.dashboard.notes is None
+    assert mf.preferences.dashboard.card_style == "mushroom"
+    assert mf.preferences.alerts.quiet_hours is None
+    assert mf.preferences.naming.convention is None
+
+
+def test_coercion_leaves_real_list_fields_alone() -> None:
+    from mylo.memory.schema import AlertPreferences, NamingPreferences
+
+    alerts = AlertPreferences.model_validate({"quiet_hours": [], "channels": ["mobile"]})
+    assert alerts.quiet_hours is None
+    assert alerts.channels == ["mobile"]
+
+    naming = NamingPreferences.model_validate(
+        {"convention": {}, "examples": [{"before": "a", "after": "b"}]}
+    )
+    assert naming.convention is None
+    assert naming.examples == [{"before": "a", "after": "b"}]
+
+
+def test_coercion_keeps_valid_strings() -> None:
+    from mylo.memory.schema import DashboardPreferences
+
+    prefs = DashboardPreferences.model_validate({"notes": "keep it minimal", "theme": []})
+    assert prefs.notes == "keep it minimal"
+    assert prefs.theme is None

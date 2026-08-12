@@ -73,6 +73,27 @@ class Household(BaseModel):
     shared: dict[str, Any] = Field(default_factory=dict)
 
 
+def _empty_containers_to_none(cls: type[BaseModel], data: Any) -> Any:
+    """Coerce ``[]`` / ``{}`` to ``None`` for the model's ``str | None``
+    fields.
+
+    The Haiku reconciler re-emits null string fields as empty lists
+    (``notes: []``), which pydantic rightly rejects — and one bad field
+    used to sink the whole nightly merge. Real container fields
+    (``channels``, ``examples``) keep their values.
+    """
+    if not isinstance(data, dict):
+        return data
+    coerced = dict(data)
+    for name, field_info in cls.model_fields.items():
+        if field_info.annotation != (str | None):
+            continue
+        value = coerced.get(name)
+        if isinstance(value, list | dict) and not value:
+            coerced[name] = None
+    return coerced
+
+
 class DashboardPreferences(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -81,12 +102,22 @@ class DashboardPreferences(BaseModel):
     theme: str | None = None
     notes: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_empty(cls, data: Any) -> Any:
+        return _empty_containers_to_none(cls, data)
+
 
 class NamingPreferences(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     convention: str | None = None
     examples: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_empty(cls, data: Any) -> Any:
+        return _empty_containers_to_none(cls, data)
 
 
 class AlertPreferences(BaseModel):
@@ -95,6 +126,11 @@ class AlertPreferences(BaseModel):
     sensitivity: str | None = None
     quiet_hours: str | None = None
     channels: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_empty(cls, data: Any) -> Any:
+        return _empty_containers_to_none(cls, data)
 
 
 class Preferences(BaseModel):
