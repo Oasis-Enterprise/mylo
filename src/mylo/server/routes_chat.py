@@ -252,12 +252,14 @@ async def _handle_status(request: web.Request) -> web.Response:
             if e.domain == "automation" and not e.disabled_by and not e.hidden_by
         )
 
-    memory_payload: dict[str, Any] = {"last_sync": None, "pending_conflicts": 0}
+    memory_payload: dict[str, Any] = {"last_sync": None, "pending_conflicts": 0, "findings": 0}
     if memory_store is not None:
         mem = memory_store.current()
         memory_payload = {
             "last_sync": mem.last_sync,
             "pending_conflicts": len(mem.pending_conflicts()),
+            # Drives the header's findings badge via the existing poll.
+            "findings": sum(1 for pa in mem.pending_actions if not pa.resolved),
         }
 
     from mylo import __version__

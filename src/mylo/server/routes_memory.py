@@ -49,6 +49,7 @@ def register_memory_routes(app: web.Application) -> None:
     app.router.add_get("/api/suggestions", _handle_get_suggestions)
     app.router.add_post("/api/suggestions/{suggestion_id}/respond", _handle_suggestion_respond)
     app.router.add_post("/api/suggestions/{suggestion_id}/automated", _handle_suggestion_automated)
+    app.router.add_get("/api/findings", _handle_get_findings)
     app.router.add_post("/api/pending-actions/clear", _handle_clear_pending_actions)
     app.router.add_post("/api/pending-actions/dismiss", _handle_dismiss_pending_action)
 
@@ -436,6 +437,34 @@ async def _handle_suggestion_automated(request: web.Request) -> web.Response:
             return web.json_response({"ok": True, "id": suggestion_id, "automated": True})
 
     return web.json_response({"ok": False, "error": "suggestion_not_found"}, status=404)
+
+
+async def _handle_get_findings(request: web.Request) -> web.Response:
+    """Active monitor findings, always available.
+
+    The catch-up banner only renders after a 2h absence — this is the
+    ungated surface behind the panel's findings badge. Strongest first.
+    """
+    from mylo.server.app import AppKeys
+
+    store = request.app[AppKeys.MEMORY]
+    memory = store.current()
+
+    unresolved = [pa for pa in memory.pending_actions if not pa.resolved]
+    unresolved.sort(key=lambda pa: (pa.confidence, pa.last_seen or ""), reverse=True)
+    findings = [
+        {
+            "id": pa.id,
+            "type": pa.type,
+            "entity_id": pa.entity_id,
+            "title": pa.title,
+            "message": pa.message,
+            "detected_at": pa.detected_at,
+            "last_seen": pa.last_seen,
+        }
+        for pa in unresolved
+    ]
+    return web.json_response({"findings": findings, "count": len(findings)})
 
 
 async def _handle_clear_pending_actions(request: web.Request) -> web.Response:

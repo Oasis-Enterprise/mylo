@@ -1195,3 +1195,76 @@ def test_detect_patterns_reports_refreshes(tmp_path: Path) -> None:
     new2, refreshed2 = detect_patterns(logger, mem)
     assert new2 == []
     assert refreshed2 == 1
+
+
+# ─── /api/findings ──────────────────────────────────────────────────────────
+#
+# The catch-up banner only renders after a 2h absence; this endpoint is
+# the always-available surface behind the panel's findings badge.
+
+
+async def test_get_findings_endpoint(aiohttp_client, memory_app: web.Application) -> None:
+    from mylo.server.app import AppKeys
+
+    store = memory_app[AppKeys.MEMORY]
+    mem = await store.load()
+    mem.pending_actions.append(
+        PendingAction(
+            id="f1",
+            type="unavailable",
+            entity_id="light.porch",
+            title="Entity unavailable",
+            message="light.porch went unavailable",
+            detected_at="2026-08-11T10:00:00+00:00",
+            last_seen="2026-08-11T12:00:00+00:00",
+            confidence=0.7,
+        )
+    )
+    mem.pending_actions.append(
+        PendingAction(
+            id="f2",
+            type="anomaly",
+            entity_id="sensor.temp",
+            title="Anomaly",
+            message="way off baseline",
+            detected_at="2026-08-11T11:00:00+00:00",
+            last_seen="2026-08-11T11:00:00+00:00",
+            confidence=0.95,
+        )
+    )
+    mem.pending_actions.append(
+        PendingAction(
+            id="f3",
+            type="anomaly",
+            entity_id="sensor.old",
+            title="Resolved",
+            message="done",
+            detected_at="2026-08-10T10:00:00+00:00",
+            last_seen="2026-08-10T10:00:00+00:00",
+            confidence=1.0,
+            resolved=True,
+        )
+    )
+    await store.save(mem, note="seed findings")
+
+    client = await aiohttp_client(memory_app)
+    resp = await client.get("/api/findings")
+    assert resp.status == 200
+    body = await resp.json()
+
+    assert body["count"] == 2  # resolved finding excluded
+    assert [f["id"] for f in body["findings"]] == ["f2", "f1"]  # confidence desc
+    first = body["findings"][0]
+    assert first["title"] == "Anomaly"
+    assert first["entity_id"] == "sensor.temp"
+    assert first["last_seen"] == "2026-08-11T11:00:00+00:00"
+
+
+async def test_get_findings_empty(aiohttp_client, memory_app: web.Application) -> None:
+    from mylo.server.app import AppKeys
+
+    await memory_app[AppKeys.MEMORY].load()
+    client = await aiohttp_client(memory_app)
+    resp = await client.get("/api/findings")
+    body = await resp.json()
+    assert body == {"findings": [], "count": 0}
