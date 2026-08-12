@@ -1032,3 +1032,82 @@ def test_behavioral_pattern_id_stable_under_minute_drift(tmp_path: Path) -> None
     assert second == []
     assert len([p for p in mem.patterns if p.id == pid]) == 1
     assert len(mem.patterns) == 1
+
+
+# ─── Scratchpad bounds ──────────────────────────────────────────────────────
+#
+# When nightly merges fail in a streak, nothing drains the scratchpad —
+# it used to grow without bound (and the whole file was sent to the LLM
+# every night). run_sync now trims the file to a hard cap (overflow is
+# archived to history/, never silently deleted) and reads at most
+# _SCRATCHPAD_RECONCILE_LIMIT entries into the payload.
+
+
+def _scratch_line(i: int) -> str:
+    return (
+        f'- {{type: "user_note", scope: {{general: true}}, '
+        f'content: "scratch note {i}", recorded: "2026-08-01", '
+        f'confidence: 1.0, conversation_id: "c1"}}'
+    )
+
+
+def test_trim_scratchpad_noop_under_bound(tmp_path: Path) -> None:
+    from mylo.memory.scratchpad import trim_scratchpad
+
+    path = tmp_path / "scratchpad.yaml"
+    path.write_text("\n".join(_scratch_line(i) for i in range(5)) + "\n")
+
+    removed = trim_scratchpad(tmp_path, max_entries=10, keep=5)
+
+    assert removed == 0
+    assert len(path.read_text().strip().splitlines()) == 5
+    assert not (tmp_path / "history").exists()
+
+
+def test_trim_scratchpad_archives_overflow_keeps_newest(tmp_path: Path) -> None:
+    from mylo.memory.scratchpad import read_scratchpad, trim_scratchpad
+
+    path = tmp_path / "scratchpad.yaml"
+    path.write_text("\n".join(_scratch_line(i) for i in range(20)) + "\n")
+
+    removed = trim_scratchpad(tmp_path, max_entries=10, keep=5)
+
+    assert removed == 15
+    kept = read_scratchpad(tmp_path)
+    assert len(kept) == 5
+    # Entries append chronologically; the newest (highest i) survive.
+    assert kept[0].content == "scratch note 19"
+    archives = list((tmp_path / "history").glob("scratchpad_overflow_*.yaml"))
+    assert len(archives) == 1
+    assert len(archives[0].read_text().strip().splitlines()) == 20
+
+
+def test_trim_scratchpad_missing_file_is_noop(tmp_path: Path) -> None:
+    from mylo.memory.scratchpad import trim_scratchpad
+
+    assert trim_scratchpad(tmp_path, max_entries=10, keep=5) == 0
+
+
+async def test_run_sync_bounds_scratchpad_payload(tmp_path: Path, monkeypatch: Any) -> None:
+    from mylo.memory import reconciler as reconciler_mod
+
+    monkeypatch.setattr(reconciler_mod, "_SCRATCHPAD_RECONCILE_LIMIT", 3)
+
+    store = MemoryStore(mylo_data_dir=tmp_path)
+    await store.load()
+    (tmp_path / "scratchpad.yaml").write_text("\n".join(_scratch_line(i) for i in range(6)) + "\n")
+    provider = _FakeProvider(reply="version: 2\n")
+
+    await run_sync(
+        store=store,
+        provider=provider,
+        registries=None,
+        model="claude-haiku-4-5-20251001",
+        mylo_data_dir=tmp_path,
+        now=NOW,
+    )
+
+    assert provider.calls, "reconciler should have called the provider"
+    payload = str(provider.calls[0]["messages"])
+    assert "scratch note 5" in payload  # newest included
+    assert "scratch note 0" not in payload  # oldest excluded by limit

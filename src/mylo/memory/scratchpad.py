@@ -80,6 +80,47 @@ def read_scratchpad(mylo_data_dir: Path, *, limit: int | None = None) -> list[Sc
     return entries
 
 
+def trim_scratchpad(mylo_data_dir: Path, *, max_entries: int = 500, keep: int = 300) -> int:
+    """Hard-cap the scratchpad file, archiving the overflow.
+
+    Normally a successful reconciliation drains the file — but a streak
+    of failed merges never drains it, and the file (and the nightly LLM
+    payload built from it) grew without bound in production. When the
+    file exceeds ``max_entries`` lines, the FULL file is archived to
+    ``history/scratchpad_overflow_<ts>.yaml`` (entries beyond the cap
+    are recoverable there, never silently deleted) and the newest
+    ``keep`` lines are kept in place.
+
+    Line-based on purpose: the file is one ``- {...}`` inline-YAML entry
+    per line (memory_note's writer), and rewriting through a YAML dump
+    would risk format drift. Returns the number of lines removed.
+    """
+    path = mylo_data_dir / "scratchpad.yaml"
+    if not path.exists():
+        return 0
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    if len(lines) <= max_entries:
+        return 0
+
+    history_dir = mylo_data_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    from datetime import UTC, datetime
+
+    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S")
+    dest = history_dir / f"scratchpad_overflow_{stamp}.yaml"
+    try:
+        dest.write_bytes(path.read_bytes())
+    except OSError as exc:
+        log.warning("memory.scratchpad_archive_failed", error=str(exc))
+        return 0  # don't discard entries we failed to archive
+
+    kept = lines[-keep:]
+    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    removed = len(lines) - len(kept)
+    log.warning("memory.scratchpad_trimmed", removed=removed, kept=len(kept), archive=dest.name)
+    return removed
+
+
 def drain_scratchpad(mylo_data_dir: Path) -> int:
     """Remove ``scratchpad.yaml`` after a successful reconciliation.
 

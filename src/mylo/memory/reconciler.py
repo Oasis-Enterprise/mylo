@@ -51,7 +51,7 @@ from mylo.ha.registries import Registries
 from mylo.logging_setup import get_logger
 from mylo.memory.pruner import PruneReport, plan_prune
 from mylo.memory.schema import MemoryFile, Note, empty_memory
-from mylo.memory.scratchpad import ScratchpadEntry, read_scratchpad
+from mylo.memory.scratchpad import ScratchpadEntry, read_scratchpad, trim_scratchpad
 from mylo.memory.store import MemoryStore
 from mylo.validators.yaml_parser import dump_yaml, load_yaml, load_yaml_lenient
 
@@ -83,6 +83,12 @@ _DIFF_SAMPLE_CAP = 50
 # to leave room for the system prompt and the model's reply. Sizing uses
 # the shared conservative estimator (mylo.context.tokens.estimate_tokens).
 _PAYLOAD_TOKEN_BUDGET = 150_000
+
+# Newest scratchpad entries sent per sync. A streak of failed merges
+# never drains the file, so without a bound the payload grew every
+# night; the overflow stays on disk (and trim_scratchpad archives it)
+# until a successful merge drains the file.
+_SCRATCHPAD_RECONCILE_LIMIT = 300
 
 
 # ─── Provider interface (narrow) ─────────────────────────────────────────────
@@ -245,7 +251,8 @@ async def run_sync(
     """
     current = now or datetime.now(UTC)
     memory = store.current() if store.current() is not None else await store.load()
-    scratchpad = read_scratchpad(mylo_data_dir)
+    trim_scratchpad(mylo_data_dir)
+    scratchpad = read_scratchpad(mylo_data_dir, limit=_SCRATCHPAD_RECONCILE_LIMIT)
     diff = _build_state_diff(memory, registries)
 
     # Prune pass is always computed — we want to report candidates
