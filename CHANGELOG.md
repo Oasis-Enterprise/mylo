@@ -5,6 +5,23 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0b4] — 2026-08-12
+
+> ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
+
+### Changed
+- **Notifications removed — findings now live entirely inside Mylo.** Mobile push and HA persistent notifications are gone (including the hourly `mobile_send_failed` log spam when a device is unreachable). Instead, the panel header shows a **findings badge** whenever something needs attention — tap it for an inline list with per-item dismiss (7-day snooze) and dismiss-all. This also closes an old gap: the catch-up banner only appeared after you'd been away 2+ hours, so frequent users never saw findings at all.
+- **"Ignore this entity" filters now guard the findings list itself.** Suppressions previously only muted the push notification while the finding still landed; they now keep suppressed items out of your findings entirely.
+- **Memory sync conflicts now appear as a finding** instead of a notification, so they're no longer easy to miss.
+- **Config cleanup:** `notification_method`, `max_daily_notifications`, and `quiet_hours_start/end` are no longer used. Their config entries remain visible (marked deprecated, ignored) for this release only, so updating with old saved options can't fail validation — they'll be removed next release. `proactive_notifications` remains as the master switch for hourly background monitoring.
+- Dismissing a finding is now always a 7-day snooze. (Previously, dismissed-but-still-unavailable entities kept re-notifying; use a suppression filter for a permanent mute.)
+
+### Fixed
+- **Nightly memory sync no longer fails on common LLM output quirks — this had been silently failing for weeks.** Empty lists where strings belong (`notes: []`) are coerced, duplicate YAML keys are tolerated (first occurrence wins), and validation failures now get repair attempts instead of sinking the whole merge.
+- **Scratchpad growth is bounded.** A streak of failed syncs used to grow `scratchpad.yaml` (and the nightly LLM payload built from it) without limit. It's now capped, with overflow archived to `history/` — nothing is silently deleted.
+- **Stopped the nightly pattern churn.** The pruner capped behavioral patterns at 200, then the detector re-created the same ~1000 from the unchanged transition window hours later — every night. The cap now runs after detection, so the list stays converged and the nightly "+1000 patterns compacted" warnings stop. Pattern freshness timestamps also persist on quiet nights, so live patterns no longer age spuriously toward the stale-pattern cleanup.
+- **A dropped connection can no longer wipe an in-progress turn's context.** After an SSE disconnect (e.g. the add-on restarting mid-conversation), the UI's recovery polling could reload history out from under the still-running turn, leaving the model blind and burning all 25 iterations doing nothing. The polling endpoint is now read-only, and starting/clearing a conversation while a turn is running is refused instead of corrupting it.
+
 ## [1.5.0b3] — 2026-08-05
 
 > ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
