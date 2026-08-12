@@ -383,6 +383,41 @@ def _excess_patterns(
     ]
 
 
+def enforce_pattern_cap(memory: MemoryFile) -> int:
+    """Trim ``memory.patterns`` to ``MAX_PATTERNS`` in place, right now.
+
+    Same protection and ranking rules as :func:`_excess_patterns`, but
+    applied immediately instead of via a prune plan. Used right after
+    behavioral detection — the nightly prune used to cap the list only
+    for the detector to re-derive and re-add the same ~1000 patterns
+    hours later from the unchanged transition window, a stable
+    oscillation that bloated every reconciler payload. Returns the
+    number of patterns dropped.
+    """
+    if len(memory.patterns) <= MAX_PATTERNS:
+        return 0
+
+    def is_protected(p: object) -> bool:
+        return (
+            getattr(p, "priority", None) == "critical" or getattr(p, "source", "") != "behavioral"
+        )
+
+    protected = [p for p in memory.patterns if is_protected(p)]
+    prunable = [p for p in memory.patterns if not is_protected(p)]
+
+    keep = max(0, MAX_PATTERNS - len(protected))
+    _epoch = datetime.min.replace(tzinfo=UTC)
+    prunable.sort(
+        key=lambda p: (p.confidence, _parse_iso(p.last_confirmed) or _epoch),
+        reverse=True,
+    )
+    dropped = len(prunable) - keep
+    if dropped <= 0:
+        return 0
+    memory.patterns = protected + prunable[:keep]
+    return dropped
+
+
 def _old_rejections(memory: MemoryFile, now: datetime) -> list[PruneCandidate]:
     cutoff = now - REJECTED_MAX_AGE
     out: list[PruneCandidate] = []

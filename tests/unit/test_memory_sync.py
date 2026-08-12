@@ -1018,7 +1018,7 @@ def test_behavioral_pattern_id_stable_under_minute_drift(tmp_path: Path) -> None
 
     # First run: cluster averaging ~22:31.
     _write_transitions(tmp_path, "light.kitchen", "off", 22 * 60 + 31, days=8)
-    first = detect_patterns(logger, mem)
+    first, _ = detect_patterns(logger, mem)
     assert len(first) == 1
     mem.patterns.extend(first)
     pid = first[0].id
@@ -1026,7 +1026,7 @@ def test_behavioral_pattern_id_stable_under_minute_drift(tmp_path: Path) -> None
 
     # Second run: same behavior, averaged time drifted to ~22:36.
     _write_transitions(tmp_path, "light.kitchen", "off", 22 * 60 + 36, days=8)
-    second = detect_patterns(logger, mem)
+    second, _ = detect_patterns(logger, mem)
     # Drift stayed in the same 30-min bucket → existing pattern updated,
     # no new pattern spawned.
     assert second == []
@@ -1111,3 +1111,87 @@ async def test_run_sync_bounds_scratchpad_payload(tmp_path: Path, monkeypatch: A
     payload = str(provider.calls[0]["messages"])
     assert "scratch note 5" in payload  # newest included
     assert "scratch note 0" not in payload  # oldest excluded by limit
+
+
+# ─── Pattern cap at detection time (oscillation fix) ────────────────────────
+#
+# The pruner capped patterns at 200 nightly, then hours later the
+# behavioral detector re-derived the same ~1000 from the unchanged 14-day
+# transition window and re-added them — a stable 200↔1200 oscillation
+# that bloated the reconciler payload every night. The cap is now also
+# enforced right after detection (enforce_pattern_cap), and refresh-only
+# nights persist their updated last_confirmed.
+
+
+def test_enforce_pattern_cap_keeps_strongest() -> None:
+    from mylo.memory.pruner import MAX_PATTERNS, enforce_pattern_cap
+
+    mem = empty_memory()
+    for i in range(MAX_PATTERNS + 50):
+        mem.patterns.append(
+            Pattern(
+                id=f"behavior_p{i}",
+                description="d",
+                confidence=round(i / (MAX_PATTERNS + 50), 3),
+                last_confirmed=NOW.isoformat(),
+                source="behavioral",
+            )
+        )
+
+    dropped = enforce_pattern_cap(mem)
+
+    assert dropped == 50
+    assert len(mem.patterns) == MAX_PATTERNS
+    # The weakest 50 are the ones gone.
+    surviving = {p.id for p in mem.patterns}
+    assert "behavior_p0" not in surviving
+    assert f"behavior_p{MAX_PATTERNS + 49}" in surviving
+
+
+def test_enforce_pattern_cap_protects_non_behavioral() -> None:
+    from mylo.memory.pruner import MAX_PATTERNS, enforce_pattern_cap
+
+    mem = empty_memory()
+    for i in range(10):
+        mem.patterns.append(
+            Pattern(id=f"user_p{i}", description="d", confidence=0.01, source="observation")
+        )
+    for i in range(MAX_PATTERNS):
+        mem.patterns.append(
+            Pattern(id=f"behavior_p{i}", description="d", confidence=0.9, source="behavioral")
+        )
+
+    dropped = enforce_pattern_cap(mem)
+
+    assert dropped == 10  # behavioral trimmed to make room under the cap
+    assert len(mem.patterns) == MAX_PATTERNS
+    assert all(p.id.startswith("user_p") or p.source == "behavioral" for p in mem.patterns)
+    assert sum(1 for p in mem.patterns if p.id.startswith("user_p")) == 10
+
+
+def test_enforce_pattern_cap_noop_under_cap() -> None:
+    from mylo.memory.pruner import enforce_pattern_cap
+
+    mem = empty_memory()
+    mem.patterns.append(Pattern(id="p1", description="d", source="behavioral"))
+    assert enforce_pattern_cap(mem) == 0
+    assert len(mem.patterns) == 1
+
+
+def test_detect_patterns_reports_refreshes(tmp_path: Path) -> None:
+    from mylo.monitor.behavioral import detect_patterns
+    from mylo.monitor.transitions import TransitionLogger
+
+    logger = TransitionLogger(tmp_path)
+    mem = empty_memory()
+
+    _write_transitions(tmp_path, "light.kitchen", "off", 22 * 60 + 31, days=8)
+    new, refreshed = detect_patterns(logger, mem)
+    assert len(new) == 1
+    assert refreshed == 0
+    mem.patterns.extend(new)
+
+    # Same behavior again → no new pattern, one refresh.
+    new2, refreshed2 = detect_patterns(logger, mem)
+    assert new2 == []
+    assert refreshed2 == 1

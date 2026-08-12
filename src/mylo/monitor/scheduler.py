@@ -209,6 +209,7 @@ async def _nightly_job(app: web.Application) -> None:
 
     # 3. Behavioral pattern detection.
     try:
+        from mylo.memory.pruner import enforce_pattern_cap
         from mylo.monitor.behavioral import detect_patterns
         from mylo.monitor.transitions import TransitionLogger
 
@@ -216,13 +217,27 @@ async def _nightly_job(app: web.Application) -> None:
         transition_logger = raw_logger if isinstance(raw_logger, TransitionLogger) else None
         if transition_logger is not None:
             mem = store.current()
-            new_patterns = detect_patterns(transition_logger, mem)
+            new_patterns, refreshed = detect_patterns(transition_logger, mem)
             if new_patterns:
                 mem.patterns.extend(new_patterns)
+            # Cap AFTER detection — capping only in the pre-detection
+            # prune let the detector re-add ~1000 just-pruned patterns
+            # from the unchanged transition window every night.
+            dropped = enforce_pattern_cap(mem)
+            if new_patterns or refreshed or dropped:
                 await store.save(
-                    mem, note=f"nightly: {len(new_patterns)} behavioral patterns detected"
+                    mem,
+                    note=(
+                        f"nightly: {len(new_patterns)} behavioral patterns detected, "
+                        f"{refreshed} refreshed, {dropped} over cap"
+                    ),
                 )
-                log.info("nightly.behavioral_patterns", count=len(new_patterns))
+                log.info(
+                    "nightly.behavioral_patterns",
+                    new=len(new_patterns),
+                    refreshed=refreshed,
+                    dropped=dropped,
+                )
     except Exception:
         log.exception("nightly.behavioral_failed")
 

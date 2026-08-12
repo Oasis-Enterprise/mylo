@@ -63,15 +63,18 @@ def detect_patterns(
     memory: MemoryFile,
     *,
     days: int = 14,
-) -> list[Pattern]:
-    """Analyze transition history and return newly-discovered patterns.
+) -> tuple[list[Pattern], int]:
+    """Analyze transition history for recurring behaviors.
 
-    Only returns patterns not already stored in memory. Existing
-    patterns get their confidence updated in place.
+    Returns ``(new_patterns, refreshed)``: patterns not already stored
+    in memory, plus a count of existing patterns whose confidence /
+    last_confirmed were updated in place — the caller must persist on
+    refreshes too, or quiet nights silently age live patterns toward
+    the stale-pattern prune rule.
     """
     transitions = transition_logger.read_recent(hours=days * 24)
     if not transitions:
-        return []
+        return [], 0
 
     # Group by (entity_id, to_state) → list of timestamps.
     groups: dict[tuple[str, str], list[datetime]] = defaultdict(list)
@@ -85,6 +88,7 @@ def detect_patterns(
     now = datetime.now(UTC)
     existing_ids = {p.id for p in memory.patterns}
     new_patterns: list[Pattern] = []
+    refreshed = 0
 
     for (entity_id, to_state), timestamps in groups.items():
         if len(timestamps) < MIN_OCCURRENCES:
@@ -120,6 +124,7 @@ def detect_patterns(
             if existing:
                 existing.confidence = round(confidence, 2)
                 existing.last_confirmed = now.isoformat(timespec="seconds")
+                refreshed += 1
                 continue
 
             if pattern_id in existing_ids:
@@ -157,7 +162,7 @@ def detect_patterns(
     if new_patterns:
         log.info("behavioral.patterns_detected", count=len(new_patterns))
 
-    return new_patterns
+    return new_patterns, refreshed
 
 
 def _cluster_by_time_of_day(
