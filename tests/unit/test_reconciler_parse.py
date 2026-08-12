@@ -120,3 +120,52 @@ def test_coercion_keeps_valid_strings() -> None:
     prefs = DashboardPreferences.model_validate({"notes": "keep it minimal", "theme": []})
     assert prefs.notes == "keep it minimal"
     assert prefs.theme is None
+
+
+# ─── Repair ladder: duplicate keys + validation retries ─────────────────────
+#
+# Haiku sometimes emits the same top-level key twice (`rejected: []` at both
+# the top and the bottom of the doc). ruamel's round-trip loader hard-fails
+# on duplicates and the old single-retry (_fix_unquoted_colons) couldn't
+# touch structure — the merge was skipped nightly. The parse is now a
+# ladder: strict → strict+colon-fix → lenient (duplicates allowed,
+# first occurrence wins) → lenient+colon-fix.
+
+
+def test_parses_duplicate_top_level_key() -> None:
+    text = (
+        "version: 2\nrejected:\n  - id: r1\n    suggestion: first wins\nnotes: []\nrejected: []\n"
+    )
+    mf = _parse_reconciler_output(text)
+    assert mf.version == 2
+    # ruamel's allow_duplicate_keys keeps the FIRST occurrence — pinned
+    # here so it's a conscious choice, not an accident.
+    assert len(mf.rejected) == 1
+    assert mf.rejected[0].suggestion == "first wins"
+
+
+def test_duplicate_key_and_unquoted_colon_together() -> None:
+    text = (
+        "version: 2\n"
+        "notes:\n"
+        "  - id: n1\n"
+        "    content: Tire specs (cold): 36 psi\n"
+        "notes:\n"
+        "  - id: n2\n"
+        "    content: dupe\n"
+    )
+    mf = _parse_reconciler_output(text)
+    assert mf.version == 2
+    assert mf.notes[0].id == "n1"
+
+
+def test_unparseable_output_still_raises() -> None:
+    from ruamel.yaml.error import YAMLError
+
+    with pytest.raises(YAMLError):
+        _parse_reconciler_output(": : not yaml at all : [")
+
+
+def test_non_mapping_output_raises_value_error() -> None:
+    with pytest.raises(ValueError):
+        _parse_reconciler_output("- just\n- a\n- list\n")

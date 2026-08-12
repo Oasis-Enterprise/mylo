@@ -40,6 +40,7 @@ import copy
 import re
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,7 +53,7 @@ from mylo.memory.pruner import PruneReport, plan_prune
 from mylo.memory.schema import MemoryFile, Note, empty_memory
 from mylo.memory.scratchpad import ScratchpadEntry, read_scratchpad
 from mylo.memory.store import MemoryStore
-from mylo.validators.yaml_parser import dump_yaml, load_yaml
+from mylo.validators.yaml_parser import dump_yaml, load_yaml, load_yaml_lenient
 
 log = get_logger(__name__)
 
@@ -549,10 +550,18 @@ def _parse_reconciler_output(text: str) -> MemoryFile:
     Haiku follows "no code fences" instructions most of the time but
     occasionally wraps output anyway — strip the fence if present.
 
-    LLM-generated YAML frequently has unquoted strings containing
-    colons (e.g. ``content: specs (cold): 36 psi``) which break the
-    parser. If the first parse fails, we retry with a best-effort
-    fix-up that quotes lines with ambiguous colons.
+    LLM-generated YAML fails in recurring, repairable ways: unquoted
+    strings containing colons (``content: specs (cold): 36 psi``),
+    duplicate mapping keys (``rejected: []`` emitted twice \u2014 ruamel's
+    strict round-trip loader hard-fails on those), and shape drift the
+    pydantic validators repair. The parse is a ladder \u2014 each rung gets
+    a full parse+validate attempt, and only when every rung fails does
+    the night's merge get skipped:
+
+        1. strict load
+        2. strict load after quoting ambiguous colons
+        3. lenient load (duplicate keys allowed, first occurrence wins)
+        4. lenient load after quoting ambiguous colons
     """
     # Strip BOM, zero-width characters, and other invisible unicode
     # that LLMs occasionally emit and that break YAML parsers.
@@ -563,17 +572,25 @@ def _parse_reconciler_output(text: str) -> MemoryFile:
 
     stripped = _strip_code_fence(stripped)
 
-    try:
-        parsed = load_yaml(stripped)
-    except Exception:
-        # Best-effort: try to fix unquoted strings with colons.
-        fixed = _fix_unquoted_colons(stripped)
-        parsed = load_yaml(fixed)
+    attempts: list[tuple[str, Callable[[str], Any]]] = [
+        (stripped, load_yaml),
+        (_fix_unquoted_colons(stripped), load_yaml),
+        (stripped, load_yaml_lenient),
+        (_fix_unquoted_colons(stripped), load_yaml_lenient),
+    ]
 
-    if not isinstance(parsed, dict):
-        raise ValueError(f"expected YAML mapping, got {type(parsed).__name__}")
+    last_exc: Exception | None = None
+    for candidate, loader in attempts:
+        try:
+            parsed = loader(candidate)
+            if not isinstance(parsed, dict):
+                raise ValueError(f"expected YAML mapping, got {type(parsed).__name__}")
+            return MemoryFile.model_validate(parsed)
+        except Exception as exc:
+            last_exc = exc
 
-    return MemoryFile.model_validate(parsed)
+    assert last_exc is not None
+    raise last_exc
 
 
 # Matches a YAML line like `    content: some text (cold): more text`

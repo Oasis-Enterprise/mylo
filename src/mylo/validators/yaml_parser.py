@@ -31,6 +31,7 @@ from __future__ import annotations
 import copy
 import io
 import re
+import warnings
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -145,6 +146,26 @@ def load_yaml(text: str) -> Any:
     """Round-trip load. Returns whatever the document parses to."""
     yaml = _yaml_instance()
     return yaml.load(text) if text else None
+
+
+def load_yaml_lenient(text: str) -> Any:
+    """Forgiving load for LLM-generated YAML (the reconciler's output).
+
+    Uses the safe loader with duplicate mapping keys allowed — ruamel
+    keeps the FIRST occurrence. Never use this for user config files:
+    round-trip mode with strict duplicates is load-bearing there.
+    """
+    if not text:
+        return None
+    yaml = _yaml_instance(typ="safe")
+    # _yaml_instance already instantiated the constructor (to register
+    # the HA tag handlers), which froze allow_duplicate_keys at its
+    # default — set it on the live constructor, not the YAML wrapper.
+    yaml.allow_duplicate_keys = True
+    yaml.constructor.allow_duplicate_keys = True
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return yaml.load(text)
 
 
 def dump_yaml(data: Any) -> str:
