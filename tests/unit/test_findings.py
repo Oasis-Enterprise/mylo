@@ -267,3 +267,46 @@ def test_unsuppressed_pairs_unaffected() -> None:
     memory = empty_memory()
     _suppress(memory, "duration_anomaly", "light.other")
     assert _upsert(memory, entity_id="light.kitchen") is True
+
+
+# ─── Nightly sync conflicts land in the findings store ──────────────────────
+#
+# The "Memory sync: conflicts detected" alert used to exist only as a
+# push notification — with outbound notifications gone it becomes a
+# finding, so the panel badge surfaces it.
+
+
+def test_sync_conflicts_recorded_as_finding() -> None:
+    from mylo.monitor.scheduler import record_sync_conflicts
+
+    memory = empty_memory()
+    changed = record_sync_conflicts(memory, conflicts_added=3, now=NOW)
+
+    assert changed is True
+    assert len(memory.pending_actions) == 1
+    finding = memory.pending_actions[0]
+    assert finding.type == "sync_conflict"
+    assert "3 conflict(s)" in finding.message
+
+
+def test_sync_conflicts_refresh_not_duplicate() -> None:
+    from mylo.monitor.scheduler import record_sync_conflicts
+
+    memory = empty_memory()
+    record_sync_conflicts(memory, conflicts_added=1, now=NOW)
+    changed = record_sync_conflicts(memory, conflicts_added=2, now=NOW + timedelta(days=1))
+
+    assert changed is True  # refreshed in place — still needs a save
+    assert len(memory.pending_actions) == 1
+    assert "2 conflict(s)" in memory.pending_actions[0].message
+
+
+def test_sync_conflicts_respect_suppression() -> None:
+    from mylo.monitor.scheduler import record_sync_conflicts
+
+    memory = empty_memory()
+    _suppress(memory, "sync_conflict")
+    changed = record_sync_conflicts(memory, conflicts_added=1, now=NOW)
+
+    assert changed is False
+    assert memory.pending_actions == []

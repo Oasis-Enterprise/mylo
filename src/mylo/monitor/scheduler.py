@@ -122,6 +122,34 @@ def _build_nightly_trigger(config: Any) -> CronTrigger:
 # ─── Job implementations ────────────────────────────────────────────────────
 
 
+def record_sync_conflicts(memory: Any, *, conflicts_added: int, now: Any) -> bool:
+    """Surface reconciler conflicts as a finding in the panel.
+
+    Returns True when the memory was mutated (insert OR refresh) so the
+    caller knows to save. Suppression ('sync_conflict' filter) and the
+    dismiss cooldown apply via upsert_finding like any other finding.
+    """
+    from mylo.monitor import findings as findings_store
+
+    before = [
+        (pa.last_seen, pa.message) for pa in memory.pending_actions if pa.type == "sync_conflict"
+    ]
+    findings_store.upsert_finding(
+        memory,
+        finding_id="mylo_sync_conflicts",
+        finding_type="sync_conflict",
+        entity_id="",
+        title="Memory sync: conflicts detected",
+        message=(f"{conflicts_added} conflict(s) found. Open the Memory tab to review."),
+        confidence=1.0,
+        now=now,
+    )
+    after = [
+        (pa.last_seen, pa.message) for pa in memory.pending_actions if pa.type == "sync_conflict"
+    ]
+    return after != before
+
+
 async def _nightly_job(app: web.Application) -> None:
     """Reconcile memory + recompute baselines.
 
@@ -130,18 +158,12 @@ async def _nightly_job(app: web.Application) -> None:
     """
     from mylo.memory.reconciler import run_sync
     from mylo.monitor.baselines import recompute_baselines
-    from mylo.monitor.notifier import Notifier
     from mylo.server.app import AppKeys
 
     config = app[AppKeys.CONFIG]
     store = app[AppKeys.MEMORY]
     provider = app.get(AppKeys.PROVIDER)
     registries = app.get(AppKeys.REGISTRIES)
-    notifier = Notifier(
-        ws_client=app[AppKeys.HA_CLIENT],
-        config=config,
-        memory=store.current(),
-    )
 
     log.info("nightly.started")
 
@@ -179,15 +201,13 @@ async def _nightly_job(app: web.Application) -> None:
             log.info("nightly.prune_only", dropped=result.prune_report.total)
 
         if result.conflicts_added > 0:
-            await notifier.send(
-                title="Memory sync: conflicts detected",
-                message=(
-                    f"{result.conflicts_added} conflict(s) found. Open the Memory tab to review."
-                ),
-                notification_id="mylo_nightly_conflicts",
-                severity="normal",
-                notification_type="sync_conflict",
-            )
+            from datetime import UTC, datetime
+
+            mem = store.current()
+            if record_sync_conflicts(
+                mem, conflicts_added=result.conflicts_added, now=datetime.now(UTC)
+            ):
+                await store.save(mem, note="nightly: sync conflict finding")
         log.info("nightly.sync_done", summary=result.summary)
     except Exception:
         log.exception("nightly.sync_failed")
