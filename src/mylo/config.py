@@ -32,7 +32,6 @@ from typing import Any, Literal
 
 SyncFrequency = Literal["nightly", "weekly", "manual"]
 LLMProvider = Literal["anthropic", "openai", "gemini", "ollama"]
-NotificationMethod = Literal["auto", "mobile", "persistent", "off"]
 
 DEFAULT_OPTIONS_PATH = Path("/data/options.json")
 
@@ -55,15 +54,11 @@ class AppConfig:
     sync_frequency: SyncFrequency
     memory_token_limit: int
     proactive_notifications: bool
-    max_daily_notifications: int
-    quiet_hours_start: str
-    quiet_hours_end: str
     session_budget_usd: float
     monthly_budget_usd: float
     context_budget_factor: float
     context_output_reserve_tokens: int
     working_set_max_entities: int
-    notification_method: NotificationMethod
 
     # Runtime-only (not in user options)
     supervisor_token: str | None
@@ -126,15 +121,11 @@ def load_config() -> AppConfig:
         sync_frequency=sync_frequency,
         memory_token_limit=int(_get(options, "memory_token_limit", 8000)),
         proactive_notifications=bool(_get(options, "proactive_notifications", True)),
-        max_daily_notifications=int(_get(options, "max_daily_notifications", 3)),
-        quiet_hours_start=str(_get(options, "quiet_hours_start", "22:00")),
-        quiet_hours_end=str(_get(options, "quiet_hours_end", "07:00")),
         session_budget_usd=float(_get(options, "session_budget_usd", 0.50)),
         monthly_budget_usd=float(_get(options, "monthly_budget_usd", 15.00)),
         context_budget_factor=float(_get(options, "context_budget_factor", 0.6)),
         context_output_reserve_tokens=int(_get(options, "context_output_reserve_tokens", 8000)),
         working_set_max_entities=int(_get(options, "working_set_max_entities", 40)),
-        notification_method=_get(options, "notification_method", "auto"),
         supervisor_token=os.environ.get("SUPERVISOR_TOKEN"),
         ha_config_dir=ha_config_dir,
         mylo_data_dir=mylo_data_dir,

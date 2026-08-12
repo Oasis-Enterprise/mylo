@@ -31,11 +31,7 @@ options:
   sync_frequency: nightly
   memory_token_limit: 8000
   proactive_notifications: true
-  max_daily_notifications: 3
-  quiet_hours_start: "22:00"
-  quiet_hours_end: "07:00"
   ollama_url: ""
-  notification_method: auto
   session_budget_usd: 0.50
   monthly_budget_usd: 15.00
   context_budget_factor: 0.6
@@ -52,10 +48,12 @@ schema:
   sync_frequency: list(nightly|weekly|manual)
   memory_token_limit: int(1000,64000)
   proactive_notifications: bool
-  max_daily_notifications: int(0,20)
-  quiet_hours_start: match(^([01]\d|2[0-3]):[0-5]\d$)
-  quiet_hours_end: match(^([01]\d|2[0-3]):[0-5]\d$)
-  notification_method: list(auto|mobile|persistent|off)
+  # Deprecated — ignored since 1.5.0b4; kept optional for one release so
+  # stored options from older versions still validate on update.
+  max_daily_notifications: "int(0,20)?"
+  quiet_hours_start: "match(^([01]\\d|2[0-3]):[0-5]\\d$)?"
+  quiet_hours_end: "match(^([01]\\d|2[0-3]):[0-5]\\d$)?"
+  notification_method: "list(auto|mobile|persistent|off)?"
   session_budget_usd: "float(0,100)?"
   monthly_budget_usd: "float(0,1000)?"
   context_budget_factor: "float(0.1,0.95)?"

@@ -50,17 +50,20 @@ configuration:
     name: Memory Token Limit
     description: Soft cap on the context file size. Mylo prompts to prune above 80%.
   proactive_notifications:
-    name: Proactive Notifications
-    description: Allow Mylo to send persistent notifications when it notices something.
+    name: Background Monitoring
+    description: >-
+      Enable the hourly background sweep (unavailable entities, anomalies,
+      learned checks). Findings appear in the Mylo panel — no notifications
+      are sent.
   max_daily_notifications:
-    name: Max Daily Notifications
-    description: Cap on proactive notifications per day.
+    name: Max Daily Notifications (deprecated)
+    description: Deprecated — ignored. Notifications were removed; findings live in the Mylo panel.
   quiet_hours_start:
-    name: Quiet Hours Start
-    description: HH:MM — no non-critical notifications after this time.
+    name: Quiet Hours Start (deprecated)
+    description: Deprecated — ignored. Notifications were removed; findings live in the Mylo panel.
   quiet_hours_end:
-    name: Quiet Hours End
-    description: HH:MM — non-critical notifications resume at this time.
+    name: Quiet Hours End (deprecated)
+    description: Deprecated — ignored. Notifications were removed; findings live in the Mylo panel.
   log_level:
     name: Log Level
     description: Python log level for the Mylo process.

@@ -210,13 +210,13 @@ Set up sensor monitoring through conversation — Mylo discovers your sensors an
 
 **Findings stay clean.** They're deduplicated, capped at a handful, auto-resolve the moment the condition clears, expire after 48h, and can be dismissed with a 7-day snooze. Presence is decided only from definitive person states, so a tracker glitch at 3am can't trigger an "away" alert while you're in bed. Everything surfaces in the catch-up banner when you next open Mylo, not as a stream of pings.
 
-### Control notifications
+### Control findings
 
-Mylo's proactive notifications respect your preferences. Configure globally or suppress specific types through conversation.
+Monitor findings surface only inside the Mylo panel (findings badge + catch-up banner) — Mylo never sends push or HA notifications. Suppress specific finding types through conversation.
 
-- "Stop notifying me about stale automations"
+- "Stop flagging stale automations"
 - "Don't alert me when the sprinkler system goes unavailable"
-- "Mute all proactive notifications"
+- "Mute all proactive findings"
 
 **Tools used:** `manage_notification_filters`
 
@@ -229,14 +229,13 @@ Mylo's proactive notifications respect your preferences. Configure globally or s
 | `duration_anomaly` | A device on/unlocked/open far longer than its learned norm |
 | `while_away` | A device on while away when that's unusual for it |
 | `sync_conflict` | Memory sync conflict alerts |
-| `*` | All proactive notifications |
+| `*` | All proactive findings |
 
 Suppressions can be **global** (all of a type) or **entity-scoped** (just `sensor.sprinkler_system`). They're stored in memory and persist across sessions.
 
-**Built-in notification guardrails:**
-- **Quiet hours** — non-critical notifications suppressed between configurable start/end times (default 10pm–7am)
-- **Daily cap** — max notifications per day (default 3). Critical alerts bypass the cap.
-- **Proactive toggle** — master switch to disable all proactive notifications
+**Built-in guardrails:**
+- **Bounded findings** — at most 5 active, 48h TTL, dismiss = 7-day snooze
+- **Monitoring toggle** — `proactive_notifications` is the master switch for the hourly background sweep
 
 ---
 
@@ -328,10 +327,7 @@ Set in the add-on **Configuration** tab:
 | `ollama_url` | — | Ollama server URL (e.g. `http://192.168.1.50:11434/v1`) |
 | `sync_frequency` | `nightly` | Memory sync schedule: `nightly` / `weekly` / `manual` |
 | `memory_token_limit` | `8000` | Max tokens for the memory section of the system prompt |
-| `proactive_notifications` | `true` | Enable hourly monitoring + anomaly alerts |
-| `max_daily_notifications` | `3` | Cap on proactive notifications per day |
-| `quiet_hours_start` | `22:00` | Suppress non-critical notifications after this time |
-| `quiet_hours_end` | `07:00` | Resume notifications after this time |
+| `proactive_notifications` | `true` | Enable the hourly background monitoring sweep (findings shown in the panel) |
 | `session_budget_usd` | `0.50` | Per-conversation cost cap in USD |
 | `monthly_budget_usd` | `15.00` | Monthly cost cap in USD |
 

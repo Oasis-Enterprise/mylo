@@ -71,6 +71,8 @@ def test_load_config_reads_options_file(monkeypatch, tmp_path: Path) -> None:
     assert cfg.sync_frequency == "weekly"
     assert cfg.memory_token_limit == 12000
     assert cfg.proactive_notifications is False
-    assert cfg.quiet_hours_start == "23:00"
+    # quiet_hours_start is a deprecated leftover in stored options —
+    # ignored without error, and no longer a config field.
+    assert not hasattr(cfg, "quiet_hours_start")
     assert cfg.supervisor_token == "xyz"
     assert cfg.supervisor_token_present is True
