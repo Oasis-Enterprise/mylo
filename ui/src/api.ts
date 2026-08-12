@@ -164,6 +164,7 @@ export interface ServerStatus {
   memory: {
     last_sync: string | null;
     pending_conflicts: number;
+    findings: number;
   };
   has_provider: boolean;
 }
@@ -183,6 +184,16 @@ export interface PendingActionData {
   title: string;
   message: string;
   detected_at: string;
+  last_seen?: string;
+}
+
+// Active monitor findings — the always-available surface behind the
+// header badge (the catch-up banner only renders after a 2h absence).
+export async function fetchFindings(): Promise<PendingActionData[]> {
+  const response = await fetch(apiUrl("api/findings"), { method: "GET" });
+  if (!response.ok) return [];
+  const body = (await response.json()) as { findings?: PendingActionData[] };
+  return body.findings ?? [];
 }
 
 export interface CatchupData {

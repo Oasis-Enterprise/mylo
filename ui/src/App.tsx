@@ -16,11 +16,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchCatchup,
   fetchConversation,
+  fetchFindings,
   newConversation,
   streamChat,
   type CatchupData,
+  type PendingActionData,
   type ServerEvent,
 } from "./api";
+import { FindingsPanel } from "./components/FindingsPanel";
 import { ActivityTab } from "./components/ActivityTab";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { CatchupBanner } from "./components/CatchupBanner";
@@ -48,6 +51,10 @@ export default function App() {
   const [pendingApproval, setPendingApproval] = useState(false);
   const [queuedApply, setQueuedApply] = useState<string | null>(null);
   const [catchup, setCatchup] = useState<CatchupData | null>(null);
+  // Inline findings list, toggled from the header badge. statusRefresh
+  // bumps force the header to re-poll after a dismissal changes the count.
+  const [findings, setFindings] = useState<PendingActionData[] | null>(null);
+  const [statusRefresh, setStatusRefresh] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const recordTurn = useSession((s) => s.recordTurn);
   const resetSession = useSession((s) => s.reset);
@@ -229,6 +236,14 @@ export default function App() {
     }
   }, [sending, queuedApply, handleSubmit]);
 
+  const handleToggleFindings = useCallback(async () => {
+    if (findings !== null) {
+      setFindings(null);
+      return;
+    }
+    setFindings(await fetchFindings());
+  }, [findings]);
+
 
   return (
     <div className="flex h-full flex-col bg-bg">
@@ -236,11 +251,20 @@ export default function App() {
         tab={tab}
         onChange={setTab}
         onNewConversation={() => void handleNewConversation()}
+        onToggleFindings={() => void handleToggleFindings()}
+        refreshSignal={statusRefresh}
       />
 
       {tab === "chat" ? (
         <>
           <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+            {findings !== null ? (
+              <FindingsPanel
+                findings={findings}
+                onChanged={() => setStatusRefresh((n) => n + 1)}
+                onClose={() => setFindings(null)}
+              />
+            ) : null}
             {items.length === 0 ? (
               <EmptyState />
             ) : (

@@ -25,6 +25,11 @@ interface Props {
   tab: Tab;
   onChange: (tab: Tab) => void;
   onNewConversation?: () => void;
+  // Toggles the inline findings panel in the chat view.
+  onToggleFindings?: () => void;
+  // Bump to force an immediate status re-poll (e.g. after a dismissal
+  // changed the findings count).
+  refreshSignal?: number;
 }
 
 // Top row: status dot, MYLO wordmark, version, right-aligned tabs.
@@ -32,7 +37,13 @@ interface Props {
 // memory sync age, and session-level token + turn counters. The
 // status endpoint is polled every 30s and right after mount so the
 // memory sync string stays fresh without a WebSocket.
-export function Header({ tab, onChange, onNewConversation }: Props) {
+export function Header({
+  tab,
+  onChange,
+  onNewConversation,
+  onToggleFindings,
+  refreshSignal = 0,
+}: Props) {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const turns = useSession((s) => s.turns);
   const inputTokens = useSession((s) => s.inputTokens);
@@ -54,7 +65,7 @@ export function Header({ tab, onChange, onNewConversation }: Props) {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [refreshSignal]);
 
   const totalSessionTokens = inputTokens + outputTokens;
 
@@ -136,6 +147,21 @@ export function Header({ tab, onChange, onNewConversation }: Props) {
                   </span>
                 }
               />
+            </>
+          ) : null}
+          {status && (status.memory.findings ?? 0) > 0 ? (
+            <>
+              <Sep />
+              <button
+                type="button"
+                onClick={onToggleFindings}
+                title="Show findings"
+                className="font-mono text-[9px] leading-none"
+                style={{ color: "var(--color-accent)" }}
+              >
+                {status.memory.findings} finding
+                {status.memory.findings === 1 ? "" : "s"}
+              </button>
             </>
           ) : null}
           <Sep />
