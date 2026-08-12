@@ -38,6 +38,21 @@ class ConversationManager:
     conversation_id: str = "default"
     user_id: str | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
+    # True while a run_turn is consuming this conversation. Handlers that
+    # would replace history out from under the turn check this instead of
+    # racing (single process, single event loop — a flag is sufficient).
+    turn_active: bool = False
+
+    async def peek(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Read-only view of stored rows for the UI.
+
+        Never touches ``self.history`` — the UI polls this mid-turn (after
+        an SSE drop), and reassigning history here used to wipe the
+        in-flight turn's context: a limited window of only assistant /
+        tool_result rows trims to [], and the running loop can never
+        recover a clean start once its leading user turn is gone.
+        """
+        return await self.storage.load(self.conversation_id, limit=limit)
 
     async def load(self, limit: int | None = None) -> None:
         raw = await self.storage.load(self.conversation_id, limit=limit)

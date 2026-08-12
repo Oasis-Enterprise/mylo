@@ -278,6 +278,8 @@ async def _handle_clear(request: web.Request) -> web.Response:
     from mylo.server.app import AppKeys
 
     conv = request.app[AppKeys.CONVERSATION]
+    if conv.turn_active:
+        return web.json_response({"ok": False, "error": "turn_in_progress"}, status=409)
     await conv.clear()
     return web.json_response({"ok": True})
 
@@ -295,6 +297,8 @@ async def _handle_new_conversation(request: web.Request) -> web.Response:
 
     conv = request.app[AppKeys.CONVERSATION]
     base_ctx = request.app[AppKeys.TOOL_CONTEXT]
+    if conv.turn_active:
+        return web.json_response({"ok": False, "error": "turn_in_progress"}, status=409)
 
     old_id = conv.conversation_id
     new_id = f"conv_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
@@ -318,10 +322,11 @@ async def _handle_get_conversation(request: web.Request) -> web.Response:
     from mylo.server.app import AppKeys
 
     conv = request.app[AppKeys.CONVERSATION]
-    # Freshly read from storage in case a background turn completed
-    # while the UI was disconnected.
-    await conv.load(limit=int(os.environ.get("MYLO_HISTORY_LIMIT", "12")))
-    return web.json_response({"messages": conv.history})
+    # Read-only: a background turn may still be running (the SSE drop
+    # doesn't cancel it), and its live history must not be replaced by
+    # a limited storage window. The hydrator stitches raw rows itself.
+    rows = await conv.peek(limit=int(os.environ.get("MYLO_HISTORY_LIMIT", "12")))
+    return web.json_response({"messages": rows})
 
 
 async def _handle_chat(request: web.Request) -> web.StreamResponse:
@@ -420,6 +425,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     async def emit(name: str, data: dict[str, Any]) -> None:
         await _safe_emit(response, name, data)
 
+    conv.turn_active = True
     try:
         async for event in _turn_events(
             message=message,
@@ -470,6 +476,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         log.exception("chat.turn_failed")
         await emit("error", {"message": str(exc), "type": type(exc).__name__})
     finally:
+        conv.turn_active = False
         with contextlib.suppress(ConnectionResetError, ClientConnectionResetError):
             await response.write_eof()
     return response

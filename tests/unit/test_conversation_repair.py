@@ -196,3 +196,62 @@ async def test_as_provider_messages_strips_leading_orphan(tmp_path: Path) -> Non
     msgs = m.as_provider_messages()
     assert [x["role"] for x in msgs] == ["user"]
     assert msgs[0]["content"] == "hi"
+
+
+# ─── peek(): read-only view for the UI polling endpoint ─────────────────────
+#
+# GET /api/conversation used to call conv.load(limit=12), which REASSIGNED
+# conv.history mid-turn. If the 12-row window held only assistant/tool_result
+# rows, _trim_to_clean_start returned [] and the in-flight run_turn lost its
+# entire history — burning 25 iterations of empty_messages_fallback. peek()
+# reads storage without touching the live history.
+
+
+async def test_peek_does_not_mutate_live_history(tmp_path: Path) -> None:
+    storage = ConversationStorage(tmp_path / "conv.db")
+    await storage.init()
+    conv = ConversationManager(storage=storage, conversation_id="c1")
+
+    await conv.append("user", "build me a dashboard")
+    await conv.append(
+        "assistant",
+        [{"type": "tool_use", "id": "t1", "name": "query_entities", "input": {}}],
+    )
+    await conv.append(
+        "user",
+        [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}],
+    )
+    live_history = conv.history
+
+    rows = await conv.peek(limit=12)
+
+    assert conv.history is live_history
+    assert len(conv.history) == 3
+    assert len(rows) == 3
+    assert rows[0]["role"] == "user"
+
+
+async def test_peek_with_dirty_window_leaves_history_alone(tmp_path: Path) -> None:
+    """A storage window holding only mid-turn rows (no clean user start)
+    must not empty the live history — the old load() path did exactly that."""
+    storage = ConversationStorage(tmp_path / "conv.db")
+    await storage.init()
+    conv = ConversationManager(storage=storage, conversation_id="c1")
+
+    await conv.append("user", "hi")
+    for i in range(8):
+        await conv.append(
+            "assistant",
+            [{"type": "tool_use", "id": f"t{i}", "name": "echo", "input": {}}],
+        )
+        await conv.append(
+            "user",
+            [{"type": "tool_result", "tool_use_id": f"t{i}", "content": "{}"}],
+        )
+
+    # limit=4 lands entirely inside the tool cycle — no clean start.
+    rows = await conv.peek(limit=4)
+
+    assert len(rows) == 4  # raw rows, verbatim
+    assert len(conv.history) == 17  # untouched
+    assert conv.as_provider_messages()  # the live turn still has context
