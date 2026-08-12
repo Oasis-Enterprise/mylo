@@ -16,7 +16,7 @@
 
 When a user says "stop notifying me about stale automations", the
 model calls this tool to add a suppression rule. The background
-notifier checks these rules before every send — pure Python, no
+monitor checks these rules before recording a finding — pure Python, no
 LLM cost.
 
 Suppression types match the notification IDs used by the hourly
@@ -25,7 +25,7 @@ monitor:
 - ``unavailable`` — entities that went unavailable
 - ``anomaly`` — z-score anomaly alerts
 - ``sync_conflict`` — memory sync conflict alerts
-- ``*`` — suppress ALL proactive notifications
+- ``*`` — suppress ALL proactive findings
 """
 
 from __future__ import annotations

@@ -27,7 +27,7 @@ Checks two things from HA's live state:
 Presence-aware checks (lights/switches on while nobody is home)
 live in ``mylo.monitor.detectors``, gated by learned profiles.
 
-Returns a list of finding dicts suitable for the notifier.
+Returns a list of finding dicts for the findings store.
 """
 
 from __future__ import annotations

@@ -263,8 +263,8 @@ class Baselines(BaseModel):
 class NotificationSuppression(BaseModel):
     """A rule that suppresses specific notification types.
 
-    Used by the notifier to skip alerts the user explicitly asked to
-    stop receiving. Checked before every send — pure Python, no LLM.
+    Used by the findings store to skip findings the user explicitly asked to
+    stop receiving. Checked on every finding upsert — pure Python, no LLM.
     """
 
     model_config = ConfigDict(extra="allow")

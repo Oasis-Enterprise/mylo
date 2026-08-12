@@ -24,7 +24,8 @@ Two job slots:
 * **hourly** — lightweight sweep (no LLM). Checks for entities that
   went ``unavailable``, automations that stopped firing, anomalies,
   and learned duration/while-away findings. All findings flow through
-  the bounded findings store; notifications fire only on new findings.
+  the bounded findings store, surfaced in the panel's findings badge
+  and catch-up banner.
 
 APScheduler 3.x's ``AsyncIOScheduler`` integrates with the running
 event loop via aiohttp's startup/cleanup hooks. Jobs that need
@@ -289,10 +290,12 @@ async def _nightly_job(app: web.Application) -> None:
 async def _hourly_job(app: web.Application) -> None:
     """Hourly sweep: availability, anomalies, learned checks.
 
-    All findings flow into the bounded findings store (surfaced in
-    the catch-up banner). Availability and anomaly findings also
-    notify — but only when newly detected, never on refresh. Memory
-    is saved once at the end. A failed check never auto-resolves its
+    All findings flow into the bounded findings store, surfaced in the
+    panel (findings badge + catch-up banner) — nothing is pushed out of
+    Mylo. Dismissing a finding snoozes its (type, entity) pair for the
+    7-day cooldown; suppression filters mute a pair permanently. An
+    ongoing outage keeps refreshing its finding's last_seen. Memory is
+    saved once at the end. A failed check never auto-resolves its
     findings (resolve calls live inside each check's try block).
     """
     from datetime import UTC, datetime
@@ -301,7 +304,6 @@ async def _hourly_job(app: web.Application) -> None:
     from mylo.monitor.anomaly import check_anomalies
     from mylo.monitor.detectors import run_learned_checks
     from mylo.monitor.hourly import current_unavailable, run_hourly_check
-    from mylo.monitor.notifier import Notifier
     from mylo.monitor.profiles import ProfileStore
     from mylo.monitor.suggestions import record_suggestion
     from mylo.server.app import AppKeys
@@ -311,14 +313,13 @@ async def _hourly_job(app: web.Application) -> None:
     registries = app.get(AppKeys.REGISTRIES)
     store = app[AppKeys.MEMORY]
     memory = store.current()
-    notifier = Notifier(ws_client=ws_client, config=config, memory=memory)
     now = datetime.now(UTC)
 
     log.info("hourly.started")
 
     dirty = findings_store.migrate_legacy(memory) > 0
 
-    # 1. Availability sweep (notifies + findings store).
+    # 1. Availability sweep.
     try:
         findings = await run_hourly_check(ws_client=ws_client, registries=registries)
         stale_ids: set[str] = set()
@@ -327,9 +328,8 @@ async def _hourly_job(app: web.Application) -> None:
             entity_id = finding.get("entity_id", "")
             if ntype == "stale_automation":
                 stale_ids.add(entity_id)
-            is_new = False
             if not findings_store.in_cooldown(memory, ntype, entity_id, now):
-                is_new = findings_store.upsert_finding(
+                findings_store.upsert_finding(
                     memory,
                     finding_id=f"mylo_hourly_{finding['id']}",
                     finding_type=ntype,
@@ -340,21 +340,6 @@ async def _hourly_job(app: web.Application) -> None:
                     now=now,
                 )
                 dirty = True
-            # The aggregated unavailable finding shares one key, so a
-            # refresh (is_new=False) can still describe a brand-new
-            # outage batch — run_hourly_check already throttles those
-            # to newly-unavailable entities, so notify them even while
-            # the banner item is dismissed (dismiss silences the banner,
-            # not outage alerts; type-level suppression filters are the
-            # lever for muting those).
-            if is_new or ntype == "unavailable":
-                await notifier.send(
-                    title=finding["title"],
-                    message=finding["message"],
-                    notification_id=f"mylo_hourly_{finding['id']}",
-                    severity=finding.get("severity", "normal"),
-                    notification_type=ntype,
-                )
         dirty |= findings_store.resolve_stale(memory, "stale_automation", stale_ids) > 0
         if not current_unavailable():
             dirty |= findings_store.resolve_stale(memory, "unavailable", set()) > 0
@@ -373,7 +358,7 @@ async def _hourly_job(app: web.Application) -> None:
                 active.add(entity_id)
                 if findings_store.in_cooldown(memory, "anomaly", entity_id, now):
                     continue
-                is_new = findings_store.upsert_finding(
+                findings_store.upsert_finding(
                     memory,
                     finding_id=f"mylo_anomaly_{anomaly['id']}",
                     finding_type="anomaly",
@@ -384,22 +369,13 @@ async def _hourly_job(app: web.Application) -> None:
                     now=now,
                 )
                 dirty = True
-                if is_new:
-                    await notifier.send(
-                        title=anomaly["title"],
-                        message=anomaly["message"],
-                        notification_id=f"mylo_anomaly_{anomaly['id']}",
-                        severity=anomaly.get("severity", "normal"),
-                        notification_type="anomaly",
-                        entity_id=entity_id,
-                    )
             dirty |= findings_store.resolve_stale(memory, "anomaly", active) > 0
             if anomalies:
                 log.info("hourly.anomalies", count=len(anomalies))
     except Exception:
         log.exception("hourly.anomaly_failed")
 
-    # 3. Learned checks (banner only — no HA notifications).
+    # 3. Learned checks.
     try:
         profile_store = ProfileStore(config.mylo_data_dir)
         async with _profiles_lock:

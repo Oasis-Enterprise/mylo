@@ -58,7 +58,7 @@ _streaks: dict[str, int] = {}
 MIN_STDDEV_FRACTION = 0.02  # 2% of the mean
 
 # Even if the z-score is high, ignore changes smaller than this
-# absolute amount. A 0.6% battery drop isn't worth a notification.
+# absolute amount. A 0.6% battery drop isn't worth a finding.
 MIN_ABSOLUTE_CHANGE = 5.0
 
 
@@ -70,7 +70,7 @@ async def check_anomalies(
 ) -> list[dict[str, Any]]:
     """Compare current sensor values against stored baselines.
 
-    Returns a list of anomaly finding dicts suitable for the notifier.
+    Returns a list of anomaly finding dicts for the findings store.
 
     Maintains per-entity persistence streaks across calls (see module
     docstring). Calling with a non-default ``threshold`` perturbs that

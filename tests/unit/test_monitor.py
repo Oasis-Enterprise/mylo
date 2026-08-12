@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for M9/M11: scheduler, notifier, hourly sweep, baselines, anomaly.
+"""Tests for M9/M11: scheduler, hourly sweep, baselines, anomaly.
 
 All tests use mocks/fakes — no real HA or APScheduler clock advancing.
-The scheduler tests verify job registration; the notifier tests verify
-quiet-hours, daily-cap, and critical-bypass logic; hourly/anomaly tests
-verify detection logic against synthetic state dicts.
+The scheduler tests verify job registration; hourly/anomaly tests
+verify detection logic against synthetic state dicts. Findings-store
+semantics (suppressions, cooldowns, caps) live in test_findings.py.
 """
 
 from __future__ import annotations
@@ -29,12 +29,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mylo.config import AppConfig
-from mylo.memory.schema import Baselines, EntityBaseline, NotificationSuppression, empty_memory
+from mylo.memory.schema import Baselines, EntityBaseline
 from mylo.monitor.anomaly import check_anomalies
 from mylo.monitor.anomaly import reset_state as reset_anomaly_state
 from mylo.monitor.baselines import _extract_mean_values
 from mylo.monitor.hourly import reset_state, run_hourly_check
-from mylo.monitor.notifier import Notifier, _in_quiet_hours
 
 
 @pytest.fixture(autouse=True)
@@ -68,144 +67,6 @@ def _make_config(**overrides: Any) -> AppConfig:
     )
     defaults.update(overrides)
     return AppConfig(**defaults)
-
-
-# ─── Notifier: quiet hours ──────────────────────────────────────────────────
-
-
-def test_quiet_hours_overnight_in_range() -> None:
-    # 23:00 is inside 22:00→07:00.
-    assert _in_quiet_hours(datetime(2026, 4, 15, 23, 0, tzinfo=UTC), "22:00", "07:00")
-
-
-def test_quiet_hours_overnight_before_range() -> None:
-    # 21:00 is before 22:00→07:00.
-    assert not _in_quiet_hours(datetime(2026, 4, 15, 21, 0, tzinfo=UTC), "22:00", "07:00")
-
-
-def test_quiet_hours_overnight_after_range() -> None:
-    # 08:00 is after 22:00→07:00.
-    assert not _in_quiet_hours(datetime(2026, 4, 15, 8, 0, tzinfo=UTC), "22:00", "07:00")
-
-
-def test_quiet_hours_same_day_range() -> None:
-    # 14:00 is inside 13:00→15:00.
-    assert _in_quiet_hours(datetime(2026, 4, 15, 14, 0, tzinfo=UTC), "13:00", "15:00")
-
-
-# ─── Notifier: daily cap + critical bypass ──────────────────────────────────
-
-
-async def test_notifier_respects_daily_cap() -> None:
-    ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=None)
-    # Disable quiet hours (same start/end = zero window) so the cap
-    # test doesn't depend on what hour the CI runs at.
-    config = _make_config(
-        max_daily_notifications=2,
-        quiet_hours_start="00:00",
-        quiet_hours_end="00:00",
-        notification_method="persistent",
-    )
-    notifier = Notifier(ws_client=ws, config=config)
-
-    await notifier.send(title="a", message="a", notification_id="a", severity="critical")
-    await notifier.send(title="b", message="b", notification_id="b", severity="critical")
-    # First two are critical to bypass quiet hours entirely; cap still applies to normal.
-    capped = await notifier.send(title="c", message="c", notification_id="c")
-    assert capped is False
-    assert ws.send_command.call_count == 2
-
-
-async def test_notifier_critical_bypasses_cap_and_quiet() -> None:
-    ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=None)
-    config = _make_config(
-        max_daily_notifications=0,
-        quiet_hours_start="00:00",
-        quiet_hours_end="23:59",
-        notification_method="persistent",
-    )
-    notifier = Notifier(ws_client=ws, config=config)
-    result = await notifier.send(
-        title="fire", message="fire", notification_id="fire", severity="critical"
-    )
-    assert result is True
-    assert ws.send_command.call_count == 1
-
-
-async def test_notifier_suppressed_by_memory_filter() -> None:
-    ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=None)
-    config = _make_config(quiet_hours_start="00:00", quiet_hours_end="00:00")
-    mem = empty_memory()
-    mem.notification_suppressions.append(NotificationSuppression(type="stale_automation"))
-    notifier = Notifier(ws_client=ws, config=config, memory=mem)
-
-    result = await notifier.send(
-        title="stale",
-        message="stale",
-        notification_id="x",
-        notification_type="stale_automation",
-    )
-    assert result is False
-    assert ws.send_command.call_count == 0
-
-
-async def test_notifier_suppression_entity_scoped() -> None:
-    ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=None)
-    config = _make_config(quiet_hours_start="00:00", quiet_hours_end="00:00")
-    mem = empty_memory()
-    mem.notification_suppressions.append(
-        NotificationSuppression(type="unavailable", entity="sensor.sprinkler")
-    )
-    notifier = Notifier(ws_client=ws, config=config, memory=mem)
-
-    # Suppressed: matches entity.
-    r1 = await notifier.send(
-        title="a",
-        message="a",
-        notification_id="a",
-        notification_type="unavailable",
-        entity_id="sensor.sprinkler",
-    )
-    assert r1 is False
-
-    # Not suppressed: different entity.
-    r2 = await notifier.send(
-        title="b",
-        message="b",
-        notification_id="b",
-        notification_type="unavailable",
-        entity_id="sensor.other",
-    )
-    assert r2 is True
-
-
-async def test_notifier_wildcard_suppresses_all() -> None:
-    ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value=None)
-    config = _make_config(quiet_hours_start="00:00", quiet_hours_end="00:00")
-    mem = empty_memory()
-    mem.notification_suppressions.append(NotificationSuppression(type="*"))
-    notifier = Notifier(ws_client=ws, config=config, memory=mem)
-
-    result = await notifier.send(
-        title="any",
-        message="any",
-        notification_id="any",
-        notification_type="anomaly",
-    )
-    assert result is False
-
-
-async def test_notifier_suppressed_when_disabled() -> None:
-    ws = AsyncMock()
-    config = _make_config(proactive_notifications=False)
-    notifier = Notifier(ws_client=ws, config=config)
-    result = await notifier.send(title="x", message="x", notification_id="x")
-    assert result is False
 
 
 # ─── Hourly: unavailable detection ─────────────────────────────────────────
