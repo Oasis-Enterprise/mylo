@@ -359,6 +359,22 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         )
 
     conv = request.app[AppKeys.CONVERSATION]
+    # One turn at a time. A second concurrent turn interleaves its
+    # appends with the running one's on the shared history — turn B's
+    # messages land between turn A's assistant(tool_use) and its
+    # user(tool_result) — and Anthropic then rejects EVERY subsequent
+    # request ("tool_result must have a corresponding tool_use in the
+    # previous message"). Happens in practice when the SSE stream drops
+    # mid-turn (the server keeps running the turn) and the UI's queued
+    # Apply or a fresh submit fires while it's still going.
+    if conv.turn_active:
+        return web.json_response(
+            {
+                "error": "turn_in_progress",
+                "message": "Mylo is still finishing the previous request — try again shortly",
+            },
+            status=409,
+        )
     base_ctx = request.app[AppKeys.TOOL_CONTEXT]
     # Per-turn context — user_approved is request-scoped, not server-wide.
     from mylo.tools.context import ToolContext

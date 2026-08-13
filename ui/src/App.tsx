@@ -133,11 +133,20 @@ export default function App() {
           applyEvent(event, assistantId, toolCallsById, setItems, recordTurn, setError);
         }
       } catch (exc) {
-        setError(
-          `${exc instanceof Error ? exc.message : String(exc)} — waiting for Mylo to come back…`,
-        );
+        const detail = exc instanceof Error ? exc.message : String(exc);
+        if (detail.includes("turn_in_progress")) {
+          // The server refused a concurrent turn — the previous one is
+          // still running (SSE drop doesn't cancel it). This message was
+          // NOT processed; the poll below renders the running turn's
+          // result once it lands.
+          setError(
+            "Mylo is still finishing the previous request — this message wasn't sent. Try again in a moment.",
+          );
+        } else {
+          setError(`${detail} — waiting for Mylo to come back…`);
+        }
         const recovered = await pollUntilTurnCompletes(assistantId);
-        if (recovered) setError(null);
+        if (recovered && !detail.includes("turn_in_progress")) setError(null);
       } finally {
         setItems((prev) =>
           prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),

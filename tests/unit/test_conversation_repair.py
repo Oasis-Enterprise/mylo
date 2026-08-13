@@ -101,11 +101,14 @@ def test_repair_handles_partial_answer() -> None:
 
     repaired, inserted = _repair_orphaned_tool_uses(history)
 
-    # Original turns unchanged; one new synthetic turn appended.
-    assert len(repaired) == 3
+    # The synthetic result MERGES into the existing partial results
+    # message — a separate consecutive user message would leave the
+    # original t1 result facing the synth message instead of its
+    # tool_use, which Anthropic rejects.
+    assert len(repaired) == 2
     assert len(inserted) == 1
-    blocks = inserted[0]["content"]
-    assert [b["tool_use_id"] for b in blocks] == ["t2"]
+    result_ids = {b["tool_use_id"] for b in repaired[1]["content"]}
+    assert result_ids == {"t1", "t2"}
 
 
 def test_trim_drops_leading_orphan_tool_result() -> None:
@@ -255,3 +258,138 @@ async def test_peek_with_dirty_window_leaves_history_alone(tmp_path: Path) -> No
     assert len(rows) == 4  # raw rows, verbatim
     assert len(conv.history) == 17  # untouched
     assert conv.as_provider_messages()  # the live turn still has context
+
+
+# ─── Orphaned tool_result repair (concurrent-turn interleaving) ─────────────
+#
+# Two turns running concurrently on the singleton conversation interleave
+# their appends: turn A's assistant(tool_use P) can be followed by turn
+# B's messages before turn A appends user(result P). Anthropic then 400s:
+# "unexpected tool_use_id found in tool_result blocks — each tool_result
+# must have a corresponding tool_use in the previous message". The repair
+# must DROP result blocks that no longer face their tool_use, and the
+# synth-result repair must MERGE into a partial results message instead
+# of inserting a second consecutive user message (same 400 otherwise).
+
+
+def _valid_for_anthropic(messages: list[dict]) -> bool:
+    """Mirror the API's tool_result placement rule."""
+    for i, msg in enumerate(messages):
+        if msg["role"] != "user" or not isinstance(msg.get("content"), list):
+            continue
+        prev = messages[i - 1] if i > 0 else None
+        allowed: set[str] = set()
+        if prev and prev.get("role") == "assistant" and isinstance(prev.get("content"), list):
+            allowed = {
+                b["id"]
+                for b in prev["content"]
+                if isinstance(b, dict) and b.get("type") == "tool_use"
+            }
+        for block in msg["content"]:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_result"
+                and block.get("tool_use_id") not in allowed
+            ):
+                return False
+    return True
+
+
+def test_interleaved_turns_produce_valid_provider_messages(tmp_path: Path) -> None:
+    """The exact production corruption: turn B's messages landed between
+    turn A's assistant(tool_use) and its user(tool_result)."""
+    storage = ConversationStorage(tmp_path / "conv.db")
+    conv = ConversationManager(storage=storage, conversation_id="c1")
+    conv.history = [
+        {"role": "user", "content": "fix my automations"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "tA", "name": "patch", "input": {}}],
+        },
+        # Turn B interleaves before turn A's result lands:
+        {"role": "user", "content": "hello again"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "tB", "name": "query", "input": {}}],
+        },
+        # Turn A's result — its tool_use is no longer the previous message.
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "tA", "content": "{}"}],
+        },
+        # Turn B's result — also orphaned now (previous is turn A's result msg).
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "tB", "content": "{}"}],
+        },
+    ]
+
+    messages = [{"role": m["role"], "content": m["content"]} for m in conv.as_provider_messages()]
+
+    assert _valid_for_anthropic(messages)
+    # Both dangling tool_uses got answered (synthetically or otherwise).
+    for msg in messages:
+        if msg["role"] == "assistant" and isinstance(msg["content"], list):
+            uses = [b["id"] for b in msg["content"] if b.get("type") == "tool_use"]
+            if not uses:
+                continue
+            nxt = messages[messages.index(msg) + 1]
+            answered = {
+                b.get("tool_use_id")
+                for b in nxt["content"]
+                if isinstance(nxt["content"], list) and isinstance(b, dict)
+            }
+            assert set(uses) <= answered
+
+
+def test_partial_results_merge_instead_of_consecutive_user_messages(
+    tmp_path: Path,
+) -> None:
+    """A partially-answered batch must not repair into two back-to-back
+    user messages — the second one's results face the synth message, not
+    the tool_use, and the API rejects it identically."""
+    storage = ConversationStorage(tmp_path / "conv.db")
+    conv = ConversationManager(storage=storage, conversation_id="c1")
+    conv.history = [
+        {"role": "user", "content": "hi"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "a", "input": {}},
+                {"type": "tool_use", "id": "t2", "name": "b", "input": {}},
+            ],
+        },
+        # Only t1 answered — t2's result was lost mid-interruption.
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}],
+        },
+    ]
+
+    messages = [{"role": m["role"], "content": m["content"]} for m in conv.as_provider_messages()]
+
+    assert _valid_for_anthropic(messages)
+    # One merged results message, not synth + original.
+    assert len(messages) == 3
+    result_ids = {b["tool_use_id"] for b in messages[2]["content"]}
+    assert result_ids == {"t1", "t2"}
+
+
+def test_orphaned_result_with_no_assistant_before_it_is_dropped(tmp_path: Path) -> None:
+    storage = ConversationStorage(tmp_path / "conv.db")
+    conv = ConversationManager(storage=storage, conversation_id="c1")
+    conv.history = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": [{"type": "text", "text": "sure"}]},
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "ghost", "content": "{}"}],
+        },
+        {"role": "user", "content": "and another thing"},
+    ]
+
+    messages = [{"role": m["role"], "content": m["content"]} for m in conv.as_provider_messages()]
+
+    assert _valid_for_anthropic(messages)
+    # The ghost-result message vanished entirely; real turns intact.
+    assert [m["role"] for m in messages] == ["user", "assistant", "user"]

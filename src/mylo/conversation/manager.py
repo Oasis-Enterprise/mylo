@@ -66,6 +66,13 @@ class ConversationManager:
                 conversation_id=self.conversation_id,
                 dropped=len(raw) - len(trimmed),
             )
+        trimmed, dropped_results = _drop_orphaned_tool_results(trimmed)
+        if dropped_results:
+            log.info(
+                "conversation.dropped_orphaned_tool_results",
+                conversation_id=self.conversation_id,
+                tool_use_ids=dropped_results,
+            )
         # Repairs are IN-MEMORY ONLY now. Persisting them used to append
         # synthetic tool_results to the END of storage (SQLite
         # autoincrement doesn't allow insert-at-position-K), which
@@ -103,6 +110,13 @@ class ConversationManager:
         O(history length) and the history is trimmed to ~12 entries.
         """
         trimmed = _trim_to_clean_start(self.history)
+        trimmed, dropped = _drop_orphaned_tool_results(trimmed)
+        if dropped:
+            log.warning(
+                "conversation.dropped_orphaned_tool_results",
+                conversation_id=self.conversation_id,
+                tool_use_ids=dropped,
+            )
         repaired, _ = _repair_orphaned_tool_uses(trimmed)
         return [ProviderMessage(role=m["role"], content=m["content"]) for m in repaired]
 
@@ -146,6 +160,67 @@ def _trim_to_clean_start(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return []
 
 
+def _drop_orphaned_tool_results(
+    history: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Remove ``tool_result`` blocks whose ``tool_use`` is not in the
+    immediately preceding message.
+
+    Anthropic rejects the whole request otherwise ("each tool_result
+    block must have a corresponding tool_use block in the previous
+    message"). This shape appears when two turns interleave their
+    appends on the shared conversation — turn B's messages land between
+    turn A's assistant(tool_use) and its user(tool_result). The results
+    are unrecoverable in place (their tool_use is stranded messages
+    back); dropping them lets :func:`_repair_orphaned_tool_uses`
+    synthesize ``interrupted`` results for the stranded tool_uses, which
+    restores a valid sequence.
+
+    Returns ``(cleaned_history, dropped_tool_use_ids)``. Messages left
+    with no content are removed entirely.
+    """
+    cleaned: list[dict[str, Any]] = []
+    dropped: list[str] = []
+
+    for msg in history:
+        if msg.get("role") != "user" or not isinstance(msg.get("content"), list):
+            cleaned.append(msg)
+            continue
+
+        prev = cleaned[-1] if cleaned else None
+        allowed: set[str] = set()
+        if (
+            prev is not None
+            and prev.get("role") == "assistant"
+            and isinstance(prev.get("content"), list)
+        ):
+            allowed = {
+                b["id"]
+                for b in prev["content"]
+                if isinstance(b, dict) and b.get("type") == "tool_use" and "id" in b
+            }
+
+        kept_blocks = []
+        for block in msg["content"]:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_result"
+                and block.get("tool_use_id") not in allowed
+            ):
+                dropped.append(str(block.get("tool_use_id")))
+                continue
+            kept_blocks.append(block)
+
+        if not kept_blocks:
+            continue
+        if len(kept_blocks) != len(msg["content"]):
+            cleaned.append({**msg, "content": kept_blocks})
+        else:
+            cleaned.append(msg)
+
+    return cleaned, dropped
+
+
 def _repair_orphaned_tool_uses(
     history: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -160,9 +235,20 @@ def _repair_orphaned_tool_uses(
     repaired: list[dict[str, Any]] = []
     inserted: list[dict[str, Any]] = []
 
+    # When the next message already carries SOME results (a partially
+    # answered batch), the synth blocks must merge INTO it — inserting a
+    # separate synth message would leave the original results facing the
+    # synth message instead of their tool_use, which the API rejects the
+    # same way as a missing result.
+    merge_into_next: list[dict[str, Any]] = []
+
     i = 0
     while i < len(history):
         msg = history[i]
+        if merge_into_next:
+            if msg.get("role") == "user" and isinstance(msg.get("content"), list):
+                msg = {**msg, "content": merge_into_next + list(msg["content"])}
+            merge_into_next = []
         repaired.append(msg)
 
         if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
@@ -172,11 +258,12 @@ def _repair_orphaned_tool_uses(
             if tool_uses:
                 answered: set[str] = set()
                 next_msg = history[i + 1] if i + 1 < len(history) else None
-                if (
+                next_is_result_msg = (
                     next_msg is not None
                     and next_msg.get("role") == "user"
                     and isinstance(next_msg.get("content"), list)
-                ):
+                )
+                if next_is_result_msg and next_msg is not None:
                     for block in next_msg["content"]:
                         if (
                             isinstance(block, dict)
@@ -206,9 +293,13 @@ def _repair_orphaned_tool_uses(
                         }
                         for tu in unanswered
                     ]
-                    synth_msg = {"role": "user", "content": synth_blocks}
-                    repaired.append(synth_msg)
-                    inserted.append(synth_msg)
+                    if next_is_result_msg:
+                        merge_into_next = synth_blocks
+                        inserted.append({"role": "user", "content": synth_blocks})
+                    else:
+                        synth_msg = {"role": "user", "content": synth_blocks}
+                        repaired.append(synth_msg)
+                        inserted.append(synth_msg)
 
         i += 1
 
