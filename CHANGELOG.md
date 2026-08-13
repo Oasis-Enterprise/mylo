@@ -5,6 +5,13 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0b5] — 2026-08-12
+
+> ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
+
+### Fixed
+- **A conversation can no longer be permanently bricked by overlapping requests.** If the connection dropped mid-turn (Mylo keeps working server-side) and another message got sent while the first turn was still running, the two turns' messages interleaved in history — and every request after that failed with a 400 from the API ("tool_result must have a corresponding tool_use"). Two fixes: Mylo now refuses to start a second turn while one is running (the panel explains and waits instead), and history repair now heals the interleaved shape — including conversations already corrupted on b4, which work again after this update.
+
 ## [1.5.0b4] — 2026-08-12
 
 > ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
