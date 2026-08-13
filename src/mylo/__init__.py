@@ -14,4 +14,4 @@
 
 """Mylo — AI agent for Home Assistant."""
 
-__version__ = "1.5.0b4"
+__version__ = "1.5.0b5"
