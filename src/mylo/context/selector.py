@@ -41,7 +41,6 @@ ALWAYS_ON: frozenset[str] = frozenset({"now", "household", "preferences", "scrat
 # Keyword rules from spec §6.5.
 _TRIGGER_KEYWORDS: dict[str, tuple[str, ...]] = {
     "known_issues": ("problem", "issue", "broken", "not working", "debug", "fix", "error"),
-    "patterns": ("usually", "normally", "pattern", "schedule", "typical", "every"),
     "baselines": ("energy", "usage", "anomaly", "unusual", "consumption", "kwh"),
     "rejected": ("rename", "suggest", "recommend", "dashboard", "automation"),
 }

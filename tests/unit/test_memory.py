@@ -258,3 +258,16 @@ def test_preferences_empty_counts_layout_and_theme() -> None:
     assert _preferences_empty(only_theme) is False
 
     assert _preferences_empty(MemoryFile()) is True
+
+
+async def test_store_load_drops_legacy_patterns_key(tmp_path: Path) -> None:
+    """context.yaml files written before the patterns removal carry a
+    populated patterns: list. It must load cleanly and disappear on save."""
+    (tmp_path / "context.yaml").write_text(
+        "version: 2\npatterns:\n  - id: p1\n    description: old\n    confidence: 0.9\nnotes: []\n"
+    )
+    store = MemoryStore(mylo_data_dir=tmp_path)
+    memory = await store.load()
+    assert not hasattr(memory, "patterns") or "patterns" not in memory.model_dump()
+    await store.save(memory, note="resave")
+    assert "patterns" not in (tmp_path / "context.yaml").read_text()

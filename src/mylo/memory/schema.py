@@ -192,18 +192,6 @@ class KnownIssue(BaseModel):
     user_acknowledged: bool = False
 
 
-class Pattern(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    id: str
-    description: str
-    confidence: float = 0.0
-    first_observed: str | None = None
-    last_confirmed: str | None = None
-    source: str = "observation"
-    exceptions: list[str] = Field(default_factory=list)
-
-
 class RejectedSuggestion(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -354,7 +342,6 @@ class MemoryFile(BaseModel):
     preferences: Preferences = Field(default_factory=Preferences)
     notes: list[Note] = Field(default_factory=list)
     known_issues: list[KnownIssue] = Field(default_factory=list)
-    patterns: list[Pattern] = Field(default_factory=list)
     rejected: list[RejectedSuggestion] = Field(default_factory=list)
     conflicts: list[Conflict] = Field(default_factory=list)
     monitored_entities: list[str] = Field(default_factory=list)

@@ -69,7 +69,6 @@ async def _handle_get_memory(request: web.Request) -> web.Response:
             "counts": {
                 "notes": len(memory.notes),
                 "known_issues": len(memory.known_issues),
-                "patterns": len(memory.patterns),
                 "rejected": len(memory.rejected),
                 "conflicts": len(memory.conflicts),
                 "household_members": len(memory.household.members),
@@ -238,7 +237,7 @@ async def _handle_prune(request: web.Request) -> web.Response:
 # ─── Item delete ────────────────────────────────────────────────────────────
 
 
-_DELETABLE_SECTIONS = {"notes", "known_issues", "patterns", "rejected"}
+_DELETABLE_SECTIONS = {"notes", "known_issues", "rejected"}
 
 
 async def _handle_delete_item(request: web.Request) -> web.Response:

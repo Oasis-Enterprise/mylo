@@ -164,7 +164,6 @@ def test_pruner_drops_old_rejections() -> None:
     assert "r_new" not in ids
 
 
-@pytest.mark.xfail(strict=True, reason="patterns field removed in Task 6")
 def test_pruner_has_no_pattern_rules() -> None:
     """Patterns were removed from the data model; the pruner must not
     reference them (no attribute access, no candidate section)."""

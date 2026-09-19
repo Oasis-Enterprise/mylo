@@ -170,9 +170,9 @@ def test_selector_triggers_known_issues_on_problem_keyword() -> None:
     assert "known_issues" in sections
 
 
-def test_selector_triggers_patterns_on_usually_keyword() -> None:
+def test_selector_does_not_emit_removed_patterns_section() -> None:
     sections = select_sections("we usually turn off lights at 11pm", empty_memory())
-    assert "patterns" in sections
+    assert "patterns" not in sections
 
 
 def test_selector_triggers_baselines_on_energy_keyword() -> None:

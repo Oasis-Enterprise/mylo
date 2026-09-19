@@ -86,6 +86,11 @@ class MemoryStore:
             except Exception as exc:
                 log.warning("memory.load_failed", error=str(exc))
                 parsed = {}
+            if isinstance(parsed, dict) and "patterns" in parsed:
+                # Legacy section (removed 2026-09). MemoryFile allows extra
+                # keys, so it would survive round-trips forever; strip it.
+                parsed.pop("patterns", None)
+                log.info("memory.legacy_patterns_dropped")
             try:
                 memory = MemoryFile.model_validate(parsed)
             except Exception as exc:
