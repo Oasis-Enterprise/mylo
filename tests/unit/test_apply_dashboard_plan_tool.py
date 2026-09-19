@@ -28,9 +28,12 @@ class _FakeClient:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self._save_raises = save_raises
         self._tamper = tamper
+        self.fetch_raises: Exception | None = None
 
     async def send_command(self, type_: str, **kwargs: Any) -> Any:
         self.calls.append((type_, kwargs))
+        if type_ == "lovelace/config" and self.fetch_raises is not None:
+            raise self.fetch_raises
         if type_ == "lovelace/config":
             return copy.deepcopy(self.config)
         if type_ == "lovelace/config/save":
@@ -218,3 +221,55 @@ async def test_readback_mismatch_reported(tmp_path: Path) -> None:
     assert result.status.value == "ok"
     assert result.data["verification"]["all_ok"] is False
     assert result.data["verification"]["ops"][0]["ok"] is False
+
+
+async def test_fetch_failure_reports_dashboard_unavailable(tmp_path: Path) -> None:
+    client = _FakeClient(_dashboard())
+    store = PlanStore()
+    plan_id = await _staged(tmp_path, client, store, OPS)
+    client.fetch_raises = CommandError("home_assistant_error", "boom")
+    result = await execute(
+        "apply_dashboard_plan", {"plan_id": plan_id}, _apply_ctx(tmp_path, client, store, plan_id)
+    )
+    assert result.error_code == "dashboard_unavailable"
+    assert client.saves() == []
+    assert store.get(plan_id) is not None
+
+
+async def test_named_dashboard_vanished_reports_not_found(tmp_path: Path) -> None:
+    client = _FakeClient(_dashboard())
+    store = PlanStore()
+    ctx = make_ctx(ws_client=client, registries=_registries(), tmp_path=tmp_path, plans=store)
+    staged = await execute(
+        "plan_dashboard",
+        {"summary": "s", "dashboard_id": "tablet", "operations": OPS},
+        ctx,
+    )
+    plan_id = staged.data["plan_id"]
+    client.fetch_raises = CommandError("config_not_found", "gone")
+    result = await execute(
+        "apply_dashboard_plan", {"plan_id": plan_id}, _apply_ctx(tmp_path, client, store, plan_id)
+    )
+    assert result.error_code == "dashboard_not_found"
+    assert client.saves() == []
+
+
+async def test_backup_failure_does_not_block_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mylo.tools.write import apply_dashboard_plan as module
+
+    def _boom(*args: Any, **kwargs: Any) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(module, "write_backup", _boom)
+    client = _FakeClient(_dashboard())
+    store = PlanStore()
+    plan_id = await _staged(tmp_path, client, store, OPS)
+    result = await execute(
+        "apply_dashboard_plan", {"plan_id": plan_id}, _apply_ctx(tmp_path, client, store, plan_id)
+    )
+    assert result.status.value == "ok"
+    assert result.data["backup"] is None
+    assert len(client.saves()) == 1
+    assert result.data["verification"]["all_ok"] is True

@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.dashboard.backup import write_backup
 from mylo.dashboard.io import (
+    DashboardNotFound,
     DashboardUnavailable,
     fetch_dashboard_config,
     save_dashboard_config,
@@ -72,6 +73,8 @@ async def handler(params: ApplyDashboardPlanParams, ctx: ToolContext) -> ToolRes
 
     try:
         current = await fetch_dashboard_config(ctx.ws_client, plan.dashboard_id)
+    except DashboardNotFound as exc:
+        return ToolResult.error("dashboard_not_found", exc.message)
     except DashboardUnavailable as exc:
         return ToolResult.error("dashboard_unavailable", f"{exc.code}: {exc.message}")
 
