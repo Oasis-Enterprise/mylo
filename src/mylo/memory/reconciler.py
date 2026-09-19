@@ -39,7 +39,6 @@ from __future__ import annotations
 import copy
 import re
 import uuid
-from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -177,9 +176,8 @@ def compact_payload_sections(
     memory: MemoryFile, *, budget_tokens: int
 ) -> tuple[MemoryFile, str, dict[str, list[Any]]]:
     """Return a copy of ``memory`` whose serialized size fits ``budget_tokens``,
-    compacting the most expendable sections first (patterns, then plain
-    notes). Critical items (user_confirmed / critical-priority notes) are
-    never dropped.
+    dropping the most expendable plain notes first. Critical items
+    (user_confirmed / critical-priority notes) are never dropped.
 
     Returns ``(compacted_memory, marker, dropped)`` where ``dropped`` maps
     each section to the items removed — the caller re-attaches these after
@@ -187,34 +185,26 @@ def compact_payload_sections(
     O(rounds times n), not O(n squared).
     """
     work = copy.deepcopy(memory)
-    dropped: dict[str, list[Any]] = {"notes": [], "patterns": []}
+    dropped: dict[str, list[Any]] = {"notes": []}
     if estimate_tokens(work.model_dump_json()) <= budget_tokens:
         return work, "", dropped
 
-    counts: Counter[str] = Counter()
-    for section in ("patterns", "notes"):
-        items = list(getattr(work, section, []))
-        if section == "notes":
-            protected = [n for n in items if _note_protected(n)]
-            droppable = [n for n in items if not _note_protected(n)]
-        else:
-            protected = []
-            droppable = list(items)
-        while droppable and estimate_tokens(work.model_dump_json()) > budget_tokens:
-            chunk = max(1, len(droppable) // 10)
-            removed = droppable[-chunk:]
-            del droppable[-chunk:]
-            dropped[section].extend(removed)
-            counts[section] += len(removed)
-            setattr(work, section, protected + droppable)
-        setattr(work, section, protected + droppable)
+    protected = [n for n in work.notes if _note_protected(n)]
+    droppable = [n for n in work.notes if not _note_protected(n)]
+    while droppable and estimate_tokens(work.model_dump_json()) > budget_tokens:
+        chunk = max(1, len(droppable) // 10)
+        removed = droppable[-chunk:]
+        del droppable[-chunk:]
+        dropped["notes"].extend(removed)
+        work.notes = protected + droppable
+    work.notes = protected + droppable
 
-    marker = "; ".join(f"+{n} {sec} compacted" for sec, n in counts.items())
+    marker = f"+{len(dropped['notes'])} notes compacted" if dropped["notes"] else ""
     return work, marker, dropped
 
 
 def _reattach_compacted(merged: MemoryFile, dropped: dict[str, list[Any]]) -> None:
-    """Re-add items dropped from the payload only to fit context.
+    """Re-add notes dropped from the payload only to fit context.
 
     They skipped this pass's reconciliation, so add back any whose id isn't
     already present in the merged result (the LLM never saw them and so
@@ -224,10 +214,6 @@ def _reattach_compacted(merged: MemoryFile, dropped: dict[str, list[Any]]) -> No
     for note in dropped.get("notes", []):
         if note.id not in existing_note_ids:
             merged.notes.append(note)
-    existing_pattern_ids = {p.id for p in merged.patterns}
-    for pattern in dropped.get("patterns", []):
-        if pattern.id not in existing_pattern_ids:
-            merged.patterns.append(pattern)
 
 
 # ─── Public entrypoint ───────────────────────────────────────────────────────
@@ -295,7 +281,7 @@ async def run_sync(
 
     prompt = _build_system_prompt()
     # Compact the payload so it always fits the window — drop the most
-    # expendable notes/patterns from what the LLM sees (re-attached
+    # expendable notes from what the LLM sees (re-attached
     # untouched after the merge so nothing is lost), rather than skipping
     # the merge entirely on a large memory.
     payload_budget = _PAYLOAD_TOKEN_BUDGET - estimate_tokens(prompt)

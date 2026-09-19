@@ -43,7 +43,7 @@ def test_fast_path_when_already_small() -> None:
     mem.notes = [Note(id="n1", content="hi")]
     compacted, marker, dropped = compact_payload_sections(mem, budget_tokens=100_000)
     assert marker == ""
-    assert dropped == {"notes": [], "patterns": []}
+    assert dropped == {"notes": []}
     assert len(compacted.notes) == 1
 
 
@@ -52,7 +52,6 @@ def test_reattach_restores_dropped_without_duplicating() -> None:
     merged.notes = [Note(id="kept", content="a")]
     dropped = {
         "notes": [Note(id="dropped1", content="b"), Note(id="kept", content="dup")],
-        "patterns": [],
     }
     _reattach_compacted(merged, dropped)
     ids = sorted(n.id for n in merged.notes)
