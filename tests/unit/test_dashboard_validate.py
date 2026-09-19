@@ -149,6 +149,7 @@ def test_card_index_out_of_range_and_fingerprint_recorded() -> None:
     assert v.ok
     fp = v.resolved[0].fingerprint
     assert fp is not None and fp.type == "tile" and fp.entity == "light.kitchen"
+    assert v.resolved[0].section_heading == "Lights"
 
 
 def test_move_card_resolves_both_sections() -> None:
@@ -172,6 +173,7 @@ def test_move_card_resolves_both_sections() -> None:
     assert v.ok, v.issues
     assert v.resolved[0].section_index == 0
     assert v.resolved[0].to_section_index == 1
+    assert v.resolved[0].to_section_heading == "Climate"
     assert v.result_config["views"][0]["sections"][1]["cards"][1]["entity"] == "light.kitchen"
 
 

@@ -239,6 +239,9 @@ class ResolvedTarget(BaseModel):
     op_index: int
     view_index: int
     section_index: int | None
+    section_heading: str | None           # heading recorded at plan time, section-targeted ops
+    to_section_index: int | None
+    to_section_heading: str | None        # for move_card's destination section
     card_index: int | None
     fingerprint: CardFingerprint | None   # set for replace/remove/move
 
@@ -289,7 +292,7 @@ Order. Stage 3 stops at the first op that fails (later ops depend on it); stages
      Masonry view with `section` set → `section_not_applicable`.
    - `card_index` in range → else `card_index_out_of_range`. Record the
      `CardFingerprint` of the card at that index for replace/remove/move.
-   - `position` as int must be `0..len` inclusive.
+   - `position` as int must be `0..len` inclusive → `position_out_of_range`.
 4. **Entity references** — `dashboard_refs.extract_refs` over every new or
    replacement card, `validate_refs` against registries. Any invalid →
    error `invalid_entity_refs` with `did_you_mean`. `dashboard_refs` gains
@@ -379,7 +382,8 @@ no I/O, unit-tested in isolation.
 - `remove_section`, `delete_view`: delete.
 
 Fingerprint assertion failure raises `TargetMismatch(op_index, expected,
-actual)`; the executor aborts before saving.
+actual)`; the executor aborts before saving. Section-targeted ops also
+assert the heading recorded at plan time; a mismatch raises `target_changed`.
 
 ### 4.5 `apply_dashboard_plan`
 
@@ -559,6 +563,7 @@ model can address by heading and cite indices without a second query.
 | Apply without approved id | apply | `plan_not_approved`; nothing read or written |
 | Plan expired / other conversation | apply | `plan_not_found`; model re-plans |
 | Target card changed since plan | apply | `target_changed` with expected vs actual; nothing written |
+| Target section renamed since plan | apply | `target_changed`; nothing written |
 | Backup write fails | apply | logged, `backup: null` in result, save proceeds |
 | Save fails | apply | `ha_error`; HA untouched |
 | Read-back mismatch | apply | `verification.all_ok: false` with per-op detail; backup path in result |

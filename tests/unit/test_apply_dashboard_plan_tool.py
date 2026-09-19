@@ -196,6 +196,24 @@ async def test_target_changed_aborts_before_save(tmp_path: Path) -> None:
     assert client.saves() == []
 
 
+async def test_section_renamed_between_plan_and_apply_aborts(tmp_path: Path) -> None:
+    client = _FakeClient(_dashboard())
+    store = PlanStore()
+    plan_id = await _staged(
+        tmp_path,
+        client,
+        store,
+        [{"op": "remove_section", "view_path": "rooms", "section": "Lights"}],
+    )
+    # The section got renamed between plan and apply.
+    client.config["views"][0]["sections"][0]["cards"][0]["heading"] = "Garage"
+    result = await execute(
+        "apply_dashboard_plan", {"plan_id": plan_id}, _apply_ctx(tmp_path, client, store, plan_id)
+    )
+    assert result.error_code == "target_changed"
+    assert client.saves() == []
+
+
 async def test_save_failure_reports_ha_error(tmp_path: Path) -> None:
     client = _FakeClient(_dashboard(), save_raises=CommandError("home_assistant_error", "boom"))
     store = PlanStore()

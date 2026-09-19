@@ -39,6 +39,7 @@ from mylo.dashboard.ops import (
     is_sections_view,
     resolve_position,
     resolve_section,
+    section_heading,
 )
 from mylo.dashboard.plan import (
     AddCards,
@@ -133,9 +134,13 @@ def resolve_target(config: dict[str, Any], op: PlanOp, op_index: int) -> Resolve
         return target
     if isinstance(op, RemoveSection):
         target.section_index = resolve_section(view, op.section)
+        if target.section_index is not None:
+            target.section_heading = section_heading(view["sections"][target.section_index])
         return target
     if isinstance(op, AddCards):
         target.section_index = resolve_section(view, op.section)
+        if target.section_index is not None:
+            target.section_heading = section_heading(view["sections"][target.section_index])
         cards = cards_at(view, target.section_index)
         resolve_position(
             op.position, len(cards), heading_first=bool(cards) and is_heading_card(cards[0])
@@ -143,6 +148,8 @@ def resolve_target(config: dict[str, Any], op: PlanOp, op_index: int) -> Resolve
         return target
     if isinstance(op, ReplaceCard | RemoveCard):
         target.section_index = resolve_section(view, op.section)
+        if target.section_index is not None:
+            target.section_heading = section_heading(view["sections"][target.section_index])
         cards = cards_at(view, target.section_index)
         if not 0 <= op.card_index < len(cards):
             raise OpError(
@@ -154,6 +161,8 @@ def resolve_target(config: dict[str, Any], op: PlanOp, op_index: int) -> Resolve
         return target
     if isinstance(op, MoveCard):
         target.section_index = resolve_section(view, op.from_section)
+        if target.section_index is not None:
+            target.section_heading = section_heading(view["sections"][target.section_index])
         src = cards_at(view, target.section_index)
         if not 0 <= op.card_index < len(src):
             raise OpError(
@@ -164,6 +173,8 @@ def resolve_target(config: dict[str, Any], op: PlanOp, op_index: int) -> Resolve
         target.fingerprint = card_fingerprint(src[op.card_index])
         to_ref = op.to_section if op.to_section is not None else op.from_section
         target.to_section_index = resolve_section(view, to_ref)
+        if target.to_section_index is not None:
+            target.to_section_heading = section_heading(view["sections"][target.to_section_index])
         dst = cards_at(view, target.to_section_index)
         length = len(dst) - (1 if target.to_section_index == target.section_index else 0)
         resolve_position(

@@ -111,7 +111,8 @@ class ReplaceCard(BaseModel):
     card_index: int = Field(
         ge=0,
         description=(
-            "Zero-based index from query_dashboard. In a section, index 0 is usually the heading."
+            "Zero-based index from query_dashboard. In a section, index 0 is usually the "
+            "heading. Indices shift as earlier ops in this plan apply."
         ),
     )
     card: dict[str, Any]
@@ -122,7 +123,13 @@ class RemoveCard(BaseModel):
     op: Literal["remove_card"]
     view_path: str
     section: SectionRef | None = Field(default=None, description=_SECTION_DESC)
-    card_index: int = Field(ge=0, description="Zero-based index from query_dashboard.")
+    card_index: int = Field(
+        ge=0,
+        description=(
+            "Zero-based index from query_dashboard. Indices shift as earlier ops in this "
+            "plan apply."
+        ),
+    )
 
 
 class MoveCard(BaseModel):
@@ -130,7 +137,13 @@ class MoveCard(BaseModel):
     op: Literal["move_card"]
     view_path: str
     from_section: SectionRef | None = Field(default=None, description=_SECTION_DESC)
-    card_index: int = Field(ge=0, description="Index of the card to move, in from_section.")
+    card_index: int = Field(
+        ge=0,
+        description=(
+            "Index of the card to move, in from_section. Indices shift as earlier ops in "
+            "this plan apply."
+        ),
+    )
     to_section: SectionRef | None = Field(
         default=None, description="Destination section. Defaults to from_section."
     )
@@ -190,7 +203,15 @@ class PlanDashboardParams(BaseModel):
             "Shown to the user so they can correct it."
         ),
     )
-    operations: list[PlanOp] = Field(min_length=1, max_length=40)
+    operations: list[PlanOp] = Field(
+        min_length=1,
+        max_length=40,
+        description=(
+            "Applied in order. Indices in a later op refer to the dashboard AFTER earlier "
+            "ops. When removing or moving several cards from one section, list them "
+            "highest index first."
+        ),
+    )
 
 
 class CardFingerprint(BaseModel):
@@ -207,7 +228,9 @@ class ResolvedTarget(BaseModel):
     op_index: int
     view_index: int | None = None
     section_index: int | None = None
+    section_heading: str | None = None
     to_section_index: int | None = None
+    to_section_heading: str | None = None
     card_index: int | None = None
     fingerprint: CardFingerprint | None = None
 

@@ -229,6 +229,26 @@ def build_view(op: CreateView) -> dict[str, Any]:
 # ─── Apply ──────────────────────────────────────────────────────────────────
 
 
+def _check_section(
+    view: dict[str, Any], section_index: int | None, expected: str | None, op_index: int
+) -> None:
+    """Refuse if the section at the recorded index no longer carries the
+    heading it had at plan time (dashboard edited between plan and apply).
+    A None expectation (headingless section at plan time) is not checked."""
+    if section_index is None or expected is None:
+        return
+    sections = view.get("sections") or []
+    actual = (
+        section_heading(sections[section_index]) if 0 <= section_index < len(sections) else None
+    )
+    if actual != expected:
+        raise OpError(
+            "target_changed",
+            f"op {op_index}: section {section_index} is now {actual!r}, expected {expected!r} — "
+            "the dashboard changed since the plan was made; query_dashboard and plan again",
+        )
+
+
 def _check_target(cards: list[Any], card_index: int, resolved: ResolvedTarget) -> None:
     if not 0 <= card_index < len(cards):
         raise OpError(
@@ -317,6 +337,7 @@ def apply_op(
         )
 
     if isinstance(op, RemoveSection):
+        _check_section(view, resolved.section_index, resolved.section_heading, idx)
         sections = view.get("sections") or []
         si = resolved.section_index
         if si is None or not 0 <= si < len(sections):
@@ -333,6 +354,7 @@ def apply_op(
         )
 
     if isinstance(op, AddCards):
+        _check_section(view, resolved.section_index, resolved.section_heading, idx)
         cards = _live_cards(view, resolved.section_index)
         at = resolve_position(
             op.position, len(cards), heading_first=bool(cards) and is_heading_card(cards[0])
@@ -351,6 +373,7 @@ def apply_op(
         )
 
     if isinstance(op, ReplaceCard):
+        _check_section(view, resolved.section_index, resolved.section_heading, idx)
         cards = _live_cards(view, resolved.section_index)
         _check_target(cards, op.card_index, resolved)
         cards[op.card_index] = copy.deepcopy(op.card)
@@ -365,6 +388,7 @@ def apply_op(
         )
 
     if isinstance(op, RemoveCard):
+        _check_section(view, resolved.section_index, resolved.section_heading, idx)
         cards = _live_cards(view, resolved.section_index)
         _check_target(cards, op.card_index, resolved)
         del cards[op.card_index]
@@ -379,9 +403,11 @@ def apply_op(
         )
 
     if isinstance(op, MoveCard):
+        _check_section(view, resolved.section_index, resolved.section_heading, idx)
         src = _live_cards(view, resolved.section_index)
         _check_target(src, op.card_index, resolved)
         card = src.pop(op.card_index)
+        _check_section(view, resolved.to_section_index, resolved.to_section_heading, idx)
         dst = _live_cards(view, resolved.to_section_index)
         at = resolve_position(
             op.position, len(dst), heading_first=bool(dst) and is_heading_card(dst[0])

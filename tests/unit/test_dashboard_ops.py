@@ -329,6 +329,24 @@ def test_remove_section_and_delete_view() -> None:
     assert exc.value.code == "view_not_found"
 
 
+def test_section_heading_mismatch_raises_target_changed() -> None:
+    config = _config()
+    config["views"][1]["sections"][0]["cards"][0]["heading"] = "Garage"
+    op = RemoveSection(op="remove_section", view_path="rooms", section=0)
+    resolved = ResolvedTarget(op_index=0, view_index=1, section_index=0, section_heading="Lights")
+    with pytest.raises(OpError) as exc:
+        apply_op(config, op, resolved)
+    assert exc.value.code == "target_changed"
+
+
+def test_section_heading_match_passes() -> None:
+    op = RemoveSection(op="remove_section", view_path="rooms", section=0)
+    resolved = ResolvedTarget(op_index=0, view_index=1, section_index=0, section_heading="Lights")
+    out, receipt = apply_op(_config(), op, resolved)
+    assert len(_rooms(out)["sections"]) == 1
+    assert receipt.expected_count == 1
+
+
 def test_stale_section_index_raises_op_error() -> None:
     op = AddCards(
         op="add_cards", view_path="rooms", section=5, cards=[{"type": "tile", "entity": "l.x"}]
