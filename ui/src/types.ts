@@ -86,15 +86,6 @@ export interface MemoryIssue {
   user_acknowledged?: boolean;
 }
 
-export interface MemoryPattern {
-  id: string;
-  description: string;
-  confidence: number;
-  first_observed?: string | null;
-  last_confirmed?: string | null;
-  source?: string;
-}
-
 export interface MemoryRejection {
   id: string;
   suggestion: string;
@@ -129,7 +120,6 @@ export interface MemoryFull {
   preferences: Record<string, unknown>;
   notes: MemoryNote[];
   known_issues: MemoryIssue[];
-  patterns: MemoryPattern[];
   rejected: MemoryRejection[];
   conflicts: MemoryConflict[];
   monitored_entities: string[];

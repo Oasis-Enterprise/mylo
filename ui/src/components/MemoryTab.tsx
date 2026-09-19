@@ -27,7 +27,6 @@ import type {
   MemoryFull,
   MemoryIssue,
   MemoryNote,
-  MemoryPattern,
   MemoryRejection,
   ScratchpadEntry,
   SyncResult,
@@ -282,21 +281,6 @@ export function MemoryTab() {
           )}
         </Section>
 
-        <Section title={`Patterns (${memory.patterns.length})`}>
-          {memory.patterns.length === 0 ? (
-            <Empty text="No patterns observed yet." />
-          ) : (
-            memory.patterns.map((p) => (
-              <PatternRow
-                key={p.id}
-                pattern={p}
-                busy={busyItem === `patterns/${p.id}`}
-                onDelete={() => handleDelete("patterns", p.id)}
-              />
-            ))
-          )}
-        </Section>
-
         <Section title={`Rejected suggestions (${memory.rejected.length})`}>
           {memory.rejected.length === 0 ? (
             <Empty text="No rejected suggestions." />
@@ -546,30 +530,6 @@ function IssueRow({
   );
 }
 
-function PatternRow({
-  pattern,
-  busy,
-  onDelete,
-}: {
-  pattern: MemoryPattern;
-  busy: boolean;
-  onDelete: () => void;
-}) {
-  return (
-    <MemoryRow
-      body={pattern.description}
-      meta={
-        <>
-          <code style={{ color: "var(--color-text-dim)" }}>{pattern.id}</code>
-          <span>confidence={pattern.confidence.toFixed(2)}</span>
-        </>
-      }
-      busy={busy}
-      onDelete={onDelete}
-    />
-  );
-}
-
 function RejectionRow({
   rejection,
   busy,
@@ -793,8 +753,6 @@ function counts(memory: MemoryFull): React.ReactNode {
       <span style={{ color: "var(--color-text-dim)" }}> notes · </span>
       <span style={{ color: "var(--color-text)" }}>{memory.known_issues.length}</span>
       <span style={{ color: "var(--color-text-dim)" }}> issues · </span>
-      <span style={{ color: "var(--color-text)" }}>{memory.patterns.length}</span>
-      <span style={{ color: "var(--color-text-dim)" }}> patterns · </span>
       <span style={{ color: open > 0 ? "var(--color-warning)" : "var(--color-text)" }}>
         {open}
       </span>
