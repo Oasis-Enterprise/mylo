@@ -5,6 +5,21 @@ first-class versioned artifacts. Every change to ``system_prompt.txt``
 bumps the version in the first line of that file and adds an entry
 here explaining what changed and why.
 
+## 0.6.0 — 2026-09-19
+
+Dashboard plan flow. `modify_dashboard` and its dry_run dance are gone;
+dashboards now go plan → wait → apply:
+
+- "Dashboard work" section rewritten around plan_dashboard /
+  apply_dashboard_plan: one plan call with every operation, list
+  unasked choices in `assumptions`, end the turn after planning, apply
+  only on the approval turn, report the built-in verification.
+- Sizing corrected: per-card width is `grid_options.columns`; section
+  `column_span` widens the whole section.
+- Placement vocabulary: sections by heading text, `position`
+  start/end/index, move_card instead of remove + add.
+- Write-flow block notes dashboards are the dry_run exception.
+
 ## 0.5.0 — 2026-08-04
 
 Dashboard quality pass — the prompt finally says what a good dashboard

@@ -1,48 +1,87 @@
-# Lovelace dashboard examples. Mylo uses these as few-shot references
-# when building or modifying dashboards. The first example is the
-# canonical shape for every NEW view: sections layout, one grid
-# section per group, a heading card leading each section. Note this
+# Dashboard reference. Mylo uses these as few-shot examples when
+# planning dashboards. The first block is a complete plan_dashboard
+# call; the rest are card snippets to drop into `cards` lists. This
 # comment block IS shown to the model.
 
-# ─── A complete sections view — the shape every new view should have.
-# Heading cards stay attached to their section (this is why titles
-# never drift in sections layout). Tile is the default entity card.
-# Wide cards get column_span on their section.
-- type: sections
-  title: Kitchen
-  path: kitchen
-  icon: mdi:silverware-fork-knife
-  max_columns: 4
-  sections:
-    - type: grid
-      cards:
-        - type: heading
-          heading: Lights
-          icon: mdi:lightbulb
-        - type: tile
-          entity: light.kitchen_overhead
-        - type: tile
-          entity: light.kitchen_pendant
-    - type: grid
-      cards:
-        - type: heading
-          heading: Climate
-          icon: mdi:thermometer
-        - type: tile
-          entity: sensor.kitchen_temperature
-        - type: tile
-          entity: sensor.kitchen_humidity
-    - type: grid
-      column_span: 2
-      cards:
-        - type: heading
-          heading: History
-        - type: history-graph
-          entities:
-            - sensor.kitchen_temperature
-          hours_to_show: 24
+# ─── A complete plan_dashboard call for a new room view ─────────────
+# One create_view with one section per group. Headings are added by
+# the tool from `heading` — never put a heading card in `cards`.
+# `assumptions` lists what was decided without asking.
+summary: "Create Kitchen view — Lights, Climate, History"
+assumptions:
+  - "Included only entities in the Kitchen area"
+  - "Default theme (none stored)"
+operations:
+  - op: create_view
+    title: Kitchen
+    path: kitchen
+    icon: mdi:silverware-fork-knife
+    max_columns: 4
+    sections:
+      - heading: Lights
+        cards:
+          - type: tile
+            entity: light.kitchen_overhead
+          - type: tile
+            entity: light.kitchen_pendant
+      - heading: Climate
+        cards:
+          - type: thermostat
+            entity: climate.kitchen
+            grid_options:
+              columns: full
+          - type: tile
+            entity: sensor.kitchen_temperature
+          - type: tile
+            entity: sensor.kitchen_humidity
+      - heading: History
+        column_span: 2          # widens the WHOLE section (one big card)
+        cards:
+          - type: history-graph
+            entities:
+              - sensor.kitchen_temperature
+            hours_to_show: 24
 
-# ─── Native building blocks (always available, never break) ─────────
+# ─── Editing an existing view: address by heading, place by position ─
+# From query_dashboard: view "rooms" has sections "Lights" (index 0)
+# and "Climate" (index 1); Climate's cards are [heading, tile, tile].
+operations:
+  - op: add_cards
+    view_path: rooms
+    section: Climate
+    position: start            # lands right after the heading card
+    cards:
+      - type: thermostat
+        entity: climate.main
+        grid_options:
+          columns: 12          # full width of the section
+  - op: move_card
+    view_path: rooms
+    from_section: Lights
+    card_index: 3
+    to_section: Climate
+    position: end
+  - op: replace_card
+    view_path: rooms
+    section: Lights
+    card_index: 1              # index 0 is the heading
+    card:
+      type: light
+      entity: light.kitchen_overhead
+  - op: update_view_meta
+    view_path: rooms
+    title: Rooms & Comfort
+    icon: mdi:sofa
+
+# ─── Energy section (native cards) ──────────────────────────────────
+- heading: Energy
+  column_span: 2
+  cards:
+    - type: energy-date-selection
+    - type: energy-usage-graph
+    - type: energy-distribution
+
+# ─── Native building blocks ─────────────────────────────────────────
 
 # Entities card — dense readout when tiles would be too sparse.
 - type: entities
@@ -52,30 +91,37 @@
     - entity: binary_sensor.kitchen_window
       secondary_info: last-changed
 
-# Conditional card — only show when something needs attention.
+# Conditional card — only shows when something needs attention.
 - type: conditional
   conditions:
-    - entity: cover.garage_door
+    - condition: state
+      entity: cover.garage_door
       state: open
   card:
     type: tile
     entity: cover.garage_door
     color: red
 
-# Markdown — free text; also the heading fallback on pre-2024.8 HA.
+# Wide cards: size the CARD with grid_options, not the section.
+- type: map
+  entities:
+    - person.max
+  grid_options:
+    columns: full
+    rows: 4
+- type: weather-forecast
+  entity: weather.home
+  grid_options:
+    columns: 8
+
+# Markdown — free text.
 - type: markdown
   content: "## Notes\nBoiler service due in March."
 
 # ─── Custom cards — ONLY if query_dashboard_env lists them ──────────
-
-# Mushroom tiles (custom:mushroom-*) — pleasant compact cards, but a
-# hard error if the resource isn't installed. Inside a sections view
-# they still go under a heading card, never mushroom-title-card.
 - type: custom:mushroom-light-card
   entity: light.living_room
   show_brightness_control: true
-
-# Mini-graph (custom:mini-graph-card) — sparkline for one sensor.
 - type: custom:mini-graph-card
   entities:
     - entity: sensor.basement_humidity
