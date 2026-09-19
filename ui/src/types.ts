@@ -163,3 +163,47 @@ export interface ScratchpadEntry {
   confidence: number | null;
   conversation_id: string | null;
 }
+
+// ─── Dashboard plan (plan_dashboard result) ────────────────────────────────
+
+export interface PlanSectionData {
+  heading: string;
+  cards: Record<string, unknown>[];
+  column_span?: number | null;
+}
+
+// Ops are rendered by their `op` tag; other fields are read loosely.
+export interface PlanOpData {
+  op: string;
+  [key: string]: unknown;
+}
+
+export interface PlanFingerprint {
+  type: string;
+  entity?: string | null;
+}
+
+export interface PlanResolvedTarget {
+  op_index: number;
+  section_index?: number | null;
+  to_section_index?: number | null;
+  card_index?: number | null;
+  fingerprint?: PlanFingerprint | null;
+}
+
+export interface PlanIssueData {
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  op_index?: number | null;
+}
+
+export interface DashboardPlanData {
+  plan_id: string;
+  dashboard_id: string | null;
+  summary: string;
+  assumptions: string[];
+  operations: PlanOpData[];
+  resolved: PlanResolvedTarget[];
+  issues: PlanIssueData[];
+}

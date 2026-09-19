@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MODEL_CONTEXT_WINDOW } from "../lib/cost";
 import { formatDollars, formatTokens } from "../lib/format";
 import { useSession } from "../store";
@@ -20,6 +20,9 @@ import { useSession } from "../store";
 interface Props {
   disabled?: boolean;
   onSubmit: (message: string) => void | Promise<void>;
+  // Set by the plan card's Modify button: pre-fill and focus. The
+  // nonce changes on every request so the same text can be re-applied.
+  draft?: { text: string; nonce: number } | null;
 }
 
 // Composer with the tactical status row above the input: budget
@@ -28,11 +31,21 @@ interface Props {
 // the ApprovalCard border weight. The input itself is dark on dark
 // with a muted border and accent focus — deliberately uncluttered
 // so the status row reads as the ambient telemetry.
-export function Composer({ disabled, onSubmit }: Props) {
+export function Composer({ disabled, onSubmit, draft }: Props) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastContext = useSession((s) => s.lastContextTokens);
   const cost = useSession((s) => s.costUsd);
+
+  useEffect(() => {
+    if (!draft) return;
+    setText(draft.text);
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(draft.text.length, draft.text.length);
+    }
+  }, [draft]);
 
   async function submit() {
     const trimmed = text.trim();

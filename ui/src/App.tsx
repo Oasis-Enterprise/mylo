@@ -28,16 +28,22 @@ import { ActivityTab } from "./components/ActivityTab";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { CatchupBanner } from "./components/CatchupBanner";
 import { Composer } from "./components/Composer";
+import { DashboardPlanCard } from "./components/DashboardPlanCard";
 import { Header, type Tab } from "./components/Header";
 import { MemoryTab } from "./components/MemoryTab";
 import { Message } from "./components/Message";
 import { QuestionCard, type PendingQuestion } from "./components/QuestionCard";
 import { hydrateFromMessages, isTurnComplete } from "./hydrate";
 import { useSession } from "./store";
-import type { ChatFragment, ChatItem, ToolCallRecord } from "./types";
+import type { ChatFragment, ChatItem, DashboardPlanData, ToolCallRecord } from "./types";
 
 function randomId() {
   return Math.random().toString(36).slice(2);
+}
+
+interface SubmitOptions {
+  approved?: boolean;
+  approvedPlanIds?: string[];
 }
 
 export default function App() {
@@ -45,11 +51,16 @@ export default function App() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // When the last turn's tool output included a dry-run preview, we
-  // render the ApprovalCard inline at the tail of the conversation
-  // and enable Apply. Approval is consumed per-turn.
-  const [pendingApproval, setPendingApproval] = useState(false);
-  const [queuedApply, setQueuedApply] = useState<string | null>(null);
+  // Set when the last turn included a previewed write. planIds are the
+  // plan_dashboard ids in that turn; Apply sends them back so the
+  // server can bind approval to exactly those plans.
+  const [pendingApproval, setPendingApproval] = useState<{ planIds: string[] } | null>(null);
+  const [queuedApply, setQueuedApply] = useState<{ message: string; planIds: string[] } | null>(
+    null,
+  );
+  const [composerDraft, setComposerDraft] = useState<{ text: string; nonce: number } | null>(
+    null,
+  );
   const [catchup, setCatchup] = useState<CatchupData | null>(null);
   // Inline findings list, toggled from the header badge. statusRefresh
   // bumps force the header to re-poll after a dismissal changes the count.
@@ -68,13 +79,13 @@ export default function App() {
     await newConversation();
     setItems([]);
     setError(null);
-    setPendingApproval(false);
+    setPendingApproval(null);
     setCatchup(null);
     resetSession();
   }, [resetSession]);
 
   const handleSubmit = useCallback(
-    async (message: string) => {
+    async (message: string, opts: SubmitOptions = {}) => {
       // Slash commands run locally against the server's REST endpoints.
       if (message === "/clear" || message === "/new") {
         await handleNewConversation();
@@ -103,8 +114,11 @@ export default function App() {
 
       setError(null);
       setCatchup(null);
-      const approvedForThisTurn = pendingApproval;
-      setPendingApproval(false);
+      // Approval comes ONLY from the Apply button. Answering a question
+      // card or typing a message never authorizes a write.
+      const approved = Boolean(opts.approved);
+      const approvedPlanIds = opts.approvedPlanIds ?? [];
+      setPendingApproval(null);
 
       const userId = randomId();
       const assistantId = randomId();
@@ -121,7 +135,8 @@ export default function App() {
 
       try {
         for await (const event of streamChat(message, {
-          approved: approvedForThisTurn,
+          approved,
+          approvedPlanIds,
           sessionCostUsd: sessionCost,
         })) {
           if (_needsApproval(event)) {
@@ -152,10 +167,12 @@ export default function App() {
           prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),
         );
         setSending(false);
-        if (turnSawPreview) setPendingApproval(true);
+        if (turnSawPreview) {
+          setPendingApproval({ planIds: planIdsFromRecords(toolCallsById.values()) });
+        }
       }
     },
-    [handleNewConversation, pendingApproval, recordTurn],
+    [handleNewConversation, recordTurn, sessionCost],
   );
 
   const pollUntilTurnCompletes = useCallback(
@@ -191,7 +208,7 @@ export default function App() {
         if (hydrated.length > 0) {
           setItems(hydrated);
           if (detectPendingApproval(hydrated)) {
-            setPendingApproval(true);
+            setPendingApproval({ planIds: planIdsFromItems(hydrated) });
           }
         }
         if (catchupData.show_banner) {
@@ -209,6 +226,8 @@ export default function App() {
   // flag authorizes the whole turn server-side).
   const approvalContexts = findApprovalContexts(items);
   const approvalCount = approvalContexts.length;
+  const planContexts = approvalContexts.filter((c) => c.plan !== undefined);
+  const otherContexts = approvalContexts.filter((c) => c.plan === undefined);
 
   // A pending ask_user question is derived from the items, not stored:
   // it exists exactly when the latest assistant turn ended on an
@@ -221,27 +240,32 @@ export default function App() {
       approvalCount > 1
         ? `Yes, apply all ${approvalCount} changes.`
         : "Yes, apply the change.";
+    const planIds = pendingApproval?.planIds ?? [];
     if (sending) {
       // Previous stream still closing out — queue the submit so it
       // fires the moment sending clears, and give the button visible
       // feedback.
-      setQueuedApply(message);
+      setQueuedApply({ message, planIds });
       return;
     }
-    await handleSubmit(message);
-  }, [handleSubmit, sending, approvalCount]);
+    await handleSubmit(message, { approved: true, approvedPlanIds: planIds });
+  }, [handleSubmit, sending, approvalCount, pendingApproval]);
 
   const handleReject = useCallback(() => {
-    setPendingApproval(false);
+    setPendingApproval(null);
     setQueuedApply(null);
+  }, []);
+
+  const handleModify = useCallback(() => {
+    setComposerDraft({ text: "Change the plan: ", nonce: Date.now() });
   }, []);
 
   // Flush a queued apply once the previous turn's stream finishes.
   useEffect(() => {
     if (!sending && queuedApply) {
-      const msg = queuedApply;
+      const q = queuedApply;
       setQueuedApply(null);
-      void handleSubmit(msg);
+      void handleSubmit(q.message, { approved: true, approvedPlanIds: q.planIds });
     }
   }, [sending, queuedApply, handleSubmit]);
 
@@ -296,12 +320,23 @@ export default function App() {
             ) : null}
             {pendingApproval && approvalCount > 0 ? (
               <div style={{ paddingRight: 40 }}>
-                <ApprovalCard
-                  items={approvalContexts}
-                  onApprove={() => void handleApply()}
-                  onReject={handleReject}
-                  applying={queuedApply !== null}
-                />
+                {planContexts.length > 0 ? (
+                  <DashboardPlanCard
+                    plans={planContexts.map((c) => c.plan!)}
+                    otherChanges={otherContexts.map((c) => c.description)}
+                    onApprove={() => void handleApply()}
+                    onReject={handleReject}
+                    onModify={handleModify}
+                    applying={queuedApply !== null}
+                  />
+                ) : (
+                  <ApprovalCard
+                    items={approvalContexts}
+                    onApprove={() => void handleApply()}
+                    onReject={handleReject}
+                    applying={queuedApply !== null}
+                  />
+                )}
               </div>
             ) : null}
             <div ref={endRef} />
@@ -320,7 +355,7 @@ export default function App() {
             </div>
           ) : null}
 
-          <Composer disabled={sending} onSubmit={handleSubmit} />
+          <Composer disabled={sending} onSubmit={(m) => handleSubmit(m)} draft={composerDraft} />
         </>
       ) : tab === "memory" ? (
         <MemoryTab />
@@ -388,6 +423,7 @@ interface ApprovalContext {
   diff?: { before: string; after: string };
   meta?: string;
   tierLabel: string;
+  plan?: DashboardPlanData;
 }
 
 function findApprovalContexts(items: ChatItem[]): ApprovalContext[] {
@@ -480,48 +516,37 @@ function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
     return { description, meta, tierLabel };
   }
 
-  // Dashboard writes — say what's being built, not just "dry run":
-  // "Create view "Kitchen" — sections layout, 3 sections, 12 cards".
-  if (call.name === "modify_dashboard") {
-    const action = String(input.action ?? "modify");
-    const viewTitle = data.view_title ?? input.title;
-    const viewPath = data.view_path ?? input.view_path;
-    const target = viewTitle ? `view "${String(viewTitle)}"` : viewPath ? `view "${String(viewPath)}"` : "dashboard";
-
-    const details: string[] = [];
-    if (typeof data.layout === "string") details.push(`${data.layout} layout`);
-    if (typeof data.section_count === "number") {
-      details.push(`${data.section_count} section${data.section_count === 1 ? "" : "s"}`);
-    }
-    const cardCount = data.card_count ?? data.cards_added;
-    if (typeof cardCount === "number") {
-      details.push(`${cardCount} card${cardCount === 1 ? "" : "s"}`);
-    }
-
-    const actionLabel = action === "create" ? "Create" : action.replace(/_/g, " ");
-    const description =
-      `${actionLabel[0].toUpperCase()}${actionLabel.slice(1)} ${target}` +
-      (details.length > 0 ? ` — ${details.join(", ")}` : "");
-
-    const metaParts: string[] = [];
-    if (typeof data.entity_refs_validated === "number") {
-      metaParts.push(`entities validated: ${data.entity_refs_validated}`);
-    }
-    if (Array.isArray(data.schema_warnings) && data.schema_warnings.length > 0) {
-      metaParts.push(`schema warnings: ${data.schema_warnings.length}`);
-    }
-
-    return {
-      description,
-      meta: metaParts.length > 0 ? metaParts.join(" · ") : undefined,
-      tierLabel: "TIER-2",
-    };
+  // Dashboard plan — rendered by DashboardPlanCard, not the generic card.
+  if (call.name === "plan_dashboard" && data.plan && typeof data.plan === "object") {
+    const plan = data.plan as DashboardPlanData;
+    return { description: plan.summary, plan, tierLabel: "TIER-2" };
   }
 
   return {
     description: `${call.name} · dry run`,
     tierLabel: "TIER-2",
   };
+}
+
+export function planIdsFromRecords(records: Iterable<ToolCallRecord>): string[] {
+  const ids: string[] = [];
+  for (const call of records) {
+    if (call.name !== "plan_dashboard" || call.state !== "ok") continue;
+    const data = call.data as Record<string, unknown> | undefined;
+    if (data?.preview === true && typeof data.plan_id === "string") ids.push(data.plan_id);
+  }
+  return ids;
+}
+
+export function planIdsFromItems(items: ChatItem[]): string[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.role === "user") return [];
+    if (item.role !== "assistant") continue;
+    const records = item.fragments.flatMap((f) => (f.kind === "tool" ? [f.call] : []));
+    return planIdsFromRecords(records);
+  }
+  return [];
 }
 
 function formatTargetList(value: unknown): string {

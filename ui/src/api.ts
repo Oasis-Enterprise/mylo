@@ -38,6 +38,7 @@ export type ServerEvent =
 
 export interface SendOptions {
   approved?: boolean;
+  approvedPlanIds?: string[];
   sessionCostUsd?: number;
   signal?: AbortSignal;
 }
@@ -59,6 +60,7 @@ export async function* streamChat(
     body: JSON.stringify({
       message,
       approved: Boolean(options.approved),
+      approved_plan_ids: options.approvedPlanIds ?? [],
       session_cost_usd: options.sessionCostUsd ?? 0,
     }),
     signal: options.signal,
