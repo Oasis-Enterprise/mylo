@@ -14,13 +14,13 @@
 
 """Structural validation of Lovelace view configs.
 
-Deliberately shallow: HA's per-card option schemas churn every release,
-so chasing them would rot fast. What we CAN check cheaply and reliably:
+Checks that are cheap and stable across HA releases:
 
 * every card has a ``type``
-* ``custom:*`` types actually exist in the installed lovelace resources
-  (a missing one renders as "Custom element doesn't exist")
+* ``custom:*`` types exist in the installed lovelace resources
 * sections/stacks/conditional nesting has the right shape
+* the handful of options a card cannot render without (``REQUIRED_OPTIONS``)
+* ``grid_options`` shape (per-card sizing in sections layout)
 
 Native-type checking mirrors :mod:`automation_schema`'s stance: the
 known list is "seen before", not an allowlist — HA adds card types, so
@@ -39,8 +39,22 @@ KNOWN_NATIVE_CARD_TYPES: frozenset[str] = frozenset(
         "area",
         "button",
         "calendar",
+        "clock",
         "conditional",
+        "energy-carbon-consumed-gauge",
+        "energy-date-selection",
+        "energy-devices-detail-graph",
+        "energy-devices-graph",
         "energy-distribution",
+        "energy-gas-graph",
+        "energy-grid-neutrality-gauge",
+        "energy-sankey",
+        "energy-self-sufficiency-gauge",
+        "energy-solar-consumed-gauge",
+        "energy-solar-graph",
+        "energy-sources-table",
+        "energy-usage-graph",
+        "energy-water-graph",
         "entities",
         "entity",
         "entity-filter",
@@ -63,6 +77,7 @@ KNOWN_NATIVE_CARD_TYPES: frozenset[str] = frozenset(
         "picture-glance",
         "plant-status",
         "sensor",
+        "shopping-list",
         "statistic",
         "statistics-graph",
         "thermostat",
@@ -72,6 +87,53 @@ KNOWN_NATIVE_CARD_TYPES: frozenset[str] = frozenset(
         "weather-forecast",
     }
 )
+
+# Options a card cannot render without. Outer tuple = requirements (all
+# must hold); inner tuple = alternatives (any one satisfies). Types not
+# listed are not option-checked — HA's per-card schemas churn.
+REQUIRED_OPTIONS: dict[str, tuple[tuple[str, ...], ...]] = {
+    **{
+        t: (("entity",),)
+        for t in (
+            "tile",
+            "entity",
+            "sensor",
+            "gauge",
+            "thermostat",
+            "humidifier",
+            "light",
+            "media-control",
+            "weather-forecast",
+            "alarm-panel",
+            "plant-status",
+            "picture-entity",
+            "statistic",
+            "todo-list",
+        )
+    },
+    **{
+        t: (("entities",),)
+        for t in (
+            "entities",
+            "glance",
+            "history-graph",
+            "statistics-graph",
+            "logbook",
+            "calendar",
+            "picture-glance",
+        )
+    },
+    "button": (("entity", "tap_action"),),
+    "conditional": (("conditions",), ("card",)),
+    "vertical-stack": (("cards",),),
+    "horizontal-stack": (("cards",),),
+    "grid": (("cards",),),
+    "markdown": (("content",),),
+    "picture": (("image",),),
+    "iframe": (("url",),),
+    "map": (("entities", "geo_location_sources"),),
+    "area": (("area",),),
+}
 
 
 def validate_view(view: dict[str, Any], installed_custom: set[str] | None) -> ValidationReport:
@@ -148,6 +210,15 @@ def _validate_card(
     elif card_type not in KNOWN_NATIVE_CARD_TYPES:
         report.warn(path, f"unrecognized card type {card_type!r} — double-check the name")
 
+    if isinstance(card_type, str):
+        for group in REQUIRED_OPTIONS.get(card_type, ()):
+            if not any(card.get(key) not in (None, "", [], {}) for key in group):
+                report.error(
+                    path,
+                    f"{card_type} card is missing required option {' or '.join(group)!s}",
+                )
+    _validate_grid_options(card, path, report)
+
     # Recurse into the standard nesting shapes.
     if "cards" in card:
         nested = card.get("cards")
@@ -162,6 +233,29 @@ def _validate_card(
             report.error(f"{path}.card", "'card' must be a dict")
         else:
             _validate_card(sub, f"{path}.card", installed_custom, report)
+
+
+def _validate_grid_options(card: dict[str, Any], path: str, report: ValidationReport) -> None:
+    opts = card.get("grid_options")
+    if opts is None:
+        return
+    if not isinstance(opts, dict):
+        report.error(f"{path}.grid_options", "grid_options must be a mapping")
+        return
+
+    def _is_int(v: Any) -> bool:
+        return isinstance(v, int) and not isinstance(v, bool)
+
+    columns = opts.get("columns")
+    if columns is not None and not (columns == "full" or (_is_int(columns) and 1 <= columns <= 12)):
+        report.error(f"{path}.grid_options.columns", "columns must be an int 1-12 or 'full'")
+    rows = opts.get("rows")
+    if rows is not None and not (rows == "auto" or (_is_int(rows) and rows >= 1)):
+        report.error(f"{path}.grid_options.rows", "rows must be a positive int or 'auto'")
+    for key in ("min_columns", "max_columns", "min_rows", "max_rows"):
+        value = opts.get(key)
+        if value is not None and not (_is_int(value) and value >= 1):
+            report.error(f"{path}.grid_options.{key}", f"{key} must be a positive int")
 
 
 def has_custom_card(obj: Any) -> bool:

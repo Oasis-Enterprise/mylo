@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Structural validation of Lovelace views (mylo.validators.dashboard_schema).
+"""Structural validation of Lovelace views (mylo.dashboard.card_schema).
 
-Structure only, on purpose: type present on every card, custom types
-checked against installed resources, sane sections shape. Card *options*
-are not validated — HA's card schemas churn too fast to chase.
+Type present on every card, custom types checked against installed
+resources, sane sections shape, and the handful of options a card
+cannot render without.
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ from typing import Any
 
 import pytest
 
+from mylo.dashboard.card_schema import validate_view
 from mylo.ha.registries import EntityEntry, Registries
 from mylo.tools import registry as tool_registry
 from mylo.tools.executor import execute
-from mylo.validators.dashboard_schema import validate_view
 from tests.unit._helpers import make_ctx
 
 _INSTALLED = {"custom:mushroom-light-card", "custom:mini-graph-card"}
@@ -158,6 +158,78 @@ def test_stack_cards_not_a_list_errors():
     view = {"title": "T", "cards": [{"type": "vertical-stack", "cards": "nope"}]}
     report = validate_view(view, installed_custom=None)
     assert not report.ok
+
+
+# ─── required options + grid_options ───────────────────────────────────────
+
+
+def test_tile_without_entity_errors():
+    report = validate_view({"cards": [{"type": "tile"}]}, installed_custom=None)
+    assert not report.ok
+    assert any("entity" in i.message and i.severity == "error" for i in report.issues)
+
+
+def test_conditional_needs_conditions_and_card():
+    report = validate_view(
+        {"cards": [{"type": "conditional", "card": {"type": "tile", "entity": "x.y"}}]},
+        installed_custom=None,
+    )
+    assert not report.ok
+    assert any("conditions" in i.message for i in report.issues)
+
+
+def test_button_accepts_tap_action_instead_of_entity():
+    report = validate_view(
+        {
+            "cards": [
+                {"type": "button", "tap_action": {"action": "navigate", "navigation_path": "/x"}}
+            ]
+        },
+        installed_custom=None,
+    )
+    assert report.ok
+
+
+def test_map_accepts_geo_location_sources():
+    report = validate_view(
+        {"cards": [{"type": "map", "geo_location_sources": ["all"]}]}, installed_custom=None
+    )
+    assert report.ok
+
+
+def test_grid_options_shape():
+    ok = validate_view(
+        {
+            "cards": [
+                {"type": "tile", "entity": "x.y", "grid_options": {"columns": "full", "rows": 2}}
+            ]
+        },
+        installed_custom=None,
+    )
+    assert ok.ok
+    bad = validate_view(
+        {"cards": [{"type": "tile", "entity": "x.y", "grid_options": {"columns": 13}}]},
+        installed_custom=None,
+    )
+    assert not bad.ok
+    assert any("grid_options.columns" in i.path for i in bad.issues)
+    bad_rows = validate_view(
+        {"cards": [{"type": "tile", "entity": "x.y", "grid_options": {"rows": "tall"}}]},
+        installed_custom=None,
+    )
+    assert not bad_rows.ok
+
+
+def test_energy_and_clock_cards_are_known():
+    for t in (
+        "energy-usage-graph",
+        "energy-date-selection",
+        "energy-sankey",
+        "clock",
+        "shopping-list",
+    ):
+        report = validate_view({"cards": [{"type": t}]}, installed_custom=None)
+        assert not any("unrecognized" in i.message for i in report.issues), t
 
 
 # ─── modify_dashboard integration ───────────────────────────────────────────

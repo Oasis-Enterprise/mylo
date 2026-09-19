@@ -201,7 +201,11 @@ async def test_create_view_dry_run(_ctx):
         {
             "action": "create",
             "dashboard_id": None,
-            "config": {"path": "mylo", "title": "Mylo", "cards": [{"type": "entities"}]},
+            "config": {
+                "path": "mylo",
+                "title": "Mylo",
+                "cards": [{"type": "entities", "entities": ["sensor.kitchen_temp"]}],
+            },
             "dry_run": True,
         },
         _ctx,

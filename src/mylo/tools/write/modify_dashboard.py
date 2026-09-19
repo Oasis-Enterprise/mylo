@@ -31,6 +31,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mylo.dashboard.card_schema import has_custom_card, validate_view
 from mylo.files.diff import diff_structs
 from mylo.ha.lovelace_meta import detect_custom_cards, get_resources, get_themes
 from mylo.ha.ws_client import CommandError
@@ -38,7 +39,6 @@ from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.dashboard_refs import extract_entity_refs, validate_refs
 from mylo.tools.registry import register
-from mylo.validators.dashboard_schema import has_custom_card, validate_view
 
 Action = Literal[
     "create",
