@@ -32,6 +32,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mylo.dashboard.ops import section_heading
+from mylo.dashboard.plan import card_fingerprint, is_heading_card
 from mylo.ha.ws_client import CommandError
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
@@ -92,6 +94,16 @@ async def _fetch_config(ctx: ToolContext, dashboard_id: str | None) -> Any:
     return await ctx.ws_client.send_command("lovelace/config", url_path=dashboard_id)
 
 
+def _card_summary(index: int, card: Any) -> dict[str, Any]:
+    fp = card_fingerprint(card)
+    out: dict[str, Any] = {"index": index, "type": fp.type}
+    if fp.entity:
+        out["entity"] = fp.entity
+    if is_heading_card(card):
+        out["heading"] = card.get("heading")
+    return out
+
+
 def _view_summary(view: dict[str, Any]) -> dict[str, Any]:
     cards = view.get("cards") or []
     sections = view.get("sections")
@@ -101,15 +113,26 @@ def _view_summary(view: dict[str, Any]) -> dict[str, Any]:
         "icon": view.get("icon"),
         "card_count": len(cards) if isinstance(cards, list) else 0,
     }
-    # Flag sections-layout views so the model knows to pass section_index
-    # to modify_dashboard's surgical ops instead of top-level card_index.
+    # Sections views carry per-section headings and per-card {index,
+    # type, entity} so plan_dashboard ops can address a section by
+    # heading and a card by index without a second query.
     if view.get("type") == "sections" or isinstance(sections, list):
         summary["layout"] = "sections"
         if isinstance(sections, list):
             summary["section_count"] = len(sections)
-            summary["section_card_counts"] = [
-                len(s.get("cards") or []) if isinstance(s, dict) else 0 for s in sections
+            summary["sections"] = [
+                {
+                    "index": i,
+                    "heading": section_heading(s),
+                    "cards": [
+                        _card_summary(j, c)
+                        for j, c in enumerate(s.get("cards") or [] if isinstance(s, dict) else [])
+                    ],
+                }
+                for i, s in enumerate(sections)
             ]
+    elif isinstance(cards, list):
+        summary["cards"] = [_card_summary(j, c) for j, c in enumerate(cards)]
     return summary
 
 

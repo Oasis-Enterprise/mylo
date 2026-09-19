@@ -59,7 +59,9 @@ class VerifyChangeParams(BaseModel):
         default=5.0,
         ge=0.0,
         le=30.0,
-        description="Grace period before checking (lets HA finish a reload).",
+        description=(
+            "Grace period before checking (lets HA finish a reload). Ignored for dashboard_loaded."
+        ),
     )
 
 
@@ -137,13 +139,12 @@ async def _check_dashboard_loaded(ctx: ToolContext, targets: list[str]) -> dict[
         }
         if is_sections:
             sections = view.get("sections")
-            if isinstance(sections, list) and all(
-                isinstance(s, dict) and isinstance(s.get("cards"), list) for s in sections
-            ):
+            if isinstance(sections, list) and all(isinstance(s, dict) for s in sections):
                 entry["section_count"] = len(sections)
+                entry["card_count"] = sum(len(s.get("cards") or []) for s in sections)
             else:
                 entry["ok"] = False
-                entry["reason"] = "sections view has malformed sections (missing cards list)"
+                entry["reason"] = "sections view has malformed sections (non-mapping entry)"
         else:
             entry["card_count"] = len(view.get("cards") or [])
         results[target] = entry
@@ -153,7 +154,9 @@ async def _check_dashboard_loaded(ctx: ToolContext, targets: list[str]) -> dict[
 
 
 async def handler(params: VerifyChangeParams, ctx: ToolContext) -> ToolResult:
-    if params.wait_seconds > 0:
+    # Lovelace saves apply synchronously; only reload-based checks need
+    # the grace period.
+    if params.wait_seconds > 0 and params.check_type != "dashboard_loaded":
         await asyncio.sleep(params.wait_seconds)
 
     if params.check_type == "entity_exists":
@@ -175,8 +178,8 @@ TOOL = ToolDefinition(
         "After a config change and reload, verify the change took effect. "
         "Implements 'entity_exists', 'automation_loaded', and "
         "'dashboard_loaded' (targets: '<dashboard_id>:<view_path>' or bare "
-        "'<view_path>' for the default dashboard — checks the view exists "
-        "and its sections are well-formed). Richer verifications land in a "
+        "'<view_path>' for the default dashboard — checks the view exists; "
+        "applies immediately, no wait). Richer verifications land in a "
         "later milestone."
     ),
     params_model=VerifyChangeParams,

@@ -16,7 +16,9 @@
 
 Targets are '<dashboard_id>:<view_path>' or a bare '<view_path>' for
 the default dashboard. A view is loaded when it exists in the fetched
-config and (for sections views) every section carries a cards list.
+config; for sections views, each section must be a mapping (a section
+with no 'cards' key is legal — HA omits it for heading-only/empty
+sections).
 """
 
 from __future__ import annotations
@@ -131,21 +133,51 @@ async def test_dashboard_loaded_fetch_failure_reported(tmp_path):
     assert "reason" in result.data["results"]["home"]
 
 
-async def test_dashboard_loaded_sections_view_missing_cards_flagged(tmp_path):
-    broken = {
+async def test_dashboard_loaded_section_without_cards_is_legal(tmp_path):
+    """A heading-only or empty section has no 'cards' key in HA and is valid."""
+    config = {
         "views": [
             {
                 "path": "rooms",
                 "type": "sections",
-                "sections": [{"type": "grid"}],
+                "sections": [{"type": "grid"}, {"type": "grid", "cards": []}],
             }
         ]
     }
-    ctx = _ctx(tmp_path, {"lovelace/config": broken})
+    client = _FakeClient({"lovelace/config": config})
+    ctx = make_ctx(ws_client=client, registries=Registries(), tmp_path=tmp_path)
     result = await execute(
         "verify_change",
         {"check_type": "dashboard_loaded", "targets": ["rooms"], "wait_seconds": 0},
         ctx,
     )
-    assert result.status.value == "ok", result
+    entry = result.data["results"]["rooms"]
+    assert entry["ok"] is True
+    assert entry["section_count"] == 2
+
+
+async def test_dashboard_loaded_non_dict_section_is_malformed(tmp_path):
+    config = {"views": [{"path": "rooms", "type": "sections", "sections": ["nope"]}]}
+    client = _FakeClient({"lovelace/config": config})
+    ctx = make_ctx(ws_client=client, registries=Registries(), tmp_path=tmp_path)
+    result = await execute(
+        "verify_change",
+        {"check_type": "dashboard_loaded", "targets": ["rooms"], "wait_seconds": 0},
+        ctx,
+    )
     assert result.data["results"]["rooms"]["ok"] is False
+
+
+async def test_dashboard_loaded_does_not_sleep(tmp_path, monkeypatch):
+    import asyncio as _asyncio
+
+    slept: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(_asyncio, "sleep", _fake_sleep)
+    client = _FakeClient({"lovelace/config": _DEFAULT_DASHBOARD})
+    ctx = make_ctx(ws_client=client, registries=Registries(), tmp_path=tmp_path)
+    await execute("verify_change", {"check_type": "dashboard_loaded", "targets": ["home"]}, ctx)
+    assert slept == []
