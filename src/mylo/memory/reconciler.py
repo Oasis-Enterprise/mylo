@@ -90,6 +90,12 @@ _PAYLOAD_TOKEN_BUDGET = 150_000
 # until a successful merge drains the file.
 _SCRATCHPAD_RECONCILE_LIMIT = 300
 
+# Output cap for the merge. The reconciler re-emits the whole memory
+# file, so this must comfortably exceed the file's size; Haiku 4.5
+# supports 64k output tokens. Truncation is detected via stop_reason
+# below rather than left to surface as a YAML parse error.
+_RECONCILER_MAX_TOKENS = 32768
+
 
 # ─── Provider interface (narrow) ─────────────────────────────────────────────
 
@@ -327,10 +333,28 @@ async def run_sync(
         messages=[{"role": "user", "content": user_msg}],
         tools=[],
         model=model,
-        max_tokens=8192,
+        max_tokens=_RECONCILER_MAX_TOKENS,
     )
 
     raw_text = getattr(response, "text", "") or ""
+    if getattr(response, "stop_reason", "") == "max_tokens":
+        # The document was cut mid-stream. Parsing it would fail with a
+        # misleading "malformed YAML" — say what actually happened.
+        log.error(
+            "memory.reconciler_truncated",
+            chars=len(raw_text),
+            max_tokens=_RECONCILER_MAX_TOKENS,
+        )
+        return ReconcileResult(
+            updated=None,
+            summary=(
+                f"reconciler output truncated at {_RECONCILER_MAX_TOKENS} "
+                "max_tokens; memory untouched, scratchpad preserved"
+            ),
+            conflicts_added=0,
+            prune_report=prune_report,
+            raw_output=raw_text,
+        )
     try:
         proposed = _parse_reconciler_output(raw_text)
     except Exception as exc:

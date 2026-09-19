@@ -247,13 +247,14 @@ class _FakeResponse:
 
 
 class _FakeProvider:
-    def __init__(self, reply: str) -> None:
+    def __init__(self, reply: str, *, stop_reason: str = "end_turn") -> None:
         self.reply = reply
+        self.stop_reason = stop_reason
         self.calls: list[dict[str, Any]] = []
 
     async def message(self, **kwargs: Any) -> _FakeResponse:
         self.calls.append(kwargs)
-        return _FakeResponse(text=self.reply)
+        return _FakeResponse(text=self.reply, stop_reason=self.stop_reason)
 
 
 async def test_reconciler_noop_without_scratchpad_or_diff(tmp_path: Path) -> None:
@@ -338,6 +339,38 @@ async def test_reconciler_parses_yaml_and_preserves_user_sections(tmp_path: Path
     ids = {n.id for n in result.updated.notes}
     assert "n_user" in ids
     assert "n_new" in ids
+
+
+async def test_reconciler_detects_truncated_output(tmp_path: Path) -> None:
+    """A max_tokens stop means the YAML is cut mid-document. Don't parse
+    it — report truncation and leave memory untouched."""
+    store = MemoryStore(mylo_data_dir=tmp_path)
+    await store.load()
+    (tmp_path / "scratchpad.yaml").write_text(
+        '- {type: "user_note", scope: {general: true}, '
+        'content: "likes warm light", recorded: "2026-04-12", '
+        'confidence: 0.9, conversation_id: "c1"}\n'
+    )
+    # Half a document: valid up to the cut, then nothing.
+    provider = _FakeProvider(
+        reply="version: 2\nnotes:\n  - id: n1\n    content: 'cut off he",
+        stop_reason="max_tokens",
+    )
+
+    result = await run_sync(
+        store=store,
+        provider=provider,
+        registries=None,
+        model="claude-haiku-4-5-20251001",
+        mylo_data_dir=tmp_path,
+        now=NOW,
+    )
+
+    assert result.updated is None
+    assert "truncated" in result.summary
+    assert "malformed" not in result.summary
+    assert len(provider.calls) == 1
+    assert provider.calls[0]["max_tokens"] == 32768
 
 
 async def test_reconciler_handles_malformed_yaml(tmp_path: Path) -> None:
