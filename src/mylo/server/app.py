@@ -212,7 +212,7 @@ async def _startup(app: web.Application) -> None:
     app[AppKeys.USAGE_LEDGER] = UsageLedger(mylo_data_dir=config.mylo_data_dir)
 
     # State transition logger — subscribes to state_changed events
-    # and records on/off transitions for behavioral pattern detection.
+    # and records on/off transitions for the learned-profile engine.
     from mylo.monitor.transitions import TransitionLogger
 
     transition_logger = TransitionLogger(mylo_data_dir=config.mylo_data_dir)
