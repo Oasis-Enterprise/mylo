@@ -338,8 +338,8 @@ Mylo uses a three-tier permission system:
 
 | Tier | Actions | Approval required | Examples |
 |------|---------|-------------------|----------|
-| **Tier 1 — Read** | Query entities, devices, automations, logs, system info, read config files, record memory notes, list labels/areas/monitored entities/notification filters | No | `query_entities`, `memory_note`, `manage_labels list` |
-| **Tier 2 — Modify** | Write config files, modify automations, rename entities, modify dashboards, modify areas, manage monitored entities, manage notification filters | Yes (dry-run first) | `modify_automation`, `rename_entities`, `plan_dashboard` / `apply_dashboard_plan` |
+| **Tier 1 — Read** | Query entities, devices, automations, logs, system info, read config files, record memory notes, list labels/areas/monitored entities/notification filters, stage a dashboard plan | No | `query_entities`, `memory_note`, `manage_labels list`, `plan_dashboard` |
+| **Tier 2 — Modify** | Write config files, modify automations, rename entities, apply a staged dashboard plan, modify areas, manage monitored entities, manage notification filters | Yes (dry-run first, or Apply for dashboard plans) | `modify_automation`, `rename_entities`, `apply_dashboard_plan` |
 | **Tier 3 — Action** | Call HA services (lights, locks, covers, scripts, scenes), reload configuration | Yes (explicit confirmation) | `call_service`, `reload_config` |
 
 **Hard-blocked services** (can never be called, even with approval):

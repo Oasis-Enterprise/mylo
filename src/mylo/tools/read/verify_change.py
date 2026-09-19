@@ -16,9 +16,12 @@
 
 Implemented: ``entity_exists``, ``automation_loaded``, and
 ``dashboard_loaded`` (does a saved view actually exist in the fetched
-dashboard config, with sane sections shape). The remaining checks
-(``no_new_errors``, ``service_available``, ``full_health``) land with
-the full rollback loop where they have real consumers.
+dashboard config, with sane sections shape). ``dashboard_loaded``
+accepts a section without a ``cards`` key (empty section) and does not
+wait — Lovelace saves apply synchronously, so ``wait_seconds`` is
+ignored for it. The remaining checks (``no_new_errors``,
+``service_available``, ``full_health``) land with the full rollback
+loop where they have real consumers.
 """
 
 from __future__ import annotations

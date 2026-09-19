@@ -88,9 +88,9 @@ class Permissions:
                 allowed=False,
                 reason_code="confirmation_required",
                 reason_message=(
-                    f"tier-{tier.value} tools require user confirmation; "
-                    "present a dry-run preview first and then retry with the "
-                    "user's approval"
+                    f"tier-{tier.value} tools require user confirmation; present a preview "
+                    "first (dry_run=true, or plan_dashboard for dashboards) and retry after "
+                    "the user approves"
                 ),
             )
 

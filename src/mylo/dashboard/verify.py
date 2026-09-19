@@ -150,12 +150,18 @@ def _verify_one(
 
     if isinstance(op, RemoveCard | RemoveSection):
         if isinstance(op, RemoveCard):
-            actual = len(cards_at(view, receipt.section_index))
+            cards = cards_at(view, receipt.section_index)
+            actual = len(cards)
             noun = "cards"
         else:
+            cards = []
             actual = len(view.get("sections") or [])
             noun = "sections"
         if actual == receipt.expected_count:
+            if isinstance(op, RemoveCard):
+                fp = plan.resolved[receipt.op_index].fingerprint
+                if op.card_index < len(cards) and card_fingerprint(cards[op.card_index]) == fp:
+                    return False, "removed card still present at its index"
             return True, f"{actual} {noun} remain"
         return False, f"{actual} {noun} remain, expected {receipt.expected_count}"
 

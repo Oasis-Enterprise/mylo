@@ -101,5 +101,6 @@ TOOL = ToolDefinition(
     params_model=AskUserParams,
     tier=Tier.READ,
     handler=handler,
+    cacheable=False,
 )
 register(TOOL)
