@@ -102,6 +102,18 @@ def test_json_schema_strips_discriminator_for_discriminated_union() -> None:
     assert "definitions" not in schema
     _assert_no_discriminator(schema)
 
+    # A field literally named "title" (CreateView.title, required) must
+    # survive in `properties` and `required` — the noise stripper must not
+    # treat property *names* as noise, only the schema-noise keys that
+    # appear as siblings of "type"/"properties"/etc.
+    variants = schema["properties"]["operations"]["items"]["oneOf"]
+    create_view = next(
+        v for v in variants if v.get("properties", {}).get("op", {}).get("const") == "create_view"
+    )
+    assert "title" in create_view["properties"]
+    assert "title" in create_view["required"]
+    assert create_view["properties"]["title"]["type"] == "string"
+
 
 def _assert_no_discriminator(node: object) -> None:
     if isinstance(node, dict):
@@ -111,6 +123,39 @@ def _assert_no_discriminator(node: object) -> None:
     elif isinstance(node, list):
         for v in node:
             _assert_no_discriminator(v)
+
+
+class _TitleAndPropertiesFields(BaseModel):
+    """A model with fields literally named "title" and "properties" — the
+    exact two words the noise stripper must special-case (strip as schema
+    keys, keep as property names)."""
+
+    model_config = ConfigDict(extra="forbid")
+    title: str
+    properties: dict[str, int]
+
+
+async def _handler_tp(params: _TitleAndPropertiesFields, ctx: object) -> ToolResult:
+    return ToolResult.ok({})
+
+
+def test_json_schema_keeps_property_named_title_or_properties() -> None:
+    tool: ToolDefinition[_TitleAndPropertiesFields] = ToolDefinition(
+        name="t_tp",
+        description="test",
+        params_model=_TitleAndPropertiesFields,
+        tier=Tier.READ,
+        handler=_handler_tp,
+    )
+    schema = tool.json_schema()
+    # The model's own pydantic-generated top-level "title" (the class name)
+    # is still stripped as noise.
+    assert "title" not in schema
+    # But the two fields named "title" and "properties" survive as entries
+    # of the properties map, with their real sub-schemas intact.
+    assert schema["properties"]["title"]["type"] == "string"
+    assert schema["properties"]["properties"]["type"] == "object"
+    assert set(schema["required"]) == {"title", "properties"}
 
 
 def test_tool_result_envelope() -> None:

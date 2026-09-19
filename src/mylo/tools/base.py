@@ -197,8 +197,10 @@ def _inline_defs(schema: dict[str, Any]) -> dict[str, Any]:
     return resolved
 
 
-def _strip_noise(schema: Any) -> Any:
-    """Drop keys that are noise for the model or dangle after ``_inline_defs``.
+def _strip_noise(schema: Any, *, keys_are_names: bool = False) -> Any:
+    """Drop pydantic schema noise (``title``, ``discriminator``) everywhere
+    EXCEPT where dict keys are property names — the children of a
+    ``properties`` map — so a field literally called ``title`` survives.
 
     ``title`` is pydantic's per-field label, unused by any provider here.
     ``discriminator`` (emitted for a discriminated union, e.g. ``PlanOp``)
@@ -208,7 +210,9 @@ def _strip_noise(schema: Any) -> Any:
     """
     if isinstance(schema, dict):
         return {
-            k: _strip_noise(v) for k, v in schema.items() if k not in ToolDefinition._CLEAN_KEYS
+            k: _strip_noise(v, keys_are_names=(not keys_are_names and k == "properties"))
+            for k, v in schema.items()
+            if keys_are_names or k not in ToolDefinition._CLEAN_KEYS
         }
     if isinstance(schema, list):
         return [_strip_noise(x) for x in schema]
