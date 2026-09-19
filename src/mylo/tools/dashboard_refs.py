@@ -28,9 +28,9 @@ then validates each one against the live registry. Invalid refs get
 fuzzy-matched to produce ``did_you_mean`` suggestions so the model
 can self-correct in the next turn.
 
-Used by :mod:`modify_dashboard` as a pre-flight check before the
-dry-run preview. If any refs are invalid, the tool returns an error
-instead of a preview — the model fixes them and retries.
+Used by :mod:`mylo.dashboard.validate` before a plan is staged.
+If any refs are invalid, the tool returns an error instead of a
+preview — the model fixes them and retries.
 """
 
 from __future__ import annotations

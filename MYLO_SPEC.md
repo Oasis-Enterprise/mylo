@@ -764,16 +764,10 @@ params:
   dry_run: bool                     # preview changes without applying
 ```
 
-#### modify_dashboard
-```yaml
-description: "Create, update, or delete dashboard views and cards. Can
-  generate complete dashboards or modify existing ones."
-params:
-  action: enum [create, update, delete]
-  dashboard_id: string
-  config: object                    # Lovelace YAML as structured object
-  dry_run: bool
-```
+#### plan_dashboard / apply_dashboard_plan
+
+Superseded by `plan_dashboard` / `apply_dashboard_plan` — see
+`docs/superpowers/specs/2026-09-19-dashboard-plan-flow-design.md`.
 
 #### modify_automation
 ```yaml

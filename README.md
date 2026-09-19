@@ -82,9 +82,9 @@ Create and modify Lovelace views through conversation. Supports mushroom cards, 
 - "Create a card that shows my energy usage for the last 24 hours"
 - "Add a conditional card that only shows when the garage door is open"
 
-**Tools used:** `modify_dashboard` (create, add_cards, update_view, replace_card, remove_card, delete), `query_dashboard`
+**Tools used:** `plan_dashboard`, `apply_dashboard_plan`, `query_dashboard`
 
-Dashboard operations are surgical — Mylo can replace a single view by path, swap one card by index, or remove a card without touching the rest of your dashboard. For new views, it builds incrementally: creates the view with an initial batch of cards, then adds more in follow-up calls.
+Dashboard changes are planned, shown as a wireframe for approval, then applied and verified. Dashboard operations are surgical — Mylo can replace a single view by path, swap one card by index, or remove a card without touching the rest of your dashboard. For new views, it builds incrementally: creates the view with an initial batch of cards, then adds more in follow-up calls.
 
 **Entity validation:** Every entity reference in card configs (including inside Jinja templates like `states('sensor.temp')`) is validated against the live registry before preview. If Mylo hallucinates an entity ID, it gets caught and corrected with fuzzy-match suggestions before you ever see a broken card.
 
@@ -339,7 +339,7 @@ Mylo uses a three-tier permission system:
 | Tier | Actions | Approval required | Examples |
 |------|---------|-------------------|----------|
 | **Tier 1 — Read** | Query entities, devices, automations, logs, system info, read config files, record memory notes, list labels/areas/monitored entities/notification filters | No | `query_entities`, `memory_note`, `manage_labels list` |
-| **Tier 2 — Modify** | Write config files, modify automations, rename entities, modify dashboards, modify areas, manage monitored entities, manage notification filters | Yes (dry-run first) | `modify_automation`, `rename_entities`, `modify_dashboard` |
+| **Tier 2 — Modify** | Write config files, modify automations, rename entities, modify dashboards, modify areas, manage monitored entities, manage notification filters | Yes (dry-run first) | `modify_automation`, `rename_entities`, `plan_dashboard` / `apply_dashboard_plan` |
 | **Tier 3 — Action** | Call HA services (lights, locks, covers, scripts, scenes), reload configuration | Yes (explicit confirmation) | `call_service`, `reload_config` |
 
 **Hard-blocked services** (can never be called, even with approval):
