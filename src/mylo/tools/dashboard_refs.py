@@ -44,9 +44,11 @@ from mylo.logging_setup import get_logger
 log = get_logger(__name__)
 
 # Jinja patterns: states('entity_id'), is_state('entity_id', ...),
-# state_attr('entity_id', ...).
+# state_attr('entity_id', ...), expand('entity_id'), has_value('entity_id'),
+# state_translated('entity_id').
 _JINJA_ENTITY_RE = re.compile(
-    r"""(?:states|is_state|state_attr|expand)\s*\(\s*['"]([a-z_]+\.[a-z0-9_]+)['"]""",
+    r"""(?:states|is_state|state_attr|expand|has_value|state_translated)"""
+    r"""\s*\(\s*['"]([a-z_]+\.[a-z0-9_]+)['"]""",
     re.IGNORECASE,
 )
 
@@ -91,6 +93,10 @@ def _walk(obj: Any, refs: set[str]) -> None:
                     for item in value:
                         if isinstance(item, str) and _ENTITY_DOMAIN_RE.match(item):
                             refs.add(item)
+                        else:
+                            _walk(item, refs)
+                else:
+                    _walk(value, refs)
             else:
                 _walk(value, refs)
         return

@@ -116,3 +116,26 @@ def test_validate_refs_fuzzy_suggests_close_match() -> None:
     assert len(invalid) == 1
     suggestions = invalid[0]["did_you_mean"]
     assert "light.basement_celing" in suggestions
+
+
+def test_extracts_additional_jinja_functions():
+    card = {
+        "type": "markdown",
+        "content": (
+            "{{ has_value('sensor.a') }} {{ state_translated('sensor.b') }} "
+            "{{ device_entities('abc') }} {{ area_entities('kitchen') }} "
+            "{{ label_entities('x') }}"
+        ),
+    }
+    refs = extract_entity_refs(card)
+    assert {"sensor.a", "sensor.b"} <= refs
+
+
+def test_extracts_from_dict_valued_entity_key():
+    card = {"type": "custom:x", "entity": {"entity": "light.nested"}}
+    assert "light.nested" in extract_entity_refs(card)
+
+
+def test_extracts_from_list_of_dicts_under_entity_key():
+    card = {"type": "custom:x", "entity_id": [{"entity": "light.a"}, "light.b"]}
+    assert {"light.a", "light.b"} <= extract_entity_refs(card)
