@@ -48,7 +48,7 @@ from mylo.files.diff import diff_structs
 from mylo.files.manager import exists, read_text
 from mylo.files.rollback import (
     apply_optimistic_reload_all,
-    automation_loaded_verifier,
+    automation_by_config_id_verifier,
 )
 from mylo.resolver.resolver import Resolver
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
@@ -198,7 +198,7 @@ async def handler(params: ModifyAutomationParams, ctx: ToolContext) -> ToolResul
     # entity shouldn't exist afterward, and a generic "reload returned"
     # signal is enough.
     verify = (
-        automation_loaded_verifier(f"automation.{_slug(automation_id)}")
+        automation_by_config_id_verifier(automation_id)
         if params.action in ("create", "update", "enable")
         else None
     )

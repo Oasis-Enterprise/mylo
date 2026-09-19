@@ -640,6 +640,47 @@ def automation_loaded_verifier(entity_id: str) -> Verifier:
     return _verify
 
 
+def automation_by_config_id_verifier(automation_id: str) -> Verifier:
+    """Verify the automation with config ``id == automation_id`` loaded.
+
+    HA derives an automation's ``entity_id`` from its alias, not its
+    ``id`` — so a slug built from the id (``automation.mylo_<slug>``)
+    never matches. The config id is exposed on the entity as
+    ``attributes.id``; match on that instead.
+    """
+
+    async def _verify(client: HaWsClient) -> tuple[bool, str, dict[str, Any]]:
+        try:
+            states = await client.send_command("get_states")
+        except CommandError as exc:
+            return False, f"{exc.code}: {exc.message}", {}
+
+        if not isinstance(states, list):
+            return False, "could not fetch states", {}
+
+        match = next(
+            (
+                s
+                for s in states
+                if isinstance(s, dict)
+                and str(s.get("entity_id", "")).startswith("automation.")
+                and (s.get("attributes") or {}).get("id") == automation_id
+            ),
+            None,
+        )
+        if match is None:
+            return False, f"no automation with id {automation_id!r} present after reload", {}
+
+        entity_id = str(match.get("entity_id"))
+        current = match.get("state")
+        details = {"entity_id": entity_id, "state": current}
+        if current in ("on", "off"):
+            return True, f"{entity_id} loaded (state={current})", details
+        return False, f"{entity_id} present but state is {current!r}", details
+
+    return _verify
+
+
 def entity_exists_verifier(entity_id: str) -> Verifier:
     """Looser verifier: just check the entity appears in get_states."""
 

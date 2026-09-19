@@ -171,3 +171,52 @@ async def test_automation_loaded_verifier_fails_when_missing(tmp_path: Path) -> 
     ok, message, _ = await verify(client)  # type: ignore[arg-type]
     assert not ok
     assert "not present" in message
+
+
+async def test_automation_by_config_id_verifier_matches_on_attribute(tmp_path: Path) -> None:
+    """HA names the entity after the alias slug, not the config id. The
+    verifier must find the entity by attributes.id regardless of slug."""
+    from mylo.files.rollback import automation_by_config_id_verifier
+
+    states = [
+        {
+            "entity_id": "automation.berkley_room_light_stoplight_schedule",
+            "state": "on",
+            "attributes": {"id": "mylo_berkley_room_light_stoplight_schedule"},
+        }
+    ]
+    client = _FakeClient(states_after=states)
+    verify = automation_by_config_id_verifier("mylo_berkley_room_light_stoplight_schedule")
+    ok, message, details = await verify(client)  # type: ignore[arg-type]
+    assert ok
+    assert details["entity_id"] == "automation.berkley_room_light_stoplight_schedule"
+    assert details["state"] == "on"
+    assert "loaded" in message
+
+
+async def test_automation_by_config_id_verifier_fails_when_absent(tmp_path: Path) -> None:
+    from mylo.files.rollback import automation_by_config_id_verifier
+
+    states = [
+        {"entity_id": "automation.other", "state": "on", "attributes": {"id": "other_id"}},
+        {"entity_id": "light.kitchen", "state": "on", "attributes": {"id": "mylo_x"}},
+    ]
+    client = _FakeClient(states_after=states)
+    verify = automation_by_config_id_verifier("mylo_x")
+    ok, message, _ = await verify(client)  # type: ignore[arg-type]
+    assert not ok
+    assert "mylo_x" in message
+
+
+async def test_automation_by_config_id_verifier_rejects_unavailable(tmp_path: Path) -> None:
+    from mylo.files.rollback import automation_by_config_id_verifier
+
+    states = [
+        {"entity_id": "automation.a", "state": "unavailable", "attributes": {"id": "mylo_a"}},
+    ]
+    client = _FakeClient(states_after=states)
+    verify = automation_by_config_id_verifier("mylo_a")
+    ok, message, details = await verify(client)  # type: ignore[arg-type]
+    assert not ok
+    assert "unavailable" in message
+    assert details["entity_id"] == "automation.a"
