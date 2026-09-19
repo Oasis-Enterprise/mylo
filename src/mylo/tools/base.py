@@ -115,23 +115,30 @@ class ToolDefinition[Params: BaseModel]:
     params_model: type[Params]
     tier: Tier
     handler: ToolHandler[Params]
+    # READ tools are cached for 120s by the executor. Tools whose result
+    # must be fresh every call (plan_dashboard mints a new plan id;
+    # ask_user pauses the turn) opt out.
+    cacheable: bool = True
 
     # Providers sometimes want a slightly different shape than pydantic's
     # default JSON schema. Filled lazily via :meth:`json_schema`.
     _schema_cache: dict[str, Any] | None = field(default=None, init=False)
 
-    _CLEAN_KEYS: ClassVar[tuple[str, ...]] = ("title",)
+    _CLEAN_KEYS: ClassVar[tuple[str, ...]] = ("title", "discriminator")
 
     def json_schema(self) -> dict[str, Any]:
         """Return a JSON Schema for the parameters, suitable for LLM providers.
 
-        Strips pydantic's ``title`` keys (noise for the model) and inlines
-        ``$defs`` so the model sees a single flat schema.
+        Strips pydantic's ``title`` keys (noise for the model) and
+        ``discriminator`` keys (their ``mapping`` values are ``$ref``
+        strings into ``$defs``, which ``_inline_defs`` has already popped —
+        left in place they'd dangle), and inlines ``$defs`` so the model
+        sees a single flat schema.
         """
         if self._schema_cache is None:
             raw = self.params_model.model_json_schema(mode="serialization")
             inlined = _inline_defs(raw)
-            cleaned = _strip_titles(inlined)
+            cleaned = _strip_noise(inlined)
             assert isinstance(cleaned, dict)
             self._schema_cache = cleaned
         return self._schema_cache
@@ -190,11 +197,21 @@ def _inline_defs(schema: dict[str, Any]) -> dict[str, Any]:
     return resolved
 
 
-def _strip_titles(schema: Any) -> Any:
+def _strip_noise(schema: Any) -> Any:
+    """Drop keys that are noise for the model or dangle after ``_inline_defs``.
+
+    ``title`` is pydantic's per-field label, unused by any provider here.
+    ``discriminator`` (emitted for a discriminated union, e.g. ``PlanOp``)
+    carries a ``mapping`` of ``$ref`` strings into ``$defs`` — but
+    ``_inline_defs`` has already popped ``$defs``, so a left-in
+    ``discriminator`` block would reference definitions that no longer exist.
+    """
     if isinstance(schema, dict):
-        return {k: _strip_titles(v) for k, v in schema.items() if k != "title"}
+        return {
+            k: _strip_noise(v) for k, v in schema.items() if k not in ToolDefinition._CLEAN_KEYS
+        }
     if isinstance(schema, list):
-        return [_strip_titles(x) for x in schema]
+        return [_strip_noise(x) for x in schema]
     return schema
 
 

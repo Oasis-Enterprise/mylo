@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from mylo.config import AppConfig
+from mylo.dashboard.store import PlanStore
 from mylo.ha.registries import Registries
 from mylo.safety.audit import AuditLogger
 from mylo.safety.permissions import default_permissions
@@ -57,6 +58,8 @@ def make_ctx(
     conversation_id: str = "test",
     user_approved: bool = False,
     dry_run: bool = False,
+    plans: PlanStore | None = None,
+    approved_plan_ids: frozenset[str] = frozenset(),
 ) -> ToolContext:
     config = make_config(tmp_path)
     return ToolContext(
@@ -68,4 +71,6 @@ def make_ctx(
         conversation_id=conversation_id,
         user_approved=user_approved,
         dry_run=dry_run,
+        plans=plans,
+        approved_plan_ids=approved_plan_ids,
     )

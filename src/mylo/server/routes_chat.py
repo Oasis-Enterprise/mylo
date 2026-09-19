@@ -71,6 +71,20 @@ async def _safe_emit(response: Any, name: str, data: dict[str, Any]) -> None:
         return
 
 
+def _approved_plan_ids_from_body(body: dict[str, Any]) -> frozenset[str]:
+    """Extract the plan ids the user approved (clicked Apply on) this turn.
+
+    Tolerant of garbage: a missing/non-list field yields no approvals, and
+    non-string or empty-string entries within the list are dropped rather
+    than raising — a malformed request should degrade to "nothing approved"
+    instead of a 500.
+    """
+    raw = body.get("approved_plan_ids")
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(p for p in raw if isinstance(p, str) and p)
+
+
 def register_chat_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", _handle_chat)
     app.router.add_post("/api/conversation/clear", _handle_clear)
@@ -347,6 +361,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     # seeing a dry-run preview. That flag travels on the next request,
     # authorizing tier-2/3 writes for this turn only. Default false.
     approved = bool(body.get("approved", False))
+    approved_plan_ids = _approved_plan_ids_from_body(body)
     # The UI passes the running session cost so the assembler can inject
     # a budget warning when we're approaching the configured cap.
     session_cost = float(body.get("session_cost_usd", 0.0))
@@ -389,6 +404,8 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         conversation_id=base_ctx.conversation_id,
         user_approved=approved,
         dry_run=False,
+        approved_plan_ids=approved_plan_ids,
+        plans=base_ctx.plans,
     )
     tools = request.app[AppKeys.TOOLS_JSON]
     config = request.app[AppKeys.CONFIG]

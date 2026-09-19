@@ -36,6 +36,7 @@ from aiohttp import web
 from mylo.config import AppConfig, load_config
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.storage import ConversationStorage
+from mylo.dashboard.store import PlanStore
 from mylo.ha.registries import Registries
 from mylo.ha.ws_client import HaWsClient
 from mylo.llm.anthropic_provider import AnthropicProvider
@@ -68,6 +69,7 @@ class AppKeys:
     SCHEDULER = web.AppKey("scheduler", object)
     TRANSITIONS = web.AppKey("transitions", object)
     USAGE_LEDGER = web.AppKey("usage_ledger", UsageLedger)
+    PLANS = web.AppKey("plans", PlanStore)
 
 
 _DEFAULT_MODELS: dict[str, str] = {
@@ -247,6 +249,8 @@ async def _startup(app: web.Application) -> None:
     # the Anthropic→OpenAI translation. Storing pre-converted tools
     # caused a double-conversion KeyError for OpenAI/Ollama users.
     app[AppKeys.TOOLS_JSON] = [t.to_anthropic() for t in tool_registry.all_tools()]
+    plan_store = PlanStore()
+    app[AppKeys.PLANS] = plan_store
     app[AppKeys.TOOL_CONTEXT] = ToolContext(
         ws_client=client,
         registries=registries,
@@ -254,6 +258,7 @@ async def _startup(app: web.Application) -> None:
         permissions=default_permissions(),
         audit=AuditLogger(config.mylo_data_dir),
         conversation_id=conv.conversation_id,
+        plans=plan_store,
     )
 
     # Background scheduler (nightly reconciler + hourly availability).

@@ -140,7 +140,7 @@ async def execute(
     # Cache check for read-only tools — same params within 120s reuse
     # the prior result. Write/action tools are never cached.
     cache_key: str | None = None
-    if tool.tier == Tier.READ:
+    if tool.tier == Tier.READ and tool.cacheable:
         cache_key = _cache_key(tool.name, raw_params)
         cached = _cache_get(cache_key)
         if cached is not None:

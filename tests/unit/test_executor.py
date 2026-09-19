@@ -154,3 +154,40 @@ async def test_audit_written_for_denied(tmp_path: Path) -> None:
     await execute("t_audit_denied", {"n": 1}, ctx)
     entries = ctx.audit.read_recent(limit=10)
     assert any(e["tool_name"] == "t_audit_denied" and e["result"] == "denied" for e in entries)
+
+
+# ─── cacheable flag ──────────────────────────────────────────────────────────
+
+
+async def test_uncacheable_read_tool_runs_every_time(tmp_path: Path) -> None:
+    calls: list[int] = []
+
+    async def _count(params: _P, _ctx: Any) -> ToolResult:
+        calls.append(params.n)
+        return ToolResult.ok({"n": params.n})
+
+    t = ToolDefinition(
+        name="nocache",
+        description="t",
+        params_model=_P,
+        tier=Tier.READ,
+        handler=_count,
+        cacheable=False,
+    )
+    tool_registry.register(t)
+    await execute("nocache", {"n": 1}, _ctx(tmp_path))
+    await execute("nocache", {"n": 1}, _ctx(tmp_path))
+    assert calls == [1, 1]
+
+
+async def test_cacheable_read_tool_reuses_result(tmp_path: Path) -> None:
+    calls: list[int] = []
+
+    async def _count(params: _P, _ctx: Any) -> ToolResult:
+        calls.append(params.n)
+        return ToolResult.ok({"n": params.n})
+
+    _define("cached", _count)
+    await execute("cached", {"n": 2}, _ctx(tmp_path))
+    await execute("cached", {"n": 2}, _ctx(tmp_path))
+    assert calls == [2]

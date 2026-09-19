@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mylo.dashboard.plan import PlanDashboardParams
 from mylo.tools.base import ResultStatus, Tier, ToolDefinition, ToolResult
 
 
@@ -81,6 +82,35 @@ def test_to_openai_shape() -> None:
     assert spec["type"] == "function"
     assert spec["function"]["name"] == "t_base"
     assert spec["function"]["parameters"]["type"] == "object"
+
+
+def test_json_schema_strips_discriminator_for_discriminated_union() -> None:
+    """PlanOp is a pydantic discriminated union; model_json_schema() emits a
+    "discriminator": {"propertyName": ..., "mapping": {...}} block whose
+    mapping values are $ref strings into $defs. _inline_defs pops $defs, so
+    those mapping strings would dangle — strip discriminator entirely.
+    """
+    tool: ToolDefinition[PlanDashboardParams] = ToolDefinition(
+        name="t_plan",
+        description="test plan tool",
+        params_model=PlanDashboardParams,
+        tier=Tier.MODIFY,
+        handler=_handler,  # type: ignore[arg-type]
+    )
+    schema = tool.json_schema()
+    assert "$defs" not in schema
+    assert "definitions" not in schema
+    _assert_no_discriminator(schema)
+
+
+def _assert_no_discriminator(node: object) -> None:
+    if isinstance(node, dict):
+        assert "discriminator" not in node
+        for v in node.values():
+            _assert_no_discriminator(v)
+    elif isinstance(node, list):
+        for v in node:
+            _assert_no_discriminator(v)
 
 
 def test_tool_result_envelope() -> None:

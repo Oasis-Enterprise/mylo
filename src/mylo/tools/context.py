@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from mylo.config import AppConfig
+from mylo.dashboard.store import PlanStore
 from mylo.ha.registries import Registries
 from mylo.ha.states import StatesCache
 from mylo.ha.ws_client import HaWsClient
@@ -47,3 +48,8 @@ class ToolContext:
     # Whether this invocation is a dry-run. Tier-2 tools branch on this;
     # tier-1 tools ignore it.
     dry_run: bool = False
+    # Plan ids the user approved by clicking Apply on this request. Only
+    # apply_dashboard_plan reads it; a plan id not in this set is refused.
+    approved_plan_ids: frozenset[str] = field(default_factory=frozenset)
+    # Process-wide store of validated dashboard plans awaiting Apply.
+    plans: PlanStore | None = None

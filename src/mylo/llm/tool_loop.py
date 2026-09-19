@@ -60,7 +60,7 @@ def _read_call_key(name: str, tool_input: dict[str, Any]) -> str | None:
     """Stable dedup key for an identical READ tool call, or None for
     non-read tools (writes/actions are never deduped)."""
     tool_def = _get_tool_def(name)
-    if tool_def is None or tool_def.tier != Tier.READ:
+    if tool_def is None or tool_def.tier != Tier.READ or not tool_def.cacheable:
         return None
     return f"{name}:{json.dumps(tool_input, sort_keys=True, default=str)}"
 
