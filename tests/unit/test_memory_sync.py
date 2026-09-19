@@ -168,6 +168,8 @@ def test_pruner_has_no_pattern_rules() -> None:
     """Patterns were removed from the data model; the pruner must not
     reference them (no attribute access, no candidate section)."""
     mem = empty_memory()
+    mem.notes.append(Note(id="n_1", content="just a note"))
+    mem.rejected.append(RejectedSuggestion(id="r_old", suggestion="no thanks", date=iso(200)))
     report = plan_prune(mem, now=NOW)
     assert all(c.section != "patterns" for c in report.candidates)
     pruned = apply_prune(mem, report)
@@ -292,7 +294,6 @@ async def test_reconciler_parses_yaml_and_preserves_user_sections(tmp_path: Path
         "      source: conversation\n"
         "      reference_count: 1\n"
         "known_issues: []\n"
-        "patterns: []\n"
         "rejected: []\n"
         "conflicts: []\n"
         "monitored_entities: []\n"
@@ -401,7 +402,6 @@ async def test_reconciler_emits_conflict_on_contradiction(tmp_path: Path) -> Non
         "  shared: {}\n"
         "notes: []\n"
         "known_issues: []\n"
-        "patterns: []\n"
         "rejected: []\n"
         "monitored_entities: []\n"
         "conflicts:\n"

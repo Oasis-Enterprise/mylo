@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""State transition logger for behavioral pattern detection.
+"""State transition logger for the learned-profile engine.
 
 The hourly sweep sees *current* state. This module sees *changes* —
 "light turned on at 6:43pm", "person.maxwell changed to away at
-8:12am". These transitions feed the pattern detector (Phase 3)
-which looks for recurring sequences over days/weeks.
+8:12am". These transitions feed the learned-profile engine
+(``monitor/profiles.py``, ``fold_transitions``), which builds each
+entity's normal-behavior profile from them.
 
 Architecture: subscribe to HA's ``state_changed`` events for a set
 of watched domains. Each transition is appended to a rolling log
@@ -28,7 +29,7 @@ The logger is lightweight by design:
 - No LLM calls
 - No complex processing — just append + prune
 - Only logs meaningful transitions (state changes, not attribute updates)
-- Only watches domains that matter for behavioral patterns
+- Only watches domains that matter for the learned-profile engine
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
 
-# Domains worth tracking for behavioral patterns.
+# Domains worth tracking.
 WATCHED_DOMAINS = frozenset(
     {
         "light",

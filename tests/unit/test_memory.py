@@ -268,6 +268,6 @@ async def test_store_load_drops_legacy_patterns_key(tmp_path: Path) -> None:
     )
     store = MemoryStore(mylo_data_dir=tmp_path)
     memory = await store.load()
-    assert not hasattr(memory, "patterns") or "patterns" not in memory.model_dump()
+    assert "patterns" not in memory.model_dump()
     await store.save(memory, note="resave")
     assert "patterns" not in (tmp_path / "context.yaml").read_text()

@@ -193,8 +193,8 @@ async def _nightly_job(app: web.Application) -> None:
         elif result.prune_report.total > 0:
             # Sync produced no merge (e.g. memory too large to reconcile),
             # but we can still safely shrink it by applying the prune plan.
-            # Critical for recovering a runaway patterns list that's
-            # blocking the LLM merge — next run then fits.
+            # Lets a memory file too large to merge shrink so the next
+            # run fits.
             pruned = apply_prune(store.current(), result.prune_report)
             await store.save(
                 pruned, note=f"nightly prune-only: dropped {result.prune_report.total} items"

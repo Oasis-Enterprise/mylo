@@ -19,9 +19,9 @@ Spec §6.5 — Layer 3 memory injection. We always include
 sections based on simple keyword matching on the latest user turn.
 
 M8a scope: always-include sections plus the scratchpad. Full
-conditional selection (known_issues, patterns, baselines gated on
-keywords) is left to M4c's selective-memory logic; this module does
-the minimum needed for user notes to actually influence replies.
+conditional selection (known_issues, baselines gated on keywords)
+is left to M4c's selective-memory logic; this module does the
+minimum needed for user notes to actually influence replies.
 """
 
 from __future__ import annotations

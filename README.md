@@ -187,7 +187,7 @@ Mylo has persistent memory that survives across sessions. Tell it things and it 
 
 Notes are stored immediately in a scratchpad and available for the next turn. A **nightly reconciler** (powered by Haiku to keep costs low) merges scratchpad notes into the structured context file, detects contradictions, and merges duplicates.
 
-**Memory tab:** You can browse, edit, and delete everything Mylo knows — household members, preferences, notes, known issues, patterns, conflicts. Full transparency, nothing hidden. A "Sync now" button triggers the reconciler on demand.
+**Memory tab:** You can browse, edit, and delete everything Mylo knows — household members, preferences, notes, known issues, conflicts. Full transparency, nothing hidden. A "Sync now" button triggers the reconciler on demand.
 
 ### Monitor your home
 
@@ -206,7 +206,6 @@ Set up sensor monitoring through conversation — Mylo discovers your sensors an
 - **On while away** — a light or switch on while everyone's out, but only when that's unusual for that entity (a porch light you always leave on won't nag).
 - **Sensor anomalies** — a z-score check against a 7-day baseline (mean + standard deviation), recomputed nightly — but a finding fires only on a strong deviation (3.5σ) sustained across two consecutive checks, so one-hour blips don't alert.
 - **Availability sweep** (hourly) — newly-unavailable entities and stale automations (>48h since last trigger).
-- **Behavioral patterns** (nightly) — learns recurring time-of-day behaviors from 14 days of transitions ("light.kitchen turns off around 23:00 on weekdays").
 
 **Findings stay clean.** They're deduplicated, capped at a handful, auto-resolve the moment the condition clears, expire after 48h, and can be dismissed with a 7-day snooze. Presence is decided only from definitive person states, so a tracker glitch at 3am can't trigger an "away" alert while you're in bed. Everything surfaces in the catch-up banner when you next open Mylo, not as a stream of pings.
 
@@ -251,7 +250,7 @@ A **catch-up banner** appears when you return after a gap (>2 hours), summarizin
 **"+ New" button** in the header archives the current conversation and starts fresh. Old conversations stay in the database — nothing is deleted.
 
 ### Memory
-Browse everything Mylo knows: household members, preferences, notes, known issues, patterns, rejected suggestions, and pending conflicts. Each item has a delete button. Conflicts show the two claims side by side with Keep A / Keep B / Dismiss controls.
+Browse everything Mylo knows: household members, preferences, notes, known issues, rejected suggestions, and pending conflicts. Each item has a delete button. Conflicts show the two claims side by side with Keep A / Keep B / Dismiss controls.
 
 A **"Pending — not yet synced"** section at the top shows scratchpad notes that are already being used in conversations but haven't been folded into the main memory yet. Hit **Sync now** to trigger the reconciler.
 
