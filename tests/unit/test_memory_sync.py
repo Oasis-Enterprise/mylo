@@ -42,7 +42,6 @@ from mylo.memory.schema import (
     KnownIssue,
     Note,
     NotificationSuppression,
-    Pattern,
     PendingAction,
     RejectedSuggestion,
     Suggestion,
@@ -155,39 +154,6 @@ def test_pruner_archives_resolved_issues() -> None:
     assert "i_active" not in reasons
 
 
-def test_pruner_drops_low_confidence_old_patterns() -> None:
-    mem = empty_memory()
-    mem.patterns.append(
-        Pattern(
-            id="p_lowold",
-            description="weak old pattern",
-            confidence=0.3,
-            first_observed=iso(90),
-        )
-    )
-    mem.patterns.append(
-        Pattern(
-            id="p_highold",
-            description="confident old pattern",
-            confidence=0.9,
-            first_observed=iso(90),
-        )
-    )
-    mem.patterns.append(
-        Pattern(
-            id="p_lowfresh",
-            description="weak but recent",
-            confidence=0.3,
-            first_observed=iso(20),
-        )
-    )
-    report = plan_prune(mem, now=NOW)
-    ids = {c.item_id for c in report.candidates}
-    assert "p_lowold" in ids
-    assert "p_highold" not in ids
-    assert "p_lowfresh" not in ids
-
-
 def test_pruner_drops_old_rejections() -> None:
     mem = empty_memory()
     mem.rejected.append(RejectedSuggestion(id="r_old", suggestion="no thanks", date=iso(200)))
@@ -196,6 +162,17 @@ def test_pruner_drops_old_rejections() -> None:
     ids = {c.item_id for c in report.candidates}
     assert "r_old" in ids
     assert "r_new" not in ids
+
+
+@pytest.mark.xfail(strict=True, reason="patterns field removed in Task 6")
+def test_pruner_has_no_pattern_rules() -> None:
+    """Patterns were removed from the data model; the pruner must not
+    reference them (no attribute access, no candidate section)."""
+    mem = empty_memory()
+    report = plan_prune(mem, now=NOW)
+    assert all(c.section != "patterns" for c in report.candidates)
+    pruned = apply_prune(mem, report)
+    assert "patterns" not in pruned.model_dump()
 
 
 def test_pruner_low_reference_respects_budget() -> None:
@@ -944,79 +921,6 @@ async def test_oversized_semantic_memory_compacts_and_reconciles(tmp_path: Path)
     assert "too large" not in result.summary
     # The notes compacted out of the payload were re-attached, not lost.
     assert len(result.updated.notes) > 500
-
-
-# ─── Pattern bloat guards (staleness + cap) ──────────────────────────────────
-
-
-def test_pruner_drops_stale_behavioral_patterns_regardless_of_confidence() -> None:
-    """A behavioral pattern not re-confirmed within the staleness window is
-    dead weight even at high confidence (its averaged-time id drifted)."""
-    mem = empty_memory()
-    mem.patterns.append(
-        Pattern(
-            id="behavior_light.kitchen_off_2230",
-            description="stale but confident",
-            confidence=0.9,
-            source="behavioral",
-            first_observed=iso(40),
-            last_confirmed=iso(30),  # > 21d ago
-        )
-    )
-    mem.patterns.append(
-        Pattern(
-            id="behavior_light.kitchen_off_0700",
-            description="fresh",
-            confidence=0.9,
-            source="behavioral",
-            first_observed=iso(40),
-            last_confirmed=iso(3),  # recent
-        )
-    )
-    # A user/observation pattern of the same age must NOT be auto-expired.
-    mem.patterns.append(
-        Pattern(
-            id="manual_pattern",
-            description="user-derived",
-            confidence=0.9,
-            source="observation",
-            first_observed=iso(40),
-            last_confirmed=iso(30),
-        )
-    )
-    report = plan_prune(mem, now=NOW)
-    flagged = {c.item_id: c.reason for c in report.candidates}
-    assert flagged.get("behavior_light.kitchen_off_2230") == "stale_pattern"
-    assert "behavior_light.kitchen_off_0700" not in flagged
-    assert "manual_pattern" not in flagged
-
-
-def test_pruner_caps_pattern_count_keeping_strongest() -> None:
-    mem = empty_memory()
-    # 250 fresh, high-ish confidence behavioral patterns.
-    for i in range(250):
-        mem.patterns.append(
-            Pattern(
-                id=f"behavior_e{i}_off_1200",
-                description=f"p{i}",
-                confidence=0.5 + (i % 50) / 100.0,  # 0.50..0.99
-                source="behavioral",
-                first_observed=iso(5),
-                last_confirmed=iso(1),  # all fresh — staleness won't fire
-            )
-        )
-    report = plan_prune(mem, now=NOW)
-    capped = [c for c in report.candidates if c.reason == "pattern_cap_exceeded"]
-    assert len(capped) == 50  # 250 - 200 cap
-
-    pruned = apply_prune(mem, report)
-    assert len(pruned.patterns) == 200
-    # The strongest survived: every kept pattern has confidence >= the
-    # highest-confidence dropped one.
-    dropped_ids = {c.item_id for c in capped}
-    kept = [p for p in pruned.patterns]
-    max_dropped_conf = max(p.confidence for p in mem.patterns if p.id in dropped_ids)
-    assert min(p.confidence for p in kept) >= max_dropped_conf
 
 
 # ─── Scratchpad bounds ──────────────────────────────────────────────────────

@@ -24,10 +24,7 @@ Priority order (first pruned first):
 2. Observations never confirmed, older than 90 days
 3. Lowest reference_count + oldest last_referenced
 4. Resolved known_issues (archive, not delete)
-5. Patterns: confidence < 0.5 older than 60 days; behavioral patterns
-   not re-confirmed in 21 days (any confidence); then a hard cap of
-   MAX_PATTERNS keeping the strongest
-6. Rejected suggestions older than 6 months
+5. Rejected suggestions older than 6 months
 
 Never auto-prune:
 - notes with source="user_confirmed"
@@ -57,29 +54,13 @@ log = get_logger(__name__)
 DAY = timedelta(days=1)
 
 OBSERVATION_MAX_AGE = timedelta(days=90)
-PATTERN_MAX_AGE = timedelta(days=60)
 REJECTED_MAX_AGE = timedelta(days=180)
-LOW_CONFIDENCE_THRESHOLD = 0.5
-
-# Behavioral patterns are re-confirmed every nightly run within the
-# detector's 14-day window. One not confirmed in this long is dead —
-# usually because its averaged-time id drifted and a fresh variant took
-# over — and is dropped regardless of confidence.
-PATTERN_STALE_MAX_AGE = timedelta(days=21)
-
-# Hard ceiling on stored patterns. A real home has at most dozens of
-# genuine recurring behaviors; this is a backstop against runaway growth
-# (e.g. id drift) that can balloon context.yaml past the LLM window.
-MAX_PATTERNS = 200
 
 PruneReason = Literal[
     "ttl_expired",
     "stale_observation",
     "low_reference",
     "resolved_issue",
-    "low_confidence_pattern",
-    "stale_pattern",
-    "pattern_cap_exceeded",
     "old_rejection",
 ]
 
@@ -88,7 +69,7 @@ PruneReason = Literal[
 class PruneCandidate:
     """One memory item flagged for removal."""
 
-    section: str  # "notes" | "known_issues" | "patterns" | "rejected"
+    section: str  # "notes" | "known_issues" | "rejected"
     item_id: str
     reason: PruneReason
     summary: str  # short human-readable description
@@ -116,7 +97,7 @@ def plan_prune(
     """Walk the memory and rank candidates. Does not mutate.
 
     ``target_budget`` gates the low-reference sweep (rule 3). Rules 1,
-    2, 4, 5, 6 always run — they catch items that are provably stale
+    2, 4, 5 always run — they catch items that are provably stale
     regardless of capacity. Rule 3 only kicks in when the caller
     explicitly says "trim N more". Default is no low-reference trim
     so a casual sync-without-pressure pass stays conservative.
@@ -145,14 +126,7 @@ def plan_prune(
             )
         )
 
-    # 5. Low-confidence old patterns + stale behavioral patterns, then
-    #    a hard cap on whatever survives.
-    candidates.extend(_low_confidence_patterns(memory, current))
-    candidates.extend(_stale_patterns(memory, current))
-    flagged_patterns = {c.item_id for c in candidates if c.section == "patterns"}
-    candidates.extend(_excess_patterns(memory, already_flagged=flagged_patterns))
-
-    # 6. Old rejected suggestions.
+    # 5. Old rejected suggestions.
     candidates.extend(_old_rejections(memory, current))
 
     # 3. Lowest reference_count + oldest last_referenced (combined
@@ -178,7 +152,6 @@ def apply_prune(memory: MemoryFile, report: PruneReport) -> MemoryFile:
     to_drop: dict[str, set[str]] = {
         "notes": set(),
         "known_issues": set(),
-        "patterns": set(),
         "rejected": set(),
     }
     for c in report.candidates:
@@ -188,9 +161,6 @@ def apply_prune(memory: MemoryFile, report: PruneReport) -> MemoryFile:
     data["notes"] = [n for n in data.get("notes") or [] if n.get("id") not in to_drop["notes"]]
     data["known_issues"] = [
         i for i in data.get("known_issues") or [] if i.get("id") not in to_drop["known_issues"]
-    ]
-    data["patterns"] = [
-        p for p in data.get("patterns") or [] if p.get("id") not in to_drop["patterns"]
     ]
     data["rejected"] = [
         r for r in data.get("rejected") or [] if r.get("id") not in to_drop["rejected"]
@@ -279,108 +249,6 @@ def _stale_observations(memory: MemoryFile, now: datetime) -> list[PruneCandidat
                 )
             )
     return out
-
-
-def _low_confidence_patterns(memory: MemoryFile, now: datetime) -> list[PruneCandidate]:
-    cutoff = now - PATTERN_MAX_AGE
-    out: list[PruneCandidate] = []
-    for pattern in memory.patterns:
-        if getattr(pattern, "priority", None) == "critical":
-            continue
-        if pattern.confidence >= LOW_CONFIDENCE_THRESHOLD:
-            continue
-        first = _parse_iso(pattern.first_observed)
-        if first is None or first >= cutoff:
-            continue
-        out.append(
-            PruneCandidate(
-                section="patterns",
-                item_id=pattern.id,
-                reason="low_confidence_pattern",
-                summary=(
-                    f"pattern {pattern.id} confidence={pattern.confidence:.2f} "
-                    f"first_observed={pattern.first_observed}"
-                ),
-            )
-        )
-    return out
-
-
-def _stale_patterns(memory: MemoryFile, now: datetime) -> list[PruneCandidate]:
-    """Behavioral patterns not re-confirmed within the staleness window.
-
-    Only auto-expires machine-detected (``source == "behavioral"``)
-    patterns — user/observation-derived ones are left alone. Confidence
-    is irrelevant here: the drifted-id orphans that bloat the file are
-    high-confidence, and a live behavior gets re-confirmed nightly.
-    """
-    cutoff = now - PATTERN_STALE_MAX_AGE
-    out: list[PruneCandidate] = []
-    for pattern in memory.patterns:
-        if getattr(pattern, "priority", None) == "critical":
-            continue
-        if pattern.source != "behavioral":
-            continue
-        last = _parse_iso(pattern.last_confirmed) or _parse_iso(pattern.first_observed)
-        if last is None or last >= cutoff:
-            continue
-        out.append(
-            PruneCandidate(
-                section="patterns",
-                item_id=pattern.id,
-                reason="stale_pattern",
-                summary=(
-                    f"pattern {pattern.id} not confirmed since "
-                    f"{pattern.last_confirmed or pattern.first_observed}"
-                ),
-            )
-        )
-    return out
-
-
-def _excess_patterns(
-    memory: MemoryFile,
-    *,
-    already_flagged: set[str],
-) -> list[PruneCandidate]:
-    """Cap total patterns at ``MAX_PATTERNS``, keeping the strongest.
-
-    Counts only what would remain after the other pattern rules drop
-    their candidates. Critical and non-behavioral patterns are always
-    kept; the rest are ranked by (confidence, last_confirmed) and the
-    overflow is flagged.
-    """
-    remaining = [p for p in memory.patterns if p.id not in already_flagged]
-    if len(remaining) <= MAX_PATTERNS:
-        return []
-
-    def is_protected(p: object) -> bool:
-        return (
-            getattr(p, "priority", None) == "critical" or getattr(p, "source", "") != "behavioral"
-        )
-
-    protected = [p for p in remaining if is_protected(p)]
-    prunable = [p for p in remaining if not is_protected(p)]
-
-    # Protected patterns are never force-dropped, so the stored total can
-    # exceed MAX_PATTERNS if they alone do — acceptable, since the bloat
-    # this guards against is always machine-generated (behavioral).
-
-    keep = max(0, MAX_PATTERNS - len(protected))
-    _epoch = datetime.min.replace(tzinfo=UTC)
-    prunable.sort(
-        key=lambda p: (p.confidence, _parse_iso(p.last_confirmed) or _epoch),
-        reverse=True,
-    )
-    return [
-        PruneCandidate(
-            section="patterns",
-            item_id=p.id,
-            reason="pattern_cap_exceeded",
-            summary=f"pattern {p.id} over cap of {MAX_PATTERNS} (confidence={p.confidence:.2f})",
-        )
-        for p in prunable[keep:]
-    ]
 
 
 def _old_rejections(memory: MemoryFile, now: datetime) -> list[PruneCandidate]:
