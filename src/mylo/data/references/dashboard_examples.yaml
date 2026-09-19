@@ -1,7 +1,8 @@
 # Dashboard reference. Mylo uses these as few-shot examples when
 # planning dashboards. The first block is a complete plan_dashboard
-# call; the rest are card snippets to drop into `cards` lists. This
-# comment block IS shown to the model.
+# call; the second block shows edit operations; the energy block is a
+# whole section for a `sections` list; the rest are card snippets to
+# drop into `cards` lists. This comment block IS shown to the model.
 
 # ─── A complete plan_dashboard call for a new room view ─────────────
 # One create_view with one section per group. Headings are added by

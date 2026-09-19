@@ -19,6 +19,10 @@ dashboards now go plan → wait → apply:
 - Placement vocabulary: sections by heading text, `position`
   start/end/index, move_card instead of remove + add.
 - Write-flow block notes dashboards are the dry_run exception.
+- Entity-ID rules: the old "update_view REPLACES a whole view … dry_run"
+  bullet is gone; it now points at update_view_meta for metadata and the
+  add/replace/remove/move ops for contents, with delete_view + create_view
+  as the only rebuild path.
 
 ## 0.5.0 — 2026-08-04
 
