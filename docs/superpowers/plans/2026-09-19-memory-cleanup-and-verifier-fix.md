@@ -29,7 +29,7 @@
 
 **Interfaces:**
 - Consumes: `ReconcileProvider.message(...)` returning an object with `.text` and `.stop_reason` (`src/mylo/llm/provider.py:57-70`).
-- Produces: a new module constant `_RECONCILER_MAX_TOKENS = 32768` in `reconciler.py`; a new log event name `memory.reconciler_truncated`.
+- Produces: a new module constant `_RECONCILER_MAX_TOKENS = 20_000` in `reconciler.py`; a new log event name `memory.reconciler_truncated`.
 
 - [ ] **Step 1: Give the fake provider a configurable stop reason**
 
@@ -81,7 +81,7 @@ async def test_reconciler_detects_truncated_output(tmp_path: Path) -> None:
     assert "truncated" in result.summary
     assert "malformed" not in result.summary
     assert len(provider.calls) == 1
-    assert provider.calls[0]["max_tokens"] == 32768
+    assert provider.calls[0]["max_tokens"] == 20_000
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -98,7 +98,7 @@ In `src/mylo/memory/reconciler.py`, add a constant next to `_SCRATCHPAD_RECONCIL
 # file, so this must comfortably exceed the file's size; Haiku 4.5
 # supports 64k output tokens. Truncation is detected via stop_reason
 # below rather than left to surface as a YAML parse error.
-_RECONCILER_MAX_TOKENS = 32768
+_RECONCILER_MAX_TOKENS = 20_000
 ```
 
 Replace the provider call and the parse block (lines 325-345) with:

@@ -112,7 +112,7 @@ In `reconciler.run_sync`, after the provider call:
   `memory.reconciler_truncated` (with `chars=len(raw_text)`) and return
   `ReconcileResult(updated=None, summary="reconciler output truncated at
   max_tokens; memory untouched", ...)`. Do not attempt to parse.
-- Raise `max_tokens` from 8192 to 32768.
+- Raise `max_tokens` from 8192 to 20000 — the Anthropic SDK refuses non-streaming requests above ~21,333 output tokens.
 - New test in `test_reconciler_parse.py`: a fake provider returning
   `stop_reason="max_tokens"` yields `updated=None` and never calls the
   parser.

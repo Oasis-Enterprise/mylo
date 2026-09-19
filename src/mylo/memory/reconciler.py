@@ -89,11 +89,12 @@ _PAYLOAD_TOKEN_BUDGET = 150_000
 # until a successful merge drains the file.
 _SCRATCHPAD_RECONCILE_LIMIT = 300
 
-# Output cap for the merge. The reconciler re-emits the whole memory
-# file, so this must comfortably exceed the file's size; Haiku 4.5
-# supports 64k output tokens. Truncation is detected via stop_reason
-# below rather than left to surface as a YAML parse error.
-_RECONCILER_MAX_TOKENS = 32768
+# Output cap for the merge. The Anthropic SDK refuses non-streaming
+# requests above roughly 21,333 output tokens (its 10-minute
+# non-streaming guard), so this must stay below that. The memory file
+# without the patterns section and without machine sections is far
+# smaller than this. Truncation is detected via stop_reason below.
+_RECONCILER_MAX_TOKENS = 20_000
 
 
 # ─── Provider interface (narrow) ─────────────────────────────────────────────

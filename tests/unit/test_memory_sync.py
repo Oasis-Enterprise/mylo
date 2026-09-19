@@ -30,7 +30,7 @@ import pytest
 from aiohttp import web
 
 from mylo.memory.pruner import apply_prune, plan_prune
-from mylo.memory.reconciler import StateDiff, _build_user_payload, run_sync
+from mylo.memory.reconciler import _RECONCILER_MAX_TOKENS, StateDiff, _build_user_payload, run_sync
 from mylo.memory.schema import (
     Baselines,
     Claim,
@@ -346,7 +346,18 @@ async def test_reconciler_detects_truncated_output(tmp_path: Path) -> None:
     assert "truncated" in result.summary
     assert "malformed" not in result.summary
     assert len(provider.calls) == 1
-    assert provider.calls[0]["max_tokens"] == 32768
+    assert provider.calls[0]["max_tokens"] == _RECONCILER_MAX_TOKENS
+
+
+def test_reconciler_cap_is_below_sdk_nonstreaming_ceiling() -> None:
+    """The Anthropic SDK raises before sending a non-streaming request whose
+    max_tokens implies >10 min of generation (max_tokens > ~21,333). The
+    reconciler call is non-streaming, so the cap must stay under that.
+    Uses a private SDK helper on purpose: it IS the guard we must not trip."""
+    from anthropic import AsyncAnthropic
+
+    client = AsyncAnthropic(api_key="test-key")
+    client._calculate_nonstreaming_timeout(_RECONCILER_MAX_TOKENS, None)  # must not raise
 
 
 async def test_reconciler_handles_malformed_yaml(tmp_path: Path) -> None:
