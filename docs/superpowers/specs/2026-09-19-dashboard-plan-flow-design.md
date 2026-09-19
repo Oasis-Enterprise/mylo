@@ -426,8 +426,13 @@ Result:
 
 ### 4.6 Post-apply verification (`verify.py`)
 
-For each op, `expected_after(op, resolved)` yields a predicate over the
-read-back config:
+The verdict is exact equality between the config the executor computed
+and the config HA reads back after the save. HA stores storage-mode
+configs verbatim, so a match proves every op landed. Ops within one plan
+can supersede each other (add a card, then remove it), so per-op checks
+against the final state cannot be the verdict; they run only on a
+mismatch, to name the op whose target looks wrong. On a mismatch, for
+each op the predicate over the read-back config is:
 
 | op | check |
 |---|---|
