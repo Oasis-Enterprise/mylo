@@ -5,6 +5,11 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] — 2026-09-19
+
+### Fixed
+- **The Apply button no longer goes missing after a dropped connection.** When the panel's event stream dropped mid-turn (common during a long dashboard plan on a large home), the UI recovered the conversation but never re-derived the pending approval, so a staged plan or dry-run showed no Apply button. Recovery now restores it the same way a page reload does. If you hit this on 1.5.0, reloading the panel shows the card; staged plans are kept for an hour.
+
 ## [1.5.0] — 2026-09-19
 
 First stable 1.5 release. It includes everything from the 1.5.0b1–b6 betas (websocket resilience, findings-only monitoring, learned-patterns removal) plus the dashboard plan flow below. Back up your `context.yaml` before updating from a 1.4.x release.

@@ -186,7 +186,15 @@ export default function App() {
         try {
           const messages = await fetchConversation();
           if (!isTurnComplete(messages)) continue;
-          setItems(hydrateFromMessages(messages));
+          const hydrated = hydrateFromMessages(messages);
+          setItems(hydrated);
+          // The stream died before the tool_result events reached us, so
+          // turnSawPreview never fired. Derive the pending approval from
+          // the hydrated turn exactly like initial page load does —
+          // otherwise a staged plan or dry-run has no Apply button.
+          if (detectPendingApproval(hydrated)) {
+            setPendingApproval({ planIds: planIdsFromItems(hydrated) });
+          }
           return true;
         } catch {
           // Server still rebooting — keep trying.
