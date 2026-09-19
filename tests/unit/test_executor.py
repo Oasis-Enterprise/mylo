@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mylo.ha.registries import Registries
 from mylo.tools import registry as tool_registry
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
-from mylo.tools.executor import execute
+from mylo.tools.executor import execute, invalidate
 from tests.unit._helpers import make_ctx
 
 
@@ -191,3 +191,25 @@ async def test_cacheable_read_tool_reuses_result(tmp_path: Path) -> None:
     await execute("cached", {"n": 2}, _ctx(tmp_path))
     await execute("cached", {"n": 2}, _ctx(tmp_path))
     assert calls == [2]
+
+
+async def test_invalidate_clears_cached_result(tmp_path: Path) -> None:
+    from mylo.tools import executor
+
+    executor._result_cache.clear()
+    calls: list[int] = []
+
+    async def _count(params: _P, _ctx: Any) -> ToolResult:
+        calls.append(params.n)
+        return ToolResult.ok({"n": params.n})
+
+    _define("cached", _count)
+    await execute("cached", {"n": 2}, _ctx(tmp_path))
+    await execute("cached", {"n": 2}, _ctx(tmp_path))
+    assert calls == [2]
+
+    dropped = invalidate("cached")
+    assert dropped == 1
+
+    await execute("cached", {"n": 2}, _ctx(tmp_path))
+    assert calls == [2, 2]

@@ -21,7 +21,14 @@ section by heading and a card by index without a second query.
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
+from mylo.ha.registries import Registries
+from mylo.tools import registry as tool_registry
+from mylo.tools.executor import execute
 from mylo.tools.read.query_dashboard import _view_summary
+from tests.unit._helpers import make_ctx
 
 
 def test_sections_view_lists_headings_and_card_fingerprints() -> None:
@@ -41,7 +48,7 @@ def test_sections_view_lists_headings_and_card_fingerprints() -> None:
             {"type": "grid", "cards": [{"type": "markdown", "content": "x"}]},
         ],
     }
-    s = _view_summary(view)
+    s = _view_summary(view, include_cards=True)
     assert s["layout"] == "sections"
     assert s["section_count"] == 2
     assert s["sections"][0]["heading"] == "Lights"
@@ -54,6 +61,79 @@ def test_sections_view_lists_headings_and_card_fingerprints() -> None:
 
 
 def test_masonry_view_lists_cards() -> None:
-    s = _view_summary({"path": "home", "cards": [{"type": "tile", "entity": "light.a"}]})
+    s = _view_summary(
+        {"path": "home", "cards": [{"type": "tile", "entity": "light.a"}]}, include_cards=True
+    )
     assert "layout" not in s
     assert s["cards"] == [{"index": 0, "type": "tile", "entity": "light.a"}]
+
+
+def test_listing_summary_has_counts_not_cards() -> None:
+    view = {
+        "path": "rooms",
+        "title": "Rooms",
+        "type": "sections",
+        "sections": [
+            {
+                "type": "grid",
+                "cards": [
+                    {"type": "heading", "heading": "Lights"},
+                    {"type": "tile", "entity": "light.a"},
+                    {"type": "entities", "entities": [{"entity": "sensor.t"}]},
+                ],
+            },
+            {"type": "grid", "cards": [{"type": "markdown", "content": "x"}]},
+        ],
+    }
+    s = _view_summary(view, include_cards=False)
+    assert s["sections"][0] == {"index": 0, "heading": "Lights", "card_count": 3}
+    assert "cards" not in s["sections"][0]
+
+    masonry = _view_summary(
+        {"path": "home", "cards": [{"type": "tile", "entity": "light.a"}]}, include_cards=False
+    )
+    assert masonry["card_count"] == 1
+    assert "cards" not in masonry
+
+
+class _FakeClient:
+    def __init__(self, config: dict[str, Any]) -> None:
+        self._config = config
+
+    async def send_command(self, type_: str, **kwargs: Any) -> Any:
+        if type_ == "lovelace/config":
+            return self._config
+        return {}
+
+
+async def test_single_view_response_includes_indexed_sections(tmp_path: Path) -> None:
+    tool_registry._reset_for_tests()
+    tool_registry.load_all()
+    try:
+        rooms_view = {
+            "path": "rooms",
+            "title": "Rooms",
+            "type": "sections",
+            "sections": [
+                {
+                    "type": "grid",
+                    "cards": [
+                        {"type": "heading", "heading": "Lights"},
+                        {"type": "tile", "entity": "light.a"},
+                    ],
+                }
+            ],
+        }
+        config = {"title": "Main", "views": [rooms_view]}
+        client = _FakeClient(config)
+        ctx = make_ctx(ws_client=client, registries=Registries(), tmp_path=tmp_path)
+        result = await execute("query_dashboard", {"dashboard_id": "x", "view_id": "rooms"}, ctx)
+        assert result.status.value == "ok", result.error_message
+        assert result.data["view"] == rooms_view
+        assert result.data["sections"][0]["cards"][1] == {
+            "index": 1,
+            "type": "tile",
+            "entity": "light.a",
+        }
+    finally:
+        tool_registry._reset_for_tests()

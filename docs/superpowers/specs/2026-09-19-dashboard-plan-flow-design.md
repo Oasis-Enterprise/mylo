@@ -407,6 +407,8 @@ Params: `plan_id: str`. Tier MODIFY, so `Permissions.check` already requires
 7. One `lovelace/config/save` with the final config. `CommandError` →
    `ha_error`; nothing partial, since there was one write.
 8. Read back via `lovelace/config`. Run `verify.py` (§4.6).
+8b. Drop cached `query_dashboard` results so the model's next look at the
+   dashboard is fresh.
 9. Remove the plan from the store (a plan applies once). Audit entry with
    `plan_id`, op count, backup path.
 

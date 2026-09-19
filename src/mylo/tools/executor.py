@@ -83,6 +83,17 @@ def _cache_put(key: str, result: ToolResult) -> None:
             del _result_cache[k]
 
 
+def invalidate(tool_name: str) -> int:
+    """Drop cached READ results for one tool. Returns how many were dropped.
+    Write tools whose effect a cached read would misreport call this
+    after a successful write."""
+    prefix = f"{tool_name}:"
+    stale = [k for k in _result_cache if k.startswith(prefix)]
+    for k in stale:
+        del _result_cache[k]
+    return len(stale)
+
+
 async def execute(
     tool_name: str,
     raw_params: dict[str, Any],

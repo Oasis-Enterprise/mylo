@@ -291,3 +291,35 @@ async def test_backup_failure_does_not_block_save(
     assert result.data["backup"] is None
     assert len(client.saves()) == 1
     assert result.data["verification"]["all_ok"] is True
+
+
+async def test_apply_invalidates_query_dashboard_cache(tmp_path: Path) -> None:
+    from mylo.tools import executor
+
+    executor._result_cache.clear()
+
+    client = _FakeClient(_dashboard())
+    store = PlanStore()
+    plan_id = await _staged(tmp_path, client, store, OPS)
+
+    q_ctx = make_ctx(ws_client=client, registries=_registries(), tmp_path=tmp_path)
+    q_params = {"dashboard_id": None, "view_id": "rooms"}
+
+    def _config_reads() -> int:
+        return sum(1 for t, _ in client.calls if t == "lovelace/config")
+
+    # _staged() already issued one lovelace/config read while validating
+    # the plan; count from here so the assertions isolate query_dashboard.
+    baseline = _config_reads()
+    await execute("query_dashboard", q_params, q_ctx)
+    await execute("query_dashboard", q_params, q_ctx)  # cached — no extra read
+    assert _config_reads() == baseline + 1
+
+    result = await execute(
+        "apply_dashboard_plan", {"plan_id": plan_id}, _apply_ctx(tmp_path, client, store, plan_id)
+    )
+    assert result.status.value == "ok", result.error_message
+
+    before = _config_reads()
+    await execute("query_dashboard", q_params, q_ctx)
+    assert _config_reads() == before + 1

@@ -41,6 +41,7 @@ from mylo.dashboard.ops import OpError, OpReceipt, TargetMismatch, apply_op
 from mylo.dashboard.verify import verify_plan
 from mylo.ha.ws_client import CommandError
 from mylo.logging_setup import get_logger
+from mylo.tools import executor as tool_executor
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.registry import register
@@ -110,6 +111,10 @@ async def handler(params: ApplyDashboardPlanParams, ctx: ToolContext) -> ToolRes
         return ToolResult.error(
             "ha_error", f"{exc.code}: {exc.message}", data={"backup": backup_path}
         )
+
+    # The save changed what query_dashboard would report — drop any cached
+    # reads so the model's next look at the dashboard is fresh.
+    tool_executor.invalidate("query_dashboard")
 
     ctx.plans.remove(plan.plan_id)
 

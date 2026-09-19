@@ -104,7 +104,17 @@ def _card_summary(index: int, card: Any) -> dict[str, Any]:
     return out
 
 
-def _view_summary(view: dict[str, Any]) -> dict[str, Any]:
+def _section_summary(index: int, section: Any, *, include_cards: bool) -> dict[str, Any]:
+    section_cards = section.get("cards") or [] if isinstance(section, dict) else []
+    out: dict[str, Any] = {"index": index, "heading": section_heading(section)}
+    if include_cards:
+        out["cards"] = [_card_summary(j, c) for j, c in enumerate(section_cards)]
+    else:
+        out["card_count"] = len(section_cards)
+    return out
+
+
+def _view_summary(view: dict[str, Any], *, include_cards: bool) -> dict[str, Any]:
     cards = view.get("cards") or []
     sections = view.get("sections")
     summary: dict[str, Any] = {
@@ -113,25 +123,19 @@ def _view_summary(view: dict[str, Any]) -> dict[str, Any]:
         "icon": view.get("icon"),
         "card_count": len(cards) if isinstance(cards, list) else 0,
     }
-    # Sections views carry per-section headings and per-card {index,
-    # type, entity} so plan_dashboard ops can address a section by
-    # heading and a card by index without a second query.
+    # Sections views carry per-section headings so a whole-dashboard
+    # listing can be addressed without pulling every card; with
+    # include_cards, per-card {index, type, entity} lets plan_dashboard
+    # ops address a section by heading and a card by index without a
+    # second query.
     if view.get("type") == "sections" or isinstance(sections, list):
         summary["layout"] = "sections"
         if isinstance(sections, list):
             summary["section_count"] = len(sections)
             summary["sections"] = [
-                {
-                    "index": i,
-                    "heading": section_heading(s),
-                    "cards": [
-                        _card_summary(j, c)
-                        for j, c in enumerate(s.get("cards") or [] if isinstance(s, dict) else [])
-                    ],
-                }
-                for i, s in enumerate(sections)
+                _section_summary(i, s, include_cards=include_cards) for i, s in enumerate(sections)
             ]
-    elif isinstance(cards, list):
+    elif isinstance(cards, list) and include_cards:
         summary["cards"] = [_card_summary(j, c) for j, c in enumerate(cards)]
     return summary
 
@@ -161,10 +165,17 @@ async def handler(params: QueryDashboardParams, ctx: ToolContext) -> ToolResult:
     if params.view_id:
         for v in views:
             if isinstance(v, dict) and v.get("path") == params.view_id:
+                s = _view_summary(v, include_cards=True)
+                indexed = {
+                    k: s[k]
+                    for k in ("layout", "sections", "cards", "section_count", "card_count")
+                    if k in s
+                }
                 return ToolResult.ok(
                     {
                         "dashboard_id": params.dashboard_id,
                         "view": v,
+                        **indexed,
                     }
                 )
         return ToolResult.error(
@@ -178,7 +189,7 @@ async def handler(params: QueryDashboardParams, ctx: ToolContext) -> ToolResult:
             "dashboard_id": params.dashboard_id,
             "title": config.get("title"),
             "view_count": len(views),
-            "views": [_view_summary(v) for v in views if isinstance(v, dict)],
+            "views": [_view_summary(v, include_cards=False) for v in views if isinstance(v, dict)],
         }
     )
 
@@ -187,9 +198,11 @@ TOOL = ToolDefinition(
     name="query_dashboard",
     description=(
         "Retrieve Lovelace dashboard configurations. With no parameters, "
-        "lists all dashboards. With ``dashboard_id``, returns view summaries "
-        "for that dashboard. With ``view_id`` too, returns the full single "
-        "view. Storage-mode dashboards only in this version; YAML-mode "
+        "lists all dashboards. With ``dashboard_id``, returns per-view "
+        "summaries (section headings and card counts). With ``view_id`` "
+        "too, returns the full view plus indexed sections/cards "
+        "({index, type, entity}) for addressing plan operations. "
+        "Storage-mode dashboards only in this version; YAML-mode "
         "dashboards are read via ``read_config_file``."
     ),
     params_model=QueryDashboardParams,
