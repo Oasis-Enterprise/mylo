@@ -25,9 +25,16 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
-import httpx
 import pytest
 from anthropic import BadRequestError, InternalServerError
+
+# anthropic >= 1.0 moved its HTTP layer from httpx to httpx2. The SDK's
+# error classes wrap whichever library it ships with, so the fake
+# Request/Response must come from that same library.
+try:
+    import httpx2 as httpx
+except ImportError:  # anthropic < 1.0
+    import httpx
 
 from mylo.llm import anthropic_provider as ap_module
 from mylo.llm.anthropic_provider import AnthropicProvider
