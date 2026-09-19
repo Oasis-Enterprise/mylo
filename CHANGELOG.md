@@ -5,6 +5,17 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0b6] — 2026-09-19
+
+> ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
+
+### Changed
+- **Learned behavioral patterns are gone.** The nightly pattern detector wrote hundreds of "light.x usually turns off at 22:30" entries into memory that nothing read — not the chat prompt, not the monitoring detectors. They were the bulk of the memory file and the cause of a run of sync bugs. The Memory tab no longer shows a Patterns section. Existing files load fine; the old section is dropped on the next save. Findings still come from the learned per-entity profiles, which are unchanged.
+
+### Fixed
+- **Nightly memory sync no longer fails every night.** The merge asked the model to re-emit the whole memory file but capped the reply at 8k tokens, so any file longer than that was cut mid-line and reported as "malformed YAML". The cap is now 32k and a truncated reply is detected and reported as such instead of being parsed.
+- **Automation writes no longer log a false "not present after reload".** The background check looked for an entity named after the automation's id; Home Assistant names it after the alias. The check now matches on the automation's id attribute.
+
 ## [1.5.0b5] — 2026-08-12
 
 > ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
