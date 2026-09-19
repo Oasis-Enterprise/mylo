@@ -327,3 +327,46 @@ def test_remove_section_and_delete_view() -> None:
     with pytest.raises(OpError) as exc:
         apply_op(out, DeleteView(op="delete_view", view_path="home"), ResolvedTarget(op_index=2))
     assert exc.value.code == "view_not_found"
+
+
+def test_stale_section_index_raises_op_error() -> None:
+    op = AddCards(
+        op="add_cards", view_path="rooms", section=5, cards=[{"type": "tile", "entity": "l.x"}]
+    )
+    with pytest.raises(OpError) as exc:
+        apply_op(_config(), op, ResolvedTarget(op_index=0, view_index=1, section_index=5))
+    assert exc.value.code == "section_index_out_of_range"
+
+
+def test_sections_view_without_sections_key_raises_op_error() -> None:
+    config = _config()
+    del config["views"][1]["sections"]
+    op = ReplaceCard(
+        op="replace_card",
+        view_path="rooms",
+        section=0,
+        card_index=1,
+        card={"type": "tile", "entity": "l.x"},
+    )
+    with pytest.raises(OpError) as exc:
+        apply_op(
+            config, op, ResolvedTarget(op_index=0, view_index=1, section_index=0, card_index=1)
+        )
+    assert exc.value.code == "section_index_out_of_range"
+
+
+def test_add_cards_explicit_zero_inserts_before_heading() -> None:
+    op = AddCards(
+        op="add_cards",
+        view_path="rooms",
+        section=0,
+        cards=[{"type": "tile", "entity": "l.x"}],
+        position=0,
+    )
+    out, receipt = apply_op(
+        _config(), op, ResolvedTarget(op_index=0, view_index=1, section_index=0)
+    )
+    cards = _rooms(out)["sections"][0]["cards"]
+    assert cards[0]["entity"] == "l.x"
+    assert cards[1]["type"] == "heading"
+    assert receipt.card_indices == [0]

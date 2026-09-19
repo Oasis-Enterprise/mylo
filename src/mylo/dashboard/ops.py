@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, assert_never
 
 from mylo.dashboard.plan import (
     AddCards,
@@ -167,7 +167,18 @@ def _live_cards(view: dict[str, Any], section_index: int | None) -> list[Any]:
             cards = []
             view["cards"] = cards
         return cards
-    section = view["sections"][section_index]
+    sections = view.get("sections")
+    if (
+        not isinstance(sections, list)
+        or not 0 <= section_index < len(sections)
+        or not isinstance(sections[section_index], dict)
+    ):
+        raise OpError(
+            "section_index_out_of_range",
+            f"section index {section_index} out of range (view has "
+            f"{len(sections) if isinstance(sections, list) else 0} sections)",
+        )
+    section = sections[section_index]
     cards = section.get("cards")
     if not isinstance(cards, list):
         cards = []
@@ -386,4 +397,4 @@ def apply_op(
             detail=f"card moved to section {resolved.to_section_index} index {at}",
         )
 
-    raise OpError("invalid_op", f"unsupported op {type(op).__name__}")
+    assert_never(op)
