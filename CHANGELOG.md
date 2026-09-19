@@ -5,6 +5,25 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0b7] — 2026-09-19
+
+> ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
+
+### Added
+- **Dashboards are now planned, shown, approved, then applied.** Ask for a change and Mylo stages a plan: every view, section, and card it intends to create or move, drawn as a wireframe in the chat with the choices it made without asking listed underneath. Apply runs exactly that plan; Modify sends it back for changes; Show YAML reveals the operations. The Apply click is bound to the plan you saw, so Mylo cannot apply something different.
+- **Cards go where you asked.** New `position` (start / end / index) on every insert, a `move_card` operation, and sections addressed by their heading text ("put the thermostat at the top of Climate").
+- **Every apply is verified against the plan.** After the single save, Mylo reads the dashboard back and confirms each operation landed at its intended section and index, reporting per-operation results. A JSON backup of the previous dashboard is written under `.mylo/dashboard_backups/` before every apply (last 20 kept).
+- **Card options are checked before you approve.** A `tile` without an entity, a `conditional` without conditions, bad `grid_options`, and similar are caught at plan time. Energy cards, clock, and shopping-list no longer trigger spurious "unrecognized card" warnings.
+- `query_dashboard` now lists each section's heading and each card's index, type, and entity.
+
+### Changed
+- **Per-card width is now set the way Home Assistant expects.** Mylo uses `grid_options.columns` on the card for graphs, maps, and weather; a section's `column_span` is reserved for whole-section widening.
+- `modify_dashboard` has been removed; `plan_dashboard` and `apply_dashboard_plan` replace it. Dashboard changes no longer use the dry-run flag.
+
+### Fixed
+- **Answering a question no longer silently approves a pending write.** Tapping an option on a question card used to send the approval flag if a preview was also waiting. Only the Apply button approves now, for every tool.
+- `verify_change dashboard_loaded` no longer flags heading-only sections as malformed and no longer waits five seconds for a save that applies instantly.
+
 ## [1.5.0b6] — 2026-09-19
 
 > ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
