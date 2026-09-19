@@ -5,9 +5,9 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.0b7] — 2026-09-19
+## [1.5.0] — 2026-09-19
 
-> ⚠️ **BETA — test at your own risk.** Continues the 1.5.0 beta. Back up your `context.yaml` before updating.
+First stable 1.5 release. It includes everything from the 1.5.0b1–b6 betas (websocket resilience, findings-only monitoring, learned-patterns removal) plus the dashboard plan flow below. Back up your `context.yaml` before updating from a 1.4.x release.
 
 ### Added
 - **Dashboards are now planned, shown, approved, then applied.** Ask for a change and Mylo stages a plan: every view, section, and card it intends to create or move, drawn as a wireframe in the chat with the choices it made without asking listed underneath. Apply runs exactly that plan; Modify sends it back for changes; Show YAML reveals the operations. The Apply click is bound to the plan you saw, so Mylo cannot apply something different.
