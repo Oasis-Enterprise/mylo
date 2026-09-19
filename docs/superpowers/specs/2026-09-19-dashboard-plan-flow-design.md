@@ -270,7 +270,7 @@ not duplicated; the `heading` field wins for the text.
 
 ### 4.3 `plan_dashboard` — validation
 
-Order, stopping at the first stage that produces an error:
+Order. Stage 3 stops at the first op that fails (later ops depend on it); stages 4–6 are independent and all run so every fixable problem is reported together; stage 7 runs only when there are no errors:
 
 1. **Params** — Pydantic. Op count 1–40. `path` slug regex on create and
    `new_path`.

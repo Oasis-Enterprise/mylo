@@ -14,10 +14,13 @@
 
 """Validate a dashboard plan against the live config.
 
-Runs the stages in spec §4.3, in order, stopping at the first stage
-that produces an error. Target resolution applies each op to a working
-copy so later ops can address views and sections created earlier in
-the same plan.
+Runs the stages in spec §4.3, in order. Stage 1 (target resolution)
+stops at the first op that fails, because later ops depend on earlier
+ones. Stages 2-4 (entity refs, card schema, theme) are independent and
+all run, so the model sees every fixable problem at once. Stage 5
+(lint) runs only when there are no errors. Target resolution applies
+each op to a working copy so later ops can address views and sections
+created earlier in the same plan.
 """
 
 from __future__ import annotations

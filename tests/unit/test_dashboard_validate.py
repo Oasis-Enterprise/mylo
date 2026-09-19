@@ -290,3 +290,58 @@ def test_lint_warnings() -> None:
         "lint_masonry_view",
     } <= codes
     assert all(i.severity == "warning" for i in v.issues)
+
+
+def test_independent_stages_all_report() -> None:
+    """A bad entity ref (stage 2), a card missing its option (stage 3),
+    and a missing theme (stage 4) are all reported in one pass."""
+    v = _run(
+        _params(
+            {
+                "op": "create_view",
+                "title": "K",
+                "path": "k",
+                "theme": "nope",
+                "sections": [
+                    {
+                        "heading": "A",
+                        "cards": [{"type": "tile", "entity": "light.kitchn"}, {"type": "gauge"}],
+                    }
+                ],
+            },
+        ),
+        theme_names=["ios"],
+    )
+    assert not v.ok
+    codes = _codes(v)
+    assert "invalid_entity_refs" in codes
+    assert "card_schema" in codes
+    assert "theme_not_installed" in codes
+    assert not any(c.startswith("lint_") for c in codes)
+
+
+def test_add_section_on_masonry_view_not_applicable() -> None:
+    config = {"views": [{"path": "home", "title": "Home", "cards": []}]}
+    v = _run(
+        _params({"op": "add_section", "view_path": "home", "section": {"heading": "X"}}), config
+    )
+    assert _codes(v) == ["section_not_applicable"]
+
+
+def test_section_heading_ambiguous() -> None:
+    config = _config()
+    config["views"][0]["sections"].append(
+        {"type": "grid", "cards": [{"type": "heading", "heading": "Lights"}]}
+    )
+    v = _run(
+        _params(
+            {
+                "op": "add_cards",
+                "view_path": "rooms",
+                "section": "Lights",
+                "cards": [{"type": "tile", "entity": "light.hall"}],
+            }
+        ),
+        config,
+    )
+    assert _codes(v) == ["section_ambiguous"]
