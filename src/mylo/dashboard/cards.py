@@ -22,9 +22,16 @@ enough to reject a card that cannot load or that reaches outside HA.
 
 from __future__ import annotations
 
+import hashlib
 import re
+import secrets
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 MAX_CARD_BYTES = 65_536
 ELEMENT_RE = re.compile(r"^mylo-[a-z0-9]+(-[a-z0-9]+)*$")
@@ -219,3 +226,80 @@ window.customCards.push({
   description: "Compact tappable entity row (icon, name, state).",
 });
 """
+
+CARD_URL_PREFIX = "/local/mylo-cards/"
+
+
+def card_hash(source: str) -> str:
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()[:8]
+
+
+def card_url(element: str, content_hash: str) -> str:
+    return f"{CARD_URL_PREFIX}{element}.js?v={content_hash}"
+
+
+class StagedCard(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    card_id: str
+    element: str
+    path: str
+    url: str
+    source: str
+    previous_source: str | None
+    hash: str
+    action: Literal["create", "update"]
+    description: str
+    config_example: dict[str, Any] | None
+    warnings: list[dict[str, Any]]
+    created_at: datetime
+    conversation_id: str
+
+
+@dataclass(slots=True)
+class _Entry:
+    card: StagedCard
+    expires_at: float
+
+
+class CardStore:
+    """In-memory staged cards awaiting Apply. Same lifecycle as PlanStore."""
+
+    def __init__(
+        self,
+        *,
+        ttl_seconds: float = 3600.0,
+        capacity: int = 20,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._ttl = ttl_seconds
+        self._capacity = capacity
+        self._clock = clock
+        self._entries: dict[str, _Entry] = {}
+
+    @staticmethod
+    def new_id() -> str:
+        return secrets.token_hex(4)
+
+    def put(self, card: StagedCard) -> None:
+        self._expire()
+        self._entries[card.card_id] = _Entry(card=card, expires_at=self._clock() + self._ttl)
+        while len(self._entries) > self._capacity:
+            oldest = min(self._entries, key=lambda k: self._entries[k].expires_at)
+            del self._entries[oldest]
+
+    def get(self, card_id: str) -> StagedCard | None:
+        self._expire()
+        entry = self._entries.get(card_id)
+        return entry.card if entry is not None else None
+
+    def remove(self, card_id: str) -> None:
+        self._entries.pop(card_id, None)
+
+    def staged(self, conversation_id: str) -> list[StagedCard]:
+        self._expire()
+        return [e.card for e in self._entries.values() if e.card.conversation_id == conversation_id]
+
+    def _expire(self) -> None:
+        now = self._clock()
+        for key in [k for k, e in self._entries.items() if e.expires_at <= now]:
+            del self._entries[key]
