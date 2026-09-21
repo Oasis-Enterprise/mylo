@@ -162,14 +162,16 @@ export function DashboardPlanCard({
         <button type="button" onClick={onModify} className={ghostBtn} style={ghostStyle}>
           Modify
         </button>
-        <button
-          type="button"
-          onClick={() => setShowYaml((v) => !v)}
-          className={ghostBtn}
-          style={ghostStyle}
-        >
-          {showYaml ? "Hide YAML" : "Show YAML"}
-        </button>
+        {plans.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowYaml((v) => !v)}
+            className={ghostBtn}
+            style={ghostStyle}
+          >
+            {showYaml ? "Hide YAML" : "Show YAML"}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onApprove}
