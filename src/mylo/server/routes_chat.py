@@ -32,10 +32,12 @@ so the UI can offer a ``/clear`` button.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import os
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 
 from aiohttp import web
@@ -55,6 +57,28 @@ from mylo.llm.tool_loop import (
 from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
+
+
+# Seconds between SSE keepalive comments while a turn runs. The model
+# call is non-streaming, so a long plan produces a minute or more of
+# silence; HA ingress and some browsers drop an idle stream well before
+# that. A comment line is invisible to the client parser (it skips
+# lines starting with ':') but keeps the connection alive.
+HEARTBEAT_INTERVAL_SECONDS = 15.0
+
+
+async def _heartbeat(response: Any, interval: float = HEARTBEAT_INTERVAL_SECONDS) -> None:
+    """Write an SSE comment every ``interval`` seconds until cancelled or
+    the transport closes. Runs as a background task beside the turn."""
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await response.write(b": ping\n\n")
+            except (ConnectionResetError, ClientConnectionResetError):
+                return
+    except asyncio.CancelledError:
+        return
 
 
 async def _safe_emit(response: Any, name: str, data: dict[str, Any]) -> None:
@@ -278,6 +302,7 @@ async def _handle_status(request: web.Request) -> web.Response:
 
     from mylo import __version__
 
+    conv = request.app.get(AppKeys.CONVERSATION)
     return web.json_response(
         {
             "ok": True,
@@ -286,6 +311,11 @@ async def _handle_status(request: web.Request) -> web.Response:
             "automations": automation_count,
             "memory": memory_payload,
             "has_provider": AppKeys.PROVIDER in request.app,
+            # Recovery signals for a panel whose stream dropped mid-turn:
+            # keep polling while the turn is still running, then replay
+            # the last turn's usage into the session counters.
+            "turn_active": bool(conv.turn_active) if conv is not None else False,
+            "last_turn": request.app.get(AppKeys.LAST_TURN),
         }
     )
 
@@ -461,6 +491,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         await _safe_emit(response, name, data)
 
     conv.turn_active = True
+    heartbeat = asyncio.create_task(_heartbeat(response))
     try:
         async for event in _turn_events(
             message=message,
@@ -495,22 +526,29 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
                 # Accumulate into the persistent monthly total (returns the
                 # new month-to-date so the UI can show it immediately).
                 month_to_date = ledger.record(turn_cost)
-                await emit(
-                    "done",
-                    {
-                        "stop_reason": event.stop_reason,
-                        "usage": event.usage,
-                        "truncated": event.truncated,
-                        "estimated_usd": round(turn_cost, 4),
-                        "cache_hit_ratio": round(cache_hit_ratio(event.usage), 3),
-                        "monthly_spent_usd": round(month_to_date, 4),
-                        "monthly_budget_usd": config.monthly_budget_usd,
-                    },
-                )
+                done_payload = {
+                    "stop_reason": event.stop_reason,
+                    "usage": event.usage,
+                    "truncated": event.truncated,
+                    "estimated_usd": round(turn_cost, 4),
+                    "cache_hit_ratio": round(cache_hit_ratio(event.usage), 3),
+                    "monthly_spent_usd": round(month_to_date, 4),
+                    "monthly_budget_usd": config.monthly_budget_usd,
+                }
+                # Kept for /api/status so a panel that lost the stream can
+                # still credit this turn's tokens and cost after recovery.
+                request.app[AppKeys.LAST_TURN] = {
+                    **done_payload,
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+                await emit("done", done_payload)
     except Exception as exc:
         log.exception("chat.turn_failed")
         await emit("error", {"message": str(exc), "type": type(exc).__name__})
     finally:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
         conv.turn_active = False
         with contextlib.suppress(ConnectionResetError, ClientConnectionResetError):
             await response.write_eof()

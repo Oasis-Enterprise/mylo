@@ -158,6 +158,14 @@ export type RawContentBlock =
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; tool_use_id: string; content: string };
 
+export interface LastTurn {
+  usage: Record<string, number>;
+  estimated_usd: number;
+  monthly_spent_usd: number;
+  monthly_budget_usd: number;
+  completed_at: string;
+}
+
 export interface ServerStatus {
   ok: boolean;
   version: string;
@@ -169,6 +177,12 @@ export interface ServerStatus {
     findings: number;
   };
   has_provider: boolean;
+  // True while a chat turn is running server-side. A panel whose
+  // stream dropped polls this to know when to rehydrate.
+  turn_active?: boolean;
+  // The most recently completed turn's done payload, so recovery can
+  // credit its tokens and cost to the session counters.
+  last_turn?: LastTurn | null;
 }
 
 export async function fetchStatus(): Promise<ServerStatus> {

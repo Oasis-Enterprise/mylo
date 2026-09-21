@@ -40,3 +40,34 @@ async def test_safe_emit_writes_sse_frame_when_open() -> None:
     await _safe_emit(resp, "text", {"text": "hi"})
     assert resp.written
     assert resp.written[0].startswith(b"event: text\n")
+
+
+class _CountingResponse:
+    def __init__(self) -> None:
+        self.written: list[bytes] = []
+
+    async def write(self, data: bytes) -> None:
+        self.written.append(data)
+
+
+async def test_heartbeat_writes_sse_comments_until_cancelled() -> None:
+    import asyncio
+
+    from mylo.server.routes_chat import _heartbeat
+
+    resp = _CountingResponse()
+    task = asyncio.create_task(_heartbeat(resp, interval=0.01))
+    await asyncio.sleep(0.06)
+    task.cancel()
+    await task  # _heartbeat swallows its own cancellation
+    assert len(resp.written) >= 3
+    assert all(chunk == b": ping\n\n" for chunk in resp.written)
+
+
+async def test_heartbeat_stops_when_transport_closes() -> None:
+    import asyncio
+
+    from mylo.server.routes_chat import _heartbeat
+
+    task = asyncio.create_task(_heartbeat(_ClosedResponse(), interval=0.01))
+    await asyncio.wait_for(task, timeout=1.0)  # returns on its own, no exception

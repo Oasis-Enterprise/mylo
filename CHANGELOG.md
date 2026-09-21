@@ -5,6 +5,13 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] — 2026-09-20
+
+### Fixed
+- **Far fewer "network error" drops during long requests.** The chat stream went silent while Mylo composed a big reply (a full dashboard plan can take a minute or more), and Home Assistant's ingress proxy or the browser would drop the idle connection. The server now sends a keepalive every 15 seconds for as long as a turn is running.
+- **When a drop does happen, the panel recovers properly.** It now waits as long as the server says the turn is still running instead of giving up after 90 seconds, then restores the transcript, the Apply button for any staged plan or dry-run, and the session token and cost counters from the server's record of that turn.
+- **Calmer recovery.** A dropped stream shows a quiet "Reconnecting" line instead of a red error while Mylo finishes; the red bar is reserved for the case where recovery itself fails.
+
 ## [1.5.1] — 2026-09-19
 
 ### Fixed

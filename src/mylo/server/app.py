@@ -69,6 +69,9 @@ class AppKeys:
     SCHEDULER = web.AppKey("scheduler", object)
     TRANSITIONS = web.AppKey("transitions", object)
     USAGE_LEDGER = web.AppKey("usage_ledger", UsageLedger)
+    # Last completed turn's "done" payload, served by /api/status for
+    # stream-drop recovery. Set by routes_chat, absent until the first turn.
+    LAST_TURN = web.AppKey("last_turn", dict)
     PLANS = web.AppKey("plans", PlanStore)
 
 

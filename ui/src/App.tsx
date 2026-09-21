@@ -17,6 +17,7 @@ import {
   fetchCatchup,
   fetchConversation,
   fetchFindings,
+  fetchStatus,
   newConversation,
   streamChat,
   type CatchupData,
@@ -51,6 +52,10 @@ export default function App() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set while the stream has dropped mid-turn and we're polling the
+  // server for the finished turn. Rendered as a calm status line, not
+  // an error — the server is still working.
+  const [reconnecting, setReconnecting] = useState(false);
   // Set when the last turn included a previewed write. planIds are the
   // plan_dashboard ids in that turn; Apply sends them back so the
   // server can bind approval to exactly those plans.
@@ -158,10 +163,17 @@ export default function App() {
             "Mylo is still finishing the previous request — this message wasn't sent. Try again in a moment.",
           );
         } else {
-          setError(`${detail} — waiting for Mylo to come back…`);
+          setReconnecting(true);
         }
         const recovered = await pollUntilTurnCompletes(assistantId);
-        if (recovered && !detail.includes("turn_in_progress")) setError(null);
+        setReconnecting(false);
+        if (recovered) {
+          if (!detail.includes("turn_in_progress")) setError(null);
+        } else if (!detail.includes("turn_in_progress")) {
+          setError(
+            "Lost the connection and couldn't catch up — reload the panel to see Mylo's reply.",
+          );
+        }
       } finally {
         setItems((prev) =>
           prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),
@@ -176,14 +188,20 @@ export default function App() {
   );
 
   const pollUntilTurnCompletes = useCallback(
-    async (_assistantId: string, timeoutMs = 90_000): Promise<boolean> => {
-      const deadline = Date.now() + timeoutMs;
+    async (_assistantId: string, maxWaitMs = 15 * 60_000): Promise<boolean> => {
+      // The server keeps running the turn after the stream drops. Poll
+      // /api/status while it reports turn_active, then rehydrate the
+      // finished turn. The ceiling is a safety net, not the expected
+      // wait — a big dashboard plan can legitimately run for minutes.
+      const deadline = Date.now() + maxWaitMs;
       let attempt = 0;
       while (Date.now() < deadline) {
-        const delay = Math.min(3000 + attempt * 1000, 15_000);
+        const delay = Math.min(2000 + attempt * 1000, 10_000);
         await new Promise((r) => setTimeout(r, delay));
         attempt += 1;
         try {
+          const status = await fetchStatus();
+          if (status.turn_active) continue;
           const messages = await fetchConversation();
           if (!isTurnComplete(messages)) continue;
           const hydrated = hydrateFromMessages(messages);
@@ -195,6 +213,9 @@ export default function App() {
           if (detectPendingApproval(hydrated)) {
             setPendingApproval({ planIds: planIdsFromItems(hydrated) });
           }
+          // The done event never arrived either; credit the turn from
+          // the server's record so the budget/cost counters stay right.
+          if (status.last_turn?.usage) recordTurn(status.last_turn.usage);
           return true;
         } catch {
           // Server still rebooting — keep trying.
@@ -202,7 +223,7 @@ export default function App() {
       }
       return false;
     },
-    [],
+    [recordTurn],
   );
 
   useEffect(() => {
@@ -350,6 +371,19 @@ export default function App() {
             <div ref={endRef} />
           </main>
 
+          {reconnecting ? (
+            <div
+              className="border-t px-4 py-2 font-mono text-[10px]"
+              style={{
+                borderColor: "var(--color-border)",
+                backgroundColor: "var(--color-surface)",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              Reconnecting — Mylo is still working on your request; the reply will
+              appear here when it finishes.
+            </div>
+          ) : null}
           {error ? (
             <div
               className="border-t px-4 py-2 font-mono text-[10px]"
