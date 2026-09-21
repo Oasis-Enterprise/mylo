@@ -9,7 +9,9 @@ here explaining what changed and why.
 
 Custom card authoring. New "Custom cards" block: when a custom card is
 justified, the card contract in six lines, the stage → plan → wait →
-apply-cards-then-plan flow, and update-by-whole-file with a diff.
+apply-cards-then-plan flow, and update-by-whole-file with a diff. Tells
+the model to read an existing card with read_custom_card before
+revising it, so an update starts from the current source.
 
 ## 0.6.0 — 2026-09-19
 

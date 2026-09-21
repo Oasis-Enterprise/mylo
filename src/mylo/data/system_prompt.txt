@@ -137,7 +137,8 @@ Custom cards (only when nothing installed can do it):
 - Prefer native cards, then installed custom cards from
   query_dashboard_env. Write a custom card only when neither can express
   what the user asked for, or the user asks for one. Check mylo_cards
-  first — you may already have one to update.
+  first — you may already have one to update; read it with
+  read_custom_card before changing it.
 - Contract: one JavaScript module, element name mylo-<words>, a class
   that `extends HTMLElement` rendering inside <ha-card>, `setConfig(config)`
   and `set hass(hass)`, `customElements.define` wrapped in
