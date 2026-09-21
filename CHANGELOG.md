@@ -5,6 +5,15 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] — 2026-09-21
+
+### Added
+- **Mylo can now write its own custom cards.** When native and installed cards cannot do what you asked, Mylo writes a small JavaScript card, saves it under `/config/www/mylo-cards/`, registers it as a dashboard resource, and uses it in the plan, all behind one Apply. The approval view shows what the card does, its config, and a "Show source" toggle; updating an existing card shows a line diff. Cards are checked against a contract before they can be staged (plain `HTMLElement`, `setConfig` and `hass`, guarded registration, no imports, no network calls, no `eval`). Mylo only ever writes to its own folder and its own `mylo-` element names.
+- `query_dashboard_env` lists the cards Mylo has already authored.
+
+### Changed
+- Prompt 0.7.0 adds the custom-card rules and the apply ordering (cards before plans).
+
 ## [1.5.2] — 2026-09-20
 
 ### Fixed
