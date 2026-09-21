@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { lineDiff } from "../lib/lineDiff";
 import type {
@@ -200,11 +200,17 @@ const ghostStyle = {
 
 function StagedCardBlock({ card }: { card: StagedCardData }) {
   const [showSource, setShowSource] = useState(false);
-  const diff = card.action === "update" && card.previous_source !== null
-    ? lineDiff(card.previous_source, card.source)
-    : null;
-  const added = diff ? diff.filter((l) => l.kind === "add").length : card.line_count;
-  const removed = diff ? diff.filter((l) => l.kind === "del").length : 0;
+  const { diff, added, removed } = useMemo(() => {
+    const d =
+      card.action === "update" && card.previous_source !== null
+        ? lineDiff(card.previous_source, card.source)
+        : null;
+    return {
+      diff: d,
+      added: d ? d.filter((l) => l.kind === "add").length : card.line_count,
+      removed: d ? d.filter((l) => l.kind === "del").length : 0,
+    };
+  }, [card.action, card.previous_source, card.source, card.line_count]);
   return (
     <div className="px-3 py-3 space-y-2 border-t" style={{ borderColor: "var(--color-border)" }}>
       <div className="flex items-center gap-2">
