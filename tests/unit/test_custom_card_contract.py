@@ -3,6 +3,8 @@ on the reference card."""
 
 from __future__ import annotations
 
+import pytest
+
 from mylo.dashboard.cards import (
     MAX_CARD_BYTES,
     REFERENCE_CARD_SOURCE,
@@ -25,6 +27,7 @@ def test_element_name_rules() -> None:
     assert "element_name" in _codes(check_card_source("game-row", REFERENCE_CARD_SOURCE))
     assert "element_name" in _codes(check_card_source("mylo-Game", REFERENCE_CARD_SOURCE))
     assert "element_name" in _codes(check_card_source("mylo-" + "a" * 50, REFERENCE_CARD_SOURCE))
+    assert "element_name" in _codes(check_card_source("mylo-x\n", REFERENCE_CARD_SOURCE))
 
 
 def test_source_size_and_bytes() -> None:
@@ -77,6 +80,43 @@ def test_forbidden_constructs() -> None:
     }
     for code, src in cases.items():
         assert code in _codes(check_card_source(EL, src), "error"), code
+
+
+@pytest.mark.parametrize(
+    ("code", "snippet"),
+    [
+        ("no_imports", "const m = await import('https://unpkg.com/lit');"),
+        ("no_dynamic_code", "const s = document.createElement('script'); s.src = 'x';"),
+        ("no_dynamic_code", "const w = new Worker('w.js');"),
+        ("no_dynamic_code", "Function('return 1')();"),
+        ("no_dynamic_code", "setTimeout('alert(1)', 10);"),
+        ("no_network", "const es = new EventSource('/api/stream');"),
+        ("no_token_access", "const t = this._hass.auth.data.access_token;"),
+        ("no_token_access", "localStorage.getItem('hassTokens');"),
+    ],
+)
+def test_forbidden_construct_probes(code: str, snippet: str) -> None:
+    src = REFERENCE_CARD_SOURCE + "\n" + snippet
+    assert code in _codes(check_card_source(EL, src), "error")
+
+
+@pytest.mark.parametrize(
+    ("code", "snippet"),
+    [
+        ("innerhtml_with_state", "el.outerHTML = st.state;"),
+        ("innerhtml_with_state", "el.insertAdjacentHTML('beforeend', st.state);"),
+    ],
+)
+def test_innerhtml_construct_probes_are_warnings(code: str, snippet: str) -> None:
+    src = REFERENCE_CARD_SOURCE + "\n" + snippet
+    assert code in _codes(check_card_source(EL, src), "warning")
+
+
+def test_safe_constructs_do_not_trip_checks() -> None:
+    arrow_timer = REFERENCE_CARD_SOURCE + "\nsetTimeout(() => this._render(), 10);"
+    assert "no_dynamic_code" not in _codes(check_card_source(EL, arrow_timer), "error")
+    fetch_call = REFERENCE_CARD_SOURCE + "\nfetchData();"
+    assert "no_network" not in _codes(check_card_source(EL, fetch_call), "error")
 
 
 def test_innerhtml_with_state_is_a_warning() -> None:

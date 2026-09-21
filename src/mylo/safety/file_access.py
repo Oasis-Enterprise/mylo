@@ -152,18 +152,19 @@ def resolve_custom_card_path(config_dir: Path, element: str) -> Path:
     no dots, slashes, or uppercase) and that the resolved path, symlinks
     included, stays inside the config directory.
     """
-    if not CUSTOM_CARD_ELEMENT_RE.match(element) or len(element) > CUSTOM_CARD_MAX_ELEMENT_LEN:
+    if not CUSTOM_CARD_ELEMENT_RE.fullmatch(element) or len(element) > CUSTOM_CARD_MAX_ELEMENT_LEN:
         raise FileAccessError(
             "bad_element",
             f"element {element!r} must match mylo-<lowercase-words> (<= "
             f"{CUSTOM_CARD_MAX_ELEMENT_LEN} chars)",
         )
     base = Path(config_dir).resolve()
-    candidate = (base / CUSTOM_CARD_DIR / f"{element}.js").resolve()
-    try:
-        candidate.relative_to(base)
-    except ValueError as exc:
+    card_dir = (base / CUSTOM_CARD_DIR).resolve()
+    candidate = (card_dir / f"{element}.js").resolve()
+    name = f"{element}.js"
+    if not card_dir.is_relative_to(base) or candidate.parent != card_dir or candidate.name != name:
         raise FileAccessError(
-            "path_outside_config", f"{CUSTOM_CARD_DIR}/{element}.js escapes the config directory"
-        ) from exc
+            "path_outside_config",
+            f"{CUSTOM_CARD_DIR}/{element}.js does not resolve inside {CUSTOM_CARD_DIR}",
+        )
     return candidate

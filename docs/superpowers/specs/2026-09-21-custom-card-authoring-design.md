@@ -85,14 +85,20 @@ violations are returned together as `card_invalid` issues.
 | `has_set_config` | contains `setConfig(` inside the class |
 | `has_hass_setter` | contains `set hass(` inside the class |
 | `registers_picker` | contains `window.customCards` and `type: "<element>"` (so the card picker lists it); a warning, not an error |
-| `no_imports` | no line starts with `import ` or `export ` |
-| `no_dynamic_code` | no `eval(`, `new Function(`, `document.write(` |
-| `no_network` | no `fetch(`, `XMLHttpRequest`, `new WebSocket(`, `navigator.sendBeacon(` — data and actions go through `this._hass` (`states`, `callService`, `callWS`) |
+| `no_imports` | no line starts with `import ` or `export `, and no dynamic `import(` anywhere |
+| `no_dynamic_code` | no `eval(`, `Function(`, `document.write(`, `createElement('script...`, `new Worker(`/`new SharedWorker(`, or `setTimeout(`/`setInterval(` given a string as the first argument |
+| `no_network` | no `fetch(`, `XMLHttpRequest`, `new WebSocket(`, `navigator.sendBeacon(`, `EventSource` — data and actions go through `this._hass` (`states`, `callService`, `callWS`) |
+| `no_token_access` | no `access_token`, `hassTokens`, `auth.data`, `localStorage`, `sessionStorage`, `document.cookie` |
 | `no_script_tag` | no `<script` string literal (error) |
-| `innerhtml_with_state` | a line that assigns `innerHTML` and also mentions `hass` or `state` — warning only; prefer `textContent` for state values |
+| `innerhtml_with_state` | a line that assigns `innerHTML`/`outerHTML` or calls `insertAdjacentHTML(` and also mentions `hass` or `state` — warning only; prefer `textContent` for state values |
 
 Checks are regex/line based and deliberately conservative. A card that
 violates a warning-level rule stages with the warning shown to the user.
+
+The checks target a cooperative author. They cannot stop a determined
+adversary (obfuscation is unbounded); the user's Apply on a card they
+can read is the security boundary, and `no_token_access` removes the
+one thing a card never legitimately needs.
 
 ### 4.2 Staging
 
@@ -142,8 +148,11 @@ def resolve_custom_card_path(config_dir: Path, element: str) -> Path:
 ```
 
 It validates the element name, builds the path, resolves symlinks, and
-asserts the result is inside `config_dir / CUSTOM_CARD_DIR`. It is not
-reachable from `write_config_file`/`patch_config_file`; the general
+asserts the result is inside `config_dir / CUSTOM_CARD_DIR` — the
+resolved path must have `www/mylo-cards` as its parent, so a symlinked
+card file that resolves elsewhere (or a symlinked `mylo-cards` folder
+itself) is refused rather than followed. It is not reachable from
+`write_config_file`/`patch_config_file`; the general
 `WRITE_ALLOWED_EXTENSIONS` is untouched.
 
 ### 4.5 Plan integration

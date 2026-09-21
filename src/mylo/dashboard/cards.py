@@ -55,12 +55,21 @@ class CardIssue:
 _EXTENDS_RE = re.compile(r"\bclass\s+\w+\s+extends\s+HTMLElement\b")
 _SET_CONFIG_RE = re.compile(r"\bsetConfig\s*\(")
 _HASS_SETTER_RE = re.compile(r"\bset\s+hass\s*\(")
-_DYNAMIC_RE = re.compile(r"\beval\s*\(|\bnew\s+Function\s*\(|\bdocument\.write\s*\(")
+_DYNAMIC_IMPORT_RE = re.compile(r"\bimport\s*\(")
+_DYNAMIC_RE = re.compile(
+    r"\beval\s*\(|\bFunction\s*\(|\bdocument\.write\s*\(|\bcreateElement\s*\(\s*['\"`]script"
+    r"|\bnew\s+(?:Worker|SharedWorker)\s*\(|\bset(?:Timeout|Interval)\s*\(\s*['\"`]"
+)
 _NETWORK_RE = re.compile(
     r"\bfetch\s*\(|\bXMLHttpRequest\b|\bnew\s+WebSocket\s*\(|\bnavigator\.sendBeacon\s*\("
+    r"|\bEventSource\b"
+)
+_TOKEN_RE = re.compile(
+    r"\baccess_token\b|\bhassTokens\b|\bauth\.data\b|\blocalStorage\b|\bsessionStorage\b"
+    r"|\bdocument\.cookie\b"
 )
 _SCRIPT_TAG_RE = re.compile(r"<script", re.IGNORECASE)
-_INNERHTML_RE = re.compile(r"\.innerHTML\s*[+]?=")
+_INNERHTML_RE = re.compile(r"\.(?:innerHTML|outerHTML)\s*[+]?=|\binsertAdjacentHTML\s*\(")
 _STATE_WORD_RE = re.compile(r"\bhass\b|\bstate\b|\bstates\b")
 
 
@@ -79,7 +88,7 @@ def _picker_type_re(element: str) -> re.Pattern[str]:
 def check_card_source(element: str, source: str) -> list[CardIssue]:
     issues: list[CardIssue] = []
 
-    if not ELEMENT_RE.match(element) or len(element) > MAX_ELEMENT_LEN:
+    if not ELEMENT_RE.fullmatch(element) or len(element) > MAX_ELEMENT_LEN:
         issues.append(
             CardIssue(
                 "element_name",
@@ -146,9 +155,15 @@ def check_card_source(element: str, source: str) -> list[CardIssue]:
                 )
             )
 
+    if _DYNAMIC_IMPORT_RE.search(source):
+        issues.append(CardIssue("no_imports", "dynamic import() is not allowed"))
     if _DYNAMIC_RE.search(source):
         issues.append(
-            CardIssue("no_dynamic_code", "eval / new Function / document.write are not allowed")
+            CardIssue(
+                "no_dynamic_code",
+                "eval / Function / document.write / script elements / workers / string "
+                "timers are not allowed",
+            )
         )
     if _NETWORK_RE.search(source):
         issues.append(
@@ -158,6 +173,8 @@ def check_card_source(element: str, source: str) -> list[CardIssue]:
                 "hass.states and act via hass.callService",
             )
         )
+    if _TOKEN_RE.search(source):
+        issues.append(CardIssue("no_token_access", "cards must not read tokens or browser storage"))
     if _SCRIPT_TAG_RE.search(source):
         issues.append(CardIssue("no_script_tag", "'<script' string literals are not allowed"))
 

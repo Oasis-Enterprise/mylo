@@ -104,7 +104,7 @@ async def handler(params: StageCustomCardParams, ctx: ToolContext) -> ToolResult
             "element": card.element,
             "action": card.action,
             "url": card.url,
-            "line_count": params.source.count("\n") + 1,
+            "line_count": len(params.source.splitlines()),
             "byte_count": len(params.source.encode("utf-8")),
             "warnings": card.warnings,
             "previous_source": previous,

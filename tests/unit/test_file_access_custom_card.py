@@ -42,3 +42,18 @@ def test_general_write_policy_still_refuses_js(tmp_path: Path) -> None:
     # there before ever reaching the write-only check — belt and suspenders:
     # the general write policy never even gets a chance to learn about JS.
     assert exc.value.code == "unsupported_extension"
+
+
+def test_symlinked_card_file_pointing_at_config_file_is_refused(tmp_path: Path) -> None:
+    (tmp_path / "secrets.yaml").write_text("api_key: SECRET\n")
+    card_dir = tmp_path / "www" / "mylo-cards"
+    card_dir.mkdir(parents=True)
+    os.symlink(tmp_path / "secrets.yaml", card_dir / "mylo-x.js")
+    with pytest.raises(FileAccessError) as exc:
+        resolve_custom_card_path(tmp_path, "mylo-x")
+    assert exc.value.code == "path_outside_config"
+
+
+def test_trailing_newline_in_element_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(FileAccessError):
+        resolve_custom_card_path(tmp_path, "mylo-x\n")
