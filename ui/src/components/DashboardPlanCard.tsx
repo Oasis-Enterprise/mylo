@@ -14,17 +14,22 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { lineDiff } from "../lib/lineDiff";
 import type {
   DashboardPlanData,
   PlanFingerprint,
   PlanOpData,
   PlanSectionData,
+  StagedCardData,
 } from "../types";
 import { StatusDot } from "./StatusDot";
 import { Tag } from "./Tag";
 
 export interface DashboardPlanCardProps {
   plans: DashboardPlanData[];
+  // Staged custom cards in the same turn — rendered after the plan's
+  // operations, before the assumptions block.
+  cards?: StagedCardData[];
   // Non-dashboard previews in the same turn, described in one line each.
   otherChanges: string[];
   onApprove: () => void;
@@ -39,6 +44,7 @@ export interface DashboardPlanCardProps {
 // plan ids back; Modify pre-fills the composer.
 export function DashboardPlanCard({
   plans,
+  cards = [],
   otherChanges,
   onApprove,
   onReject,
@@ -63,10 +69,10 @@ export function DashboardPlanCard({
           className="font-mono text-[10px] font-bold uppercase tracking-label"
           style={{ color: "var(--color-accent)" }}
         >
-          Dashboard plan
+          {plans.length === 0 ? "Custom card" : "Dashboard plan"}
         </span>
         <span className="font-sans text-[12px]" style={{ color: "var(--color-text)" }}>
-          {plans.map((p) => p.summary).join(" · ")}
+          {[...plans.map((p) => p.summary), ...cards.map((c) => c.description)].join(" · ")}
         </span>
       </div>
 
@@ -92,6 +98,10 @@ export function DashboardPlanCard({
         >
           <Tag tone="muted">TIER-2</Tag> <span className="ml-2">{text}</span>
         </div>
+      ))}
+
+      {cards.map((card) => (
+        <StagedCardBlock key={card.card_id} card={card} />
       ))}
 
       {assumptions.length > 0 ? (
@@ -185,6 +195,56 @@ const ghostStyle = {
   color: "var(--color-text-muted)",
   background: "transparent",
 } as const;
+
+// ─── Custom cards ────────────────────────────────────────────────────────────
+
+function StagedCardBlock({ card }: { card: StagedCardData }) {
+  const [showSource, setShowSource] = useState(false);
+  const diff = card.action === "update" && card.previous_source !== null
+    ? lineDiff(card.previous_source, card.source)
+    : null;
+  const added = diff ? diff.filter((l) => l.kind === "add").length : card.line_count;
+  const removed = diff ? diff.filter((l) => l.kind === "del").length : 0;
+  return (
+    <div className="px-3 py-3 space-y-2 border-t" style={{ borderColor: "var(--color-border)" }}>
+      <div className="flex items-center gap-2">
+        <Tag tone="muted">CUSTOM CARD</Tag>
+        <span className="font-mono text-[11px] font-bold" style={{ color: "var(--color-accent)" }}>
+          custom:{card.element}
+        </span>
+        <span className="font-mono text-[10px]" style={{ color: "var(--color-text-dim)" }}>
+          {card.action === "update" ? `update · +${added} −${removed}` : `new · ${card.line_count} lines`}
+        </span>
+      </div>
+      <div className="font-sans text-[12px]" style={{ color: "var(--color-text)" }}>{card.description}</div>
+      {card.config_example ? (
+        <pre className="font-mono text-[10px] overflow-x-auto" style={{ color: "var(--color-text-muted)" }}>
+          {toYaml(card.config_example)}
+        </pre>
+      ) : null}
+      {card.warnings.map((w, i) => (
+        <div key={i} className="font-mono text-[10px]" style={{ color: "var(--color-warning)" }}>
+          {w.code}: {w.message}
+        </div>
+      ))}
+      <button type="button" onClick={() => setShowSource((v) => !v)} className={ghostBtn} style={ghostStyle}>
+        {showSource ? "Hide source" : "Show source"}
+      </button>
+      {showSource ? (
+        <pre className="font-mono text-[10px] overflow-x-auto rounded border px-2 py-1.5"
+             style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}>
+          {diff
+            ? diff.map((l, i) => (
+                <div key={i} style={{ color: l.kind === "add" ? "var(--color-accent)" : l.kind === "del" ? "var(--color-warning)" : "var(--color-text-muted)" }}>
+                  {l.kind === "add" ? "+ " : l.kind === "del" ? "− " : "  "}{l.text}
+                </div>
+              ))
+            : card.source}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
 
 // ─── Operation blocks ────────────────────────────────────────────────────────
 

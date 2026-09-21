@@ -207,3 +207,19 @@ export interface DashboardPlanData {
   resolved: PlanResolvedTarget[];
   issues: PlanIssueData[];
 }
+
+// ─── Staged custom card (stage_custom_card result) ─────────────────────────
+
+export interface StagedCardData {
+  card_id: string;
+  element: string;
+  action: "create" | "update";
+  url: string;
+  line_count: number;
+  byte_count: number;
+  warnings: { code: string; message: string; severity: string }[];
+  previous_source: string | null;
+  source: string;
+  config_example: Record<string, unknown> | null;
+  description: string;
+}

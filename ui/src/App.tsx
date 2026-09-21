@@ -36,7 +36,13 @@ import { Message } from "./components/Message";
 import { QuestionCard, type PendingQuestion } from "./components/QuestionCard";
 import { hydrateFromMessages, isTurnComplete } from "./hydrate";
 import { useSession } from "./store";
-import type { ChatFragment, ChatItem, DashboardPlanData, ToolCallRecord } from "./types";
+import type {
+  ChatFragment,
+  ChatItem,
+  DashboardPlanData,
+  StagedCardData,
+  ToolCallRecord,
+} from "./types";
 
 function randomId() {
   return Math.random().toString(36).slice(2);
@@ -256,7 +262,10 @@ export default function App() {
   const approvalContexts = findApprovalContexts(items);
   const approvalCount = approvalContexts.length;
   const planContexts = approvalContexts.filter((c) => c.plan !== undefined);
-  const otherContexts = approvalContexts.filter((c) => c.plan === undefined);
+  const cardContexts = approvalContexts.filter((c) => c.card !== undefined);
+  const otherContexts = approvalContexts.filter(
+    (c) => c.plan === undefined && c.card === undefined,
+  );
 
   // A pending ask_user question is derived from the items, not stored:
   // it exists exactly when the latest assistant turn ended on an
@@ -349,9 +358,10 @@ export default function App() {
             ) : null}
             {pendingApproval && approvalCount > 0 ? (
               <div style={{ paddingRight: 40 }}>
-                {planContexts.length > 0 ? (
+                {planContexts.length > 0 || cardContexts.length > 0 ? (
                   <DashboardPlanCard
                     plans={planContexts.map((c) => c.plan!)}
+                    cards={cardContexts.map((c) => c.card!)}
                     otherChanges={otherContexts.map((c) => c.description)}
                     onApprove={() => void handleApply()}
                     onReject={handleReject}
@@ -466,6 +476,7 @@ interface ApprovalContext {
   meta?: string;
   tierLabel: string;
   plan?: DashboardPlanData;
+  card?: StagedCardData;
 }
 
 function findApprovalContexts(items: ChatItem[]): ApprovalContext[] {
@@ -558,6 +569,17 @@ function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
     return { description, meta, tierLabel };
   }
 
+  // Staged custom card — rendered by DashboardPlanCard's StagedCardBlock,
+  // not the generic card.
+  if (call.name === "stage_custom_card" && data.preview === true && typeof data.element === "string") {
+    const card = data as unknown as StagedCardData;
+    return {
+      description: `Custom card ${card.element} (${card.action === "update" ? "update" : "new"}, ${card.line_count} lines)`,
+      card,
+      tierLabel: "TIER-2",
+    };
+  }
+
   // Dashboard plan — rendered by DashboardPlanCard, not the generic card.
   if (call.name === "plan_dashboard" && data.plan && typeof data.plan === "object") {
     const plan = data.plan as DashboardPlanData;
@@ -573,9 +595,14 @@ function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
 export function planIdsFromRecords(records: Iterable<ToolCallRecord>): string[] {
   const ids: string[] = [];
   for (const call of records) {
-    if (call.name !== "plan_dashboard" || call.state !== "ok") continue;
+    if (call.state !== "ok") continue;
     const data = call.data as Record<string, unknown> | undefined;
-    if (data?.preview === true && typeof data.plan_id === "string") ids.push(data.plan_id);
+    if (data?.preview !== true) continue;
+    if (call.name === "plan_dashboard" && typeof data.plan_id === "string") {
+      ids.push(data.plan_id);
+    } else if (call.name === "stage_custom_card" && typeof data.card_id === "string") {
+      ids.push(data.card_id);
+    }
   }
   return ids;
 }
