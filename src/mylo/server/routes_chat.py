@@ -436,6 +436,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         dry_run=False,
         approved_plan_ids=approved_plan_ids,
         plans=base_ctx.plans,
+        cards=base_ctx.cards,
     )
     tools = request.app[AppKeys.TOOLS_JSON]
     config = request.app[AppKeys.CONFIG]

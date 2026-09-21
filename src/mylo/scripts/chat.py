@@ -43,6 +43,7 @@ from mylo.config import load_config
 from mylo.context.assembler import assemble_system_prompt
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.storage import ConversationStorage
+from mylo.dashboard.cards import CardStore
 from mylo.dashboard.store import PlanStore
 from mylo.ha.registries import Registries
 from mylo.ha.ws_client import AuthFailed, HaWsClient
@@ -169,6 +170,7 @@ async def _run() -> int:
             conversation_id=conv.conversation_id,
             user_approved=False,
             plans=PlanStore(),
+            cards=CardStore(),
         )
 
         session_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0}

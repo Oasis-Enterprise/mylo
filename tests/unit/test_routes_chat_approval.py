@@ -27,3 +27,13 @@ def test_ignores_garbage() -> None:
     assert _approved_plan_ids_from_body({}) == frozenset()
     assert _approved_plan_ids_from_body({"approved_plan_ids": "a"}) == frozenset()
     assert _approved_plan_ids_from_body({"approved_plan_ids": ["a", 3, None]}) == frozenset({"a"})
+
+
+def test_make_ctx_carries_card_store(tmp_path) -> None:
+    from mylo.dashboard.cards import CardStore
+    from mylo.ha.registries import Registries
+    from tests.unit._helpers import make_ctx
+
+    store = CardStore()
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path, cards=store)
+    assert ctx.cards is store

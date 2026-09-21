@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from mylo.config import AppConfig
+from mylo.dashboard.cards import CardStore
 from mylo.dashboard.store import PlanStore
 from mylo.ha.registries import Registries
 from mylo.safety.audit import AuditLogger
@@ -59,6 +60,7 @@ def make_ctx(
     user_approved: bool = False,
     dry_run: bool = False,
     plans: PlanStore | None = None,
+    cards: CardStore | None = None,
     approved_plan_ids: frozenset[str] = frozenset(),
 ) -> ToolContext:
     config = make_config(tmp_path)
@@ -72,5 +74,6 @@ def make_ctx(
         user_approved=user_approved,
         dry_run=dry_run,
         plans=plans,
+        cards=cards,
         approved_plan_ids=approved_plan_ids,
     )

@@ -36,6 +36,7 @@ from aiohttp import web
 from mylo.config import AppConfig, load_config
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.storage import ConversationStorage
+from mylo.dashboard.cards import CardStore
 from mylo.dashboard.store import PlanStore
 from mylo.ha.registries import Registries
 from mylo.ha.ws_client import HaWsClient
@@ -73,6 +74,7 @@ class AppKeys:
     # stream-drop recovery. Set by routes_chat, absent until the first turn.
     LAST_TURN = web.AppKey("last_turn", dict)
     PLANS = web.AppKey("plans", PlanStore)
+    CARDS = web.AppKey("cards", CardStore)
 
 
 _DEFAULT_MODELS: dict[str, str] = {
@@ -254,6 +256,8 @@ async def _startup(app: web.Application) -> None:
     app[AppKeys.TOOLS_JSON] = [t.to_anthropic() for t in tool_registry.all_tools()]
     plan_store = PlanStore()
     app[AppKeys.PLANS] = plan_store
+    card_store = CardStore()
+    app[AppKeys.CARDS] = card_store
     app[AppKeys.TOOL_CONTEXT] = ToolContext(
         ws_client=client,
         registries=registries,
@@ -262,6 +266,7 @@ async def _startup(app: web.Application) -> None:
         audit=AuditLogger(config.mylo_data_dir),
         conversation_id=conv.conversation_id,
         plans=plan_store,
+        cards=card_store,
     )
 
     # Background scheduler (nightly reconciler + hourly availability).

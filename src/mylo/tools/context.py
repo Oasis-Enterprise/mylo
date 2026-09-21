@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from mylo.config import AppConfig
+from mylo.dashboard.cards import CardStore
 from mylo.dashboard.store import PlanStore
 from mylo.ha.registries import Registries
 from mylo.ha.states import StatesCache
@@ -53,3 +54,5 @@ class ToolContext:
     approved_plan_ids: frozenset[str] = field(default_factory=frozenset)
     # Process-wide store of validated dashboard plans awaiting Apply.
     plans: PlanStore | None = None
+    # Process-wide store of staged custom cards awaiting Apply.
+    cards: CardStore | None = None
