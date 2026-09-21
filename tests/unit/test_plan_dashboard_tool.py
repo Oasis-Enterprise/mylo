@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from mylo.dashboard.cards import CardStore
 from mylo.dashboard.store import PlanStore
 from mylo.ha.registries import EntityEntry, Registries
 from mylo.ha.ws_client import CommandError
@@ -64,11 +65,19 @@ def _load_tools():
 
 
 def _ctx(
-    tmp_path: Path, responses: dict[str, Any] | None = None, *, plans: PlanStore | None = None
+    tmp_path: Path,
+    responses: dict[str, Any] | None = None,
+    *,
+    plans: PlanStore | None = None,
+    cards: CardStore | None = None,
 ):
     client = _FakeClient({"lovelace/config": _DASHBOARD, **(responses or {})})
     return make_ctx(
-        ws_client=client, registries=_registries(), tmp_path=tmp_path, plans=plans or PlanStore()
+        ws_client=client,
+        registries=_registries(),
+        tmp_path=tmp_path,
+        plans=plans or PlanStore(),
+        cards=cards or CardStore(),
     )
 
 
@@ -211,3 +220,46 @@ async def test_native_only_plan_skips_resource_lookup(tmp_path: Path) -> None:
         ctx,
     )
     assert not any(t == "lovelace/resources" for t, _ in ctx.ws_client.calls)
+
+
+async def test_staged_mylo_card_is_accepted_in_same_turn(tmp_path: Path) -> None:
+    from mylo.dashboard.cards import REFERENCE_CARD_SOURCE, CardStore
+
+    cards = CardStore()
+    ctx = _ctx(tmp_path, {"lovelace/resources": []}, cards=cards)
+    staged = await execute(
+        "stage_custom_card",
+        {"element": "mylo-entity-row", "description": "d", "source": REFERENCE_CARD_SOURCE},
+        ctx,
+    )
+    assert staged.status.value == "ok"
+    result = await execute(
+        "plan_dashboard",
+        _params(
+            {
+                "op": "add_cards",
+                "view_path": "rooms",
+                "section": "Lights",
+                "cards": [{"type": "custom:mylo-entity-row", "entity": "light.kitchen"}],
+            }
+        ),
+        ctx,
+    )
+    assert result.status.value == "ok", result.data
+
+
+async def test_unstaged_mylo_card_still_errors(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path, {"lovelace/resources": []})
+    result = await execute(
+        "plan_dashboard",
+        _params(
+            {
+                "op": "add_cards",
+                "view_path": "rooms",
+                "section": "Lights",
+                "cards": [{"type": "custom:mylo-nope", "entity": "light.kitchen"}],
+            }
+        ),
+        ctx,
+    )
+    assert result.error_code == "plan_invalid"

@@ -48,6 +48,13 @@ async def handler(params: QueryDashboardEnvParams, ctx: ToolContext) -> ToolResu
             sorted(detect_custom_cards(resources)) if resources is not None else None
         ),
     }
+    mylo_cards: list[dict[str, str]] = []
+    for r in resources or []:
+        url = r.get("url")
+        if isinstance(url, str) and url.startswith("/local/mylo-cards/"):
+            element = url.rsplit("/", 1)[-1].split("?", 1)[0].removesuffix(".js")
+            mylo_cards.append({"element": element, "url": url})
+    data["mylo_cards"] = sorted(mylo_cards, key=lambda c: c["element"])
     if resources is None:
         data["note"] = (
             "lovelace resources are not listable (YAML mode or older HA) — "
@@ -65,7 +72,9 @@ TOOL = ToolDefinition(
         "lovelace resources. Only use custom cards from "
         "custom_cards_detected; when a card isn't listed or the list is "
         "null, use native HA cards (tile, heading, entities) instead. "
-        "Call this once at the start of any dashboard build."
+        "Call this once at the start of any dashboard build. mylo_cards "
+        "lists custom cards Mylo has already authored; update one by "
+        "staging new source with stage_custom_card."
     ),
     params_model=QueryDashboardEnvParams,
     tier=Tier.READ,

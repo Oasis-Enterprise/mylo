@@ -161,3 +161,25 @@ async def test_query_dashboard_env_degrades_when_unavailable(tmp_path):
     assert result.status.value == "ok", result
     assert result.data["themes"] is None
     assert result.data["custom_cards_detected"] is None
+
+
+async def test_query_dashboard_env_lists_mylo_cards(tmp_path):
+    client = _FakeClient(
+        {
+            "frontend/get_themes": {"themes": {}, "default_theme": None},
+            "lovelace/resources": [
+                {
+                    "id": "a",
+                    "url": "/local/mylo-cards/mylo-game-row.js?v=1234abcd",
+                    "type": "module",
+                },
+                {"id": "b", "url": "/hacsfiles/mushroom/mushroom.js", "type": "module"},
+            ],
+        }
+    )
+    ctx = make_ctx(ws_client=client, registries=Registries(), tmp_path=tmp_path)
+    result = await execute("query_dashboard_env", {}, ctx)
+    assert result.data["mylo_cards"] == [
+        {"element": "mylo-game-row", "url": "/local/mylo-cards/mylo-game-row.js?v=1234abcd"}
+    ]
+    assert "custom:mylo-game-row" in result.data["custom_cards_detected"]

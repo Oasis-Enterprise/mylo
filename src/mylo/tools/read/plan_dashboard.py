@@ -57,6 +57,14 @@ async def handler(params: PlanDashboardParams, ctx: ToolContext) -> ToolResult:
         if resources is not None:
             installed_custom = detect_custom_cards(resources)
 
+    # Cards staged in this conversation count as installed so a plan can
+    # reference a card the model wrote in the same turn; one Apply then
+    # applies the card first and the plan second.
+    if ctx.cards is not None:
+        staged = {f"custom:{c.element}" for c in ctx.cards.staged(ctx.conversation_id)}
+        if staged:
+            installed_custom = (installed_custom or set()) | staged
+
     theme_names: list[str] | None = None
     if any(getattr(op, "theme", None) for op in params.operations):
         themes = await get_themes(ctx.ws_client)
