@@ -5,6 +5,12 @@ first-class versioned artifacts. Every change to ``system_prompt.txt``
 bumps the version in the first line of that file and adds an entry
 here explaining what changed and why.
 
+## 0.7.0 — 2026-09-21
+
+Custom card authoring. New "Custom cards" block: when a custom card is
+justified, the card contract in six lines, the stage → plan → wait →
+apply-cards-then-plan flow, and update-by-whole-file with a diff.
+
 ## 0.6.0 — 2026-09-19
 
 Dashboard plan flow. `modify_dashboard` and its dry_run dance are gone;

@@ -84,3 +84,12 @@ def test_innerhtml_with_state_is_a_warning() -> None:
     issues = check_card_source(EL, src)
     assert "innerhtml_with_state" in _codes(issues, "warning")
     assert _codes(issues, "error") == []
+
+
+def test_reference_card_in_examples_matches_module_constant() -> None:
+    import textwrap
+    from pathlib import Path
+
+    text = Path("src/mylo/data/references/dashboard_examples.yaml").read_text()
+    block = text.split("custom_card_reference: |\n", 1)[1]
+    assert textwrap.dedent(block).strip() == REFERENCE_CARD_SOURCE.strip()

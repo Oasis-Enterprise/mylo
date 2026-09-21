@@ -128,3 +128,72 @@ operations:
     - entity: sensor.basement_humidity
   hours_to_show: 24
   line_width: 2
+
+# ─── Reference custom card (stage_custom_card contract) ─────────────
+# Copy this shape. Element name mylo-*, guarded define, customCards
+# entry, no imports, no fetch. Read hass.states; act via callService.
+# The full file is the `source` argument of stage_custom_card.
+custom_card_reference: |
+  class MyloEntityRow extends HTMLElement {
+    setConfig(config) {
+      if (!config || !config.entity) throw new Error("mylo-entity-row: 'entity' is required");
+      this._config = config;
+      if (!this._root) {
+        this._root = this.attachShadow({ mode: "open" });
+        this._root.innerHTML = `
+          <ha-card>
+            <div class="row">
+              <ha-icon id="icon"></ha-icon>
+              <span id="name"></span>
+              <span id="value"></span>
+            </div>
+          </ha-card>
+          <style>
+            .row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; }
+            #name { flex: 1; }
+            #value { color: var(--secondary-text-color); }
+          </style>`;
+        this._root.querySelector(".row").addEventListener("click", () => this._toggle());
+      }
+      this._render();
+    }
+
+    set hass(hass) {
+      this._hass = hass;
+      this._render();
+    }
+
+    _render() {
+      if (!this._hass || !this._config || !this._root) return;
+      const st = this._hass.states[this._config.entity];
+      const name = this._config.name || (st && st.attributes.friendly_name) || this._config.entity;
+      this._root.getElementById("name").textContent = name;
+      this._root.getElementById("value").textContent = st ? st.state : "unavailable";
+      const icon = this._config.icon || (st && st.attributes.icon) || "mdi:circle";
+      this._root.getElementById("icon").setAttribute("icon", icon);
+    }
+
+    _toggle() {
+      if (!this._hass) return;
+      this._hass.callService("homeassistant", "toggle", { entity_id: this._config.entity });
+    }
+
+    getCardSize() {
+      return 1;
+    }
+
+    static getStubConfig() {
+      return { entity: "light.example" };
+    }
+  }
+
+  if (!customElements.get("mylo-entity-row")) {
+    customElements.define("mylo-entity-row", MyloEntityRow);
+  }
+
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: "mylo-entity-row",
+    name: "Mylo entity row",
+    description: "Compact tappable entity row (icon, name, state).",
+  });
