@@ -23,6 +23,7 @@ write tools — editing the root config is outside the v1 scope).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 # Files whose contents must never flow into LLM context.
@@ -61,6 +62,13 @@ NEVER_WRITE: frozenset[str] = frozenset(
 # / JSON / Markdown are allowed to READ (for docs, integrations) but not
 # WRITE (the agent shouldn't be editing user's README.md).
 WRITE_ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".yaml", ".yml"})
+
+# The ONE place a .js write is allowed. Custom cards Mylo authors live
+# here and nowhere else; the general write policy above never learns
+# about JavaScript. See mylo.dashboard.cards.
+CUSTOM_CARD_DIR: Path = Path("www") / "mylo-cards"
+CUSTOM_CARD_ELEMENT_RE = re.compile(r"^mylo-[a-z0-9]+(-[a-z0-9]+)*$")
+CUSTOM_CARD_MAX_ELEMENT_LEN = 48
 
 
 class FileAccessError(ValueError):
@@ -134,4 +142,28 @@ def resolve_under_config_writable(config_dir: Path, rel_path: str) -> Path:
             "unsupported_write_extension",
             f"write target must be YAML (.yaml or .yml), got {candidate.suffix!r}",
         )
+    return candidate
+
+
+def resolve_custom_card_path(config_dir: Path, element: str) -> Path:
+    """Absolute path for a Mylo-authored card: ``www/mylo-cards/<element>.js``.
+
+    Enforces the element-name grammar (which also rules out traversal —
+    no dots, slashes, or uppercase) and that the resolved path, symlinks
+    included, stays inside the config directory.
+    """
+    if not CUSTOM_CARD_ELEMENT_RE.match(element) or len(element) > CUSTOM_CARD_MAX_ELEMENT_LEN:
+        raise FileAccessError(
+            "bad_element",
+            f"element {element!r} must match mylo-<lowercase-words> (<= "
+            f"{CUSTOM_CARD_MAX_ELEMENT_LEN} chars)",
+        )
+    base = Path(config_dir).resolve()
+    candidate = (base / CUSTOM_CARD_DIR / f"{element}.js").resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise FileAccessError(
+            "path_outside_config", f"{CUSTOM_CARD_DIR}/{element}.js escapes the config directory"
+        ) from exc
     return candidate
