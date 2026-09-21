@@ -29,9 +29,11 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
+
+from mylo.ha.lovelace_meta import get_resources
 
 MAX_CARD_BYTES = 65_536
 ELEMENT_RE = re.compile(r"^mylo-[a-z0-9]+(-[a-z0-9]+)*$")
@@ -303,3 +305,41 @@ class CardStore:
         now = self._clock()
         for key in [k for k, e in self._entries.items() if e.expires_at <= now]:
             del self._entries[key]
+
+
+class _WsClient(Protocol):
+    async def send_command(self, type_: str, **kwargs: Any) -> Any: ...
+
+
+async def ensure_card_resource(
+    ws_client: _WsClient, element: str, url: str
+) -> tuple[str | None, Literal["created", "updated", "unchanged"]]:
+    """Register ``url`` as a module resource, or bump an existing entry
+    for this element to the new cache-busting URL. CommandError propagates."""
+    prefix = f"{CARD_URL_PREFIX}{element}.js"
+    resources = await get_resources(ws_client)
+    existing = next(
+        (
+            r
+            for r in (resources or [])
+            if isinstance(r.get("url"), str) and str(r["url"]).split("?", 1)[0] == prefix
+        ),
+        None,
+    )
+    if existing is not None:
+        rid = str(existing.get("id")) if existing.get("id") is not None else None
+        if existing.get("url") == url:
+            return rid, "unchanged"
+        await ws_client.send_command(
+            "lovelace/resources/update", write=True, resource_id=rid, url=url
+        )
+        return rid, "updated"
+    created = await ws_client.send_command(
+        "lovelace/resources/create", write=True, res_type="module", url=url
+    )
+    rid = (
+        str(created.get("id"))
+        if isinstance(created, dict) and created.get("id") is not None
+        else None
+    )
+    return rid, "created"
