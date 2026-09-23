@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ackVerification,
   cancelChat,
   fetchCatchup,
   fetchConversation,
@@ -24,6 +25,8 @@ import {
   type CatchupData,
   type PendingActionData,
   type ServerEvent,
+  type ServerStatus,
+  type VerificationData,
 } from "./api";
 import { FindingsPanel } from "./components/FindingsPanel";
 import { ActivityTab } from "./components/ActivityTab";
@@ -35,6 +38,7 @@ import { Header, type Tab } from "./components/Header";
 import { MemoryTab } from "./components/MemoryTab";
 import { Message } from "./components/Message";
 import { QuestionCard } from "./components/QuestionCard";
+import { VerificationCard } from "./components/VerificationCard";
 import { hydrateFromMessages, isTurnComplete } from "./hydrate";
 import { deriveTurnState } from "./lib/turnState";
 import { useSession } from "./store";
@@ -75,10 +79,27 @@ export default function App() {
   // bumps force the header to re-poll after a dismissal changes the count.
   const [findings, setFindings] = useState<PendingActionData[] | null>(null);
   const [statusRefresh, setStatusRefresh] = useState(0);
+  // Unacknowledged background-verification outcomes from the last
+  // status poll — rendered as dismissible cards in the chat stream.
+  const [verifications, setVerifications] = useState<VerificationData[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const recordTurn = useSession((s) => s.recordTurn);
   const resetSession = useSession((s) => s.reset);
   const sessionCost = useSession((s) => s.costUsd);
+  const setModel = useSession((s) => s.setModel);
+
+  const handleStatus = useCallback(
+    (s: ServerStatus) => {
+      if (s.model) setModel(s.model, s.provider);
+      setVerifications(s.verifications ?? []);
+    },
+    [setModel],
+  );
+
+  const handleDismissVerification = useCallback(async (id: string) => {
+    setVerifications((prev) => prev.filter((v) => v.id !== id));
+    await ackVerification(id);
+  }, []);
 
   useEffect(() => {
     if (tab === "chat") endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -338,6 +359,7 @@ export default function App() {
         onNewConversation={() => void handleNewConversation()}
         onToggleFindings={() => void handleToggleFindings()}
         refreshSignal={statusRefresh}
+        onStatus={handleStatus}
       />
 
       {tab === "chat" ? (
@@ -355,6 +377,16 @@ export default function App() {
             ) : (
               items.map((item) => <Message key={item.id} item={item} />)
             )}
+            {!sending
+              ? verifications.map((v) => (
+                  <div key={v.id} style={{ paddingRight: 40 }}>
+                    <VerificationCard
+                      item={v}
+                      onDismiss={(id) => void handleDismissVerification(id)}
+                    />
+                  </div>
+                ))
+              : null}
             {catchup ? (
               <CatchupBanner
                 data={catchup}

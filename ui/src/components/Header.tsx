@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchStatus, type ServerStatus } from "../api";
 import { formatRelative, formatTokens } from "../lib/format";
 import { useSession } from "../store";
@@ -30,6 +30,10 @@ interface Props {
   // Bump to force an immediate status re-poll (e.g. after a dismissal
   // changed the findings count).
   refreshSignal?: number;
+  // Fired with every successful status poll — lets App sync the
+  // server-configured model/provider and pick up verification cards
+  // without duplicating the poll loop.
+  onStatus?: (s: ServerStatus) => void;
 }
 
 // Top row: status dot, MYLO wordmark, version, right-aligned tabs.
@@ -43,18 +47,29 @@ export function Header({
   onNewConversation,
   onToggleFindings,
   refreshSignal = 0,
+  onStatus,
 }: Props) {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const turns = useSession((s) => s.turns);
   const inputTokens = useSession((s) => s.inputTokens);
   const outputTokens = useSession((s) => s.outputTokens);
 
+  // Read via a ref so `onStatus` (often a fresh closure each render)
+  // doesn't re-subscribe the 30s poll effect.
+  const onStatusRef = useRef(onStatus);
+  useEffect(() => {
+    onStatusRef.current = onStatus;
+  });
+
   useEffect(() => {
     let cancelled = false;
     async function tick() {
       try {
         const s = await fetchStatus();
-        if (!cancelled) setStatus(s);
+        if (!cancelled) {
+          setStatus(s);
+          onStatusRef.current?.(s);
+        }
       } catch {
         // Offline or server restarting — keep last-known state.
       }
@@ -127,9 +142,18 @@ export function Header({
             label="memory"
             value={
               status ? (
-                <span style={{ color: "var(--color-accent)" }}>
-                  synced {formatRelative(status.memory.last_sync)}
-                </span>
+                status.memory.last_sync_error ? (
+                  <span
+                    style={{ color: "var(--color-error)" }}
+                    title={status.memory.last_sync_error}
+                  >
+                    sync failed {formatRelative(status.memory.last_sync_attempt ?? null)}
+                  </span>
+                ) : (
+                  <span style={{ color: "var(--color-accent)" }}>
+                    synced {formatRelative(status.memory.last_sync)}
+                  </span>
+                )
               ) : (
                 "—"
               )

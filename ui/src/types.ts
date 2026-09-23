@@ -120,6 +120,7 @@ export interface MemoryHouseholdMember {
 export interface MemoryFull {
   version: number;
   last_sync: string | null;
+  last_sync_error?: string | null;
   household: {
     members: MemoryHouseholdMember[];
     shared: Record<string, unknown>;

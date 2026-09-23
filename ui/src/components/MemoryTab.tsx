@@ -166,6 +166,11 @@ export function MemoryTab() {
           </span>
           <span className="mx-2" style={{ color: "var(--color-text-dim)" }}>·</span>
           {counts(memory)}
+          {memory.last_sync_error ? (
+            <div className="mt-1" style={{ color: "var(--color-error)" }}>
+              last attempt failed: {memory.last_sync_error}
+            </div>
+          ) : null}
         </div>
         <button
           type="button"

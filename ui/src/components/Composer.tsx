@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { useEffect, useRef, useState } from "react";
-import { MODEL_CONTEXT_WINDOW } from "../lib/cost";
+import { contextWindowFor } from "../lib/cost";
 import { formatDollars, formatTokens } from "../lib/format";
 import { useSession } from "../store";
 
@@ -40,6 +40,7 @@ export function Composer({ disabled, onSubmit, draft, onStop, stopping }: Props)
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastContext = useSession((s) => s.lastContextTokens);
   const cost = useSession((s) => s.costUsd);
+  const model = useSession((s) => s.model);
 
   useEffect(() => {
     if (!draft) return;
@@ -75,7 +76,7 @@ export function Composer({ disabled, onSubmit, draft, onStop, stopping }: Props)
         <span>
           <span style={{ color: "var(--color-text-dim)" }}>budget: </span>
           <span style={{ color: "var(--color-text)" }}>
-            {formatTokens(lastContext)}/{formatTokens(MODEL_CONTEXT_WINDOW)}
+            {formatTokens(lastContext)}/{formatTokens(contextWindowFor(model))}
           </span>{" "}
           tokens
         </span>

@@ -44,6 +44,9 @@ const RATES: Record<string, ModelRates> = {
 
 const FALLBACK: ModelRates = RATES["claude-sonnet-4-6"];
 
+// Unknown ollama models are local inference — $0, not Sonnet rates.
+const ZERO: ModelRates = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
 export interface UsageDelta {
   input_tokens?: number;
   output_tokens?: number;
@@ -51,8 +54,8 @@ export interface UsageDelta {
   cache_creation_input_tokens?: number;
 }
 
-export function estimateCost(usage: UsageDelta, model?: string): number {
-  const rates = (model && RATES[model]) || FALLBACK;
+export function estimateCost(usage: UsageDelta, model?: string, provider?: string): number {
+  const rates = (model && RATES[model]) || (provider === "ollama" ? ZERO : FALLBACK);
   const cost =
     ((usage.input_tokens ?? 0) * rates.input) / 1_000_000 +
     ((usage.output_tokens ?? 0) * rates.output) / 1_000_000 +
@@ -61,6 +64,15 @@ export function estimateCost(usage: UsageDelta, model?: string): number {
   return cost;
 }
 
-// Sonnet 4.6 context window — used for the "budget 48k/200k" header.
-// If we add a model picker later, compute from the selected model.
-export const MODEL_CONTEXT_WINDOW = 200_000;
+// Context window by model, keyed on prefix so date-suffixed model ids
+// (e.g. "claude-haiku-4-5-20251001") still match. Unknown models fall
+// back to a conservative 128k rather than guessing high.
+const CONTEXT_WINDOWS: Array<[prefix: string, tokens: number]> = [
+  ["claude-", 200_000],
+  ["gpt-4o", 128_000],
+  ["gemini-", 1_000_000],
+];
+export function contextWindowFor(model: string): number {
+  const hit = CONTEXT_WINDOWS.find(([prefix]) => model.startsWith(prefix));
+  return hit ? hit[1] : 128_000;
+}

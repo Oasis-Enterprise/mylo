@@ -186,6 +186,23 @@ export interface LastTurn {
   completed_at: string;
 }
 
+// Outcome of a background verification (a write the model applied
+// optimistically, then checked). Only completed + unacknowledged
+// items are sent by the server — "pending" ones already resolved by
+// the time the panel would see them, but the status is kept broad to
+// match the server's enum.
+export interface VerificationData {
+  id: string;
+  tool: string;
+  target: string;
+  status: "pending" | "verified" | "failed" | "rolled_back";
+  message: string;
+  conversation_id: string;
+  requested_at: string;
+  completed_at: string | null;
+  acknowledged: boolean;
+}
+
 export interface ServerStatus {
   ok: boolean;
   version: string;
@@ -195,6 +212,10 @@ export interface ServerStatus {
     last_sync: string | null;
     pending_conflicts: number;
     findings: number;
+    // Set when the most recent background sync attempt failed; the
+    // header shows "sync failed <when>" instead of "synced <when>".
+    last_sync_error?: string | null;
+    last_sync_attempt?: string | null;
   };
   has_provider: boolean;
   // True while a chat turn is running server-side. A panel whose
@@ -203,6 +224,12 @@ export interface ServerStatus {
   // The most recently completed turn's done payload, so recovery can
   // credit its tokens and cost to the session counters.
   last_turn?: LastTurn | null;
+  // Server-configured model/provider — the panel prices cost against
+  // these rather than assuming Anthropic Sonnet.
+  model: string;
+  provider: string;
+  // Unacknowledged background-verification outcomes.
+  verifications?: VerificationData[];
 }
 
 export async function fetchStatus(): Promise<ServerStatus> {
@@ -211,6 +238,14 @@ export async function fetchStatus(): Promise<ServerStatus> {
     throw new Error(`status returned ${response.status}`);
   }
   return (await response.json()) as ServerStatus;
+}
+
+export async function ackVerification(id: string): Promise<boolean> {
+  const r = await fetch(apiUrl(`api/verifications/${encodeURIComponent(id)}/ack`), {
+    method: "POST",
+  });
+  if (!r.ok) return false;
+  return Boolean(((await r.json()) as { ok?: boolean }).ok);
 }
 
 export interface PendingActionData {

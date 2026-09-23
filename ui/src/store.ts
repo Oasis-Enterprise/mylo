@@ -30,13 +30,15 @@ interface SessionState {
   costUsd: number;
   lastTurnTokens: number;
   lastContextTokens: number;
-  // Model whose rates drive the cost calc. Can be swapped if we ever
-  // expose a model switcher in the panel.
+  // Model + provider whose rates drive the cost calc. Synced from
+  // `/api/status` on each poll (Header's onStatus) so the footer
+  // prices against whatever the server is actually configured to run.
   model: string;
+  provider: string;
 
   recordTurn(usage: UsageDelta): void;
   reset(): void;
-  setModel(model: string): void;
+  setModel(model: string, provider?: string): void;
 }
 
 export const useSession = create<SessionState>((set, get) => ({
@@ -49,9 +51,10 @@ export const useSession = create<SessionState>((set, get) => ({
   lastTurnTokens: 0,
   lastContextTokens: 0,
   model: "claude-sonnet-4-6",
+  provider: "anthropic",
 
   recordTurn(usage) {
-    const delta = estimateCost(usage, get().model);
+    const delta = estimateCost(usage, get().model, get().provider);
     const inTokens = usage.input_tokens ?? 0;
     const outTokens = usage.output_tokens ?? 0;
     const cacheRead = usage.cache_read_input_tokens ?? 0;
@@ -84,7 +87,7 @@ export const useSession = create<SessionState>((set, get) => ({
     });
   },
 
-  setModel(model) {
-    set({ model });
+  setModel(model, provider) {
+    set(provider ? { model, provider } : { model });
   },
 }));
