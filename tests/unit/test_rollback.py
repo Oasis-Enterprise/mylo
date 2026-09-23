@@ -21,10 +21,17 @@ exercised end-to-end with a real filesystem (tmp_path).
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
-from mylo.files.rollback import apply_with_rollback, automation_loaded_verifier
+from mylo.files import rollback as rollback_module
+from mylo.files.rollback import (
+    apply_optimistic_reload_all,
+    apply_with_rollback,
+    automation_loaded_verifier,
+)
+from mylo.files.verifications import VerificationLog
 
 
 class _FakeClient:
@@ -220,3 +227,83 @@ async def test_automation_by_config_id_verifier_rejects_unavailable(tmp_path: Pa
     assert not ok
     assert "unavailable" in message
     assert details["entity_id"] == "automation.a"
+
+
+class _ReadyClient(_FakeClient):
+    async def wait_ready(self, timeout: float) -> None:  # noqa: ASYNC109 - mirrors HaWsClient API
+        return None
+
+
+async def _drain_background() -> None:
+    if rollback_module._BACKGROUND_TASKS:
+        await asyncio.gather(*rollback_module._BACKGROUND_TASKS)
+
+
+async def test_optimistic_records_pending_then_verified(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    log = VerificationLog(tmp_path / "v.json")
+
+    async def _ok_verify(_client: Any) -> tuple[bool, str, dict[str, Any]]:
+        return True, "present", {}
+
+    result = await apply_optimistic_reload_all(
+        client=_ReadyClient(),  # type: ignore[arg-type]
+        path=config_dir / "pkg.yaml",
+        content="automation: []\n",
+        config_dir=config_dir,
+        mylo_data_dir=tmp_path / ".mylo",
+        verify=_ok_verify,
+        reload_wait_seconds=0,
+        tool_name="modify_automation",
+        verifications=log,
+        target="automation porch",
+    )
+    assert result.ok and result.verification == "pending"
+    assert result.verification_id is not None
+    assert result.to_dict()["verification"] == "pending"
+    assert log.get(result.verification_id).status == "pending"  # type: ignore[union-attr]
+    await _drain_background()
+    done = log.get(result.verification_id)
+    assert done is not None and done.status == "verified" and done.message == "present"
+    assert done.target == "automation porch" and done.tool == "modify_automation"
+
+
+async def test_optimistic_records_failed_verify(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    log = VerificationLog(tmp_path / "v.json")
+
+    async def _bad_verify(_client: Any) -> tuple[bool, str, dict[str, Any]]:
+        return False, "entity missing", {}
+
+    result = await apply_optimistic_reload_all(
+        client=_ReadyClient(),  # type: ignore[arg-type]
+        path=config_dir / "pkg.yaml",
+        content="x: 1\n",
+        config_dir=config_dir,
+        mylo_data_dir=tmp_path / ".mylo",
+        verify=_bad_verify,
+        reload_wait_seconds=0,
+        verifications=log,
+    )
+    await _drain_background()
+    done = log.get(result.verification_id or "")
+    assert done is not None and done.status == "failed" and "entity missing" in done.message
+    assert done.target == "pkg.yaml"
+
+
+async def test_synchronous_path_reports_synchronous(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    result = await apply_with_rollback(
+        client=_FakeClient(),  # type: ignore[arg-type]
+        path=config_dir / "pkg.yaml",
+        content="automation: []\n",
+        domain="automation",
+        config_dir=config_dir,
+        mylo_data_dir=tmp_path / ".mylo",
+        verify=None,
+        reload_wait_seconds=0,
+    )
+    assert result.verification == "synchronous" and result.verification_id is None

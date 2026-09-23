@@ -24,6 +24,7 @@ from typing import Any
 from mylo.config import AppConfig
 from mylo.dashboard.cards import CardStore
 from mylo.dashboard.store import PlanStore
+from mylo.files.verifications import VerificationLog
 from mylo.ha.registries import Registries
 from mylo.safety.audit import AuditLogger
 from mylo.safety.permissions import default_permissions
@@ -62,6 +63,7 @@ def make_ctx(
     plans: PlanStore | None = None,
     cards: CardStore | None = None,
     approved_plan_ids: frozenset[str] = frozenset(),
+    verifications: VerificationLog | None = None,
 ) -> ToolContext:
     config = make_config(tmp_path)
     return ToolContext(
@@ -76,4 +78,5 @@ def make_ctx(
         plans=plans,
         cards=cards,
         approved_plan_ids=approved_plan_ids,
+        verifications=verifications,
     )

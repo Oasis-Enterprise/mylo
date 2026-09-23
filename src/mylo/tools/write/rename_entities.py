@@ -40,6 +40,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from mylo.files.manager import atomic_write, exists, read_text
+from mylo.files.rollback import complete_verification
+from mylo.files.verifications import VerificationLog
 from mylo.ha.ws_client import CommandError, CommandTimeout, HaWsClient
 from mylo.logging_setup import get_logger
 from mylo.safety.audit import AuditLogger, make_entry
@@ -165,6 +167,11 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
             # failure. See apply_optimistic_reload_all for the same
             # pattern around HA-reload timeouts.
             new_id = entry.new_entity_id or entry.entity_id
+            verification_id: str | None = None
+            if ctx.verifications is not None:
+                verification_id = ctx.verifications.start(
+                    tool="rename_entities", target=new_id, conversation_id=ctx.conversation_id
+                ).id
             task = asyncio.create_task(
                 _background_verify_rename(
                     client=ctx.ws_client,
@@ -172,6 +179,8 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
                     conversation_id=ctx.conversation_id,
                     old_id=entry.entity_id,
                     new_id=new_id,
+                    verifications=ctx.verifications,
+                    verification_id=verification_id,
                 )
             )
             _BACKGROUND_TASKS.add(task)
@@ -180,6 +189,8 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
                 {
                     "entity_id": entry.entity_id,
                     "ok": True,
+                    "verification": "pending",
+                    "verification_id": verification_id,
                     "note": (
                         "rename dispatched; HA takes 30-90s to fully "
                         "process on large registries. Verifying in "
@@ -216,6 +227,11 @@ async def handler(params: RenameEntitiesParams, ctx: ToolContext) -> ToolResult:
         "preview": False,
         "rename_results": rename_results,
         "cascade_results": cascade_results,
+        "verification": (
+            "pending"
+            if any(r.get("verification") == "pending" for r in rename_results)
+            else "synchronous"
+        ),
     }
     if not all_ok:
         return ToolResult.error(
@@ -238,6 +254,8 @@ async def _background_verify_rename(
     new_id: str,
     initial_wait: float = 60.0,
     poll_seconds: float = 60.0,
+    verifications: VerificationLog | None = None,
+    verification_id: str | None = None,
 ) -> None:
     """After a rename command times out, verify server-side in the
     background and surface an HA persistent_notification on failure.
@@ -262,6 +280,8 @@ async def _background_verify_rename(
                 old_id,
                 new_id,
                 "websocket did not reconnect after rename",
+                verifications=verifications,
+                verification_id=verification_id,
             )
             return
 
@@ -279,7 +299,14 @@ async def _background_verify_rename(
             if isinstance(listing, list) and any(
                 isinstance(e, dict) and e.get("entity_id") == new_id for e in listing
             ):
-                await _record_rename_success(audit, conversation_id, old_id, new_id)
+                await _record_rename_success(
+                    audit,
+                    conversation_id,
+                    old_id,
+                    new_id,
+                    verifications=verifications,
+                    verification_id=verification_id,
+                )
                 return
             await asyncio.sleep(5.0)
 
@@ -290,6 +317,8 @@ async def _background_verify_rename(
             old_id,
             new_id,
             "new entity_id did not appear in registry within poll window",
+            verifications=verifications,
+            verification_id=verification_id,
         )
     except Exception:
         log.exception("background_verify_rename.unexpected_error")
@@ -300,8 +329,13 @@ async def _record_rename_success(
     conversation_id: str,
     old_id: str,
     new_id: str,
+    verifications: VerificationLog | None = None,
+    verification_id: str | None = None,
 ) -> None:
     log.info("rename.background_verify_ok", old=old_id, new=new_id)
+    complete_verification(
+        verifications, verification_id, "verified", f"{new_id} present in registry"
+    )
     if audit is None:
         return
     entry = make_entry(
@@ -327,8 +361,11 @@ async def _record_rename_failure(
     old_id: str,
     new_id: str,
     message: str,
+    verifications: VerificationLog | None = None,
+    verification_id: str | None = None,
 ) -> None:
     log.warning("rename.background_verify_failed", old=old_id, new=new_id, reason=message)
+    complete_verification(verifications, verification_id, "failed", message)
     if audit is not None:
         entry = make_entry(
             conversation_id=conversation_id,

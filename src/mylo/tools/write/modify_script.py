@@ -159,6 +159,8 @@ async def handler(params: ModifyScriptParams, ctx: ToolContext) -> ToolResult:
         audit=ctx.audit,
         conversation_id=ctx.conversation_id,
         tool_name="modify_script",
+        verifications=ctx.verifications,
+        target=pkg_path.name,
     )
 
     if not rollback_result.ok:
@@ -173,6 +175,9 @@ async def handler(params: ModifyScriptParams, ctx: ToolContext) -> ToolResult:
         )
 
     preview["preview"] = False
+    preview["verification"] = rollback_result.verification
+    preview["verification_id"] = rollback_result.verification_id
+    preview["backup_path"] = rollback_result.backup_path
     return ToolResult.ok(preview)
 
 

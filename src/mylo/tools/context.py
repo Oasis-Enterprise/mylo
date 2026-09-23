@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from mylo.config import AppConfig
 from mylo.dashboard.cards import CardStore
 from mylo.dashboard.store import PlanStore
+from mylo.files.verifications import VerificationLog
 from mylo.ha.registries import Registries
 from mylo.ha.states import StatesCache
 from mylo.ha.ws_client import HaWsClient
@@ -56,3 +57,5 @@ class ToolContext:
     plans: PlanStore | None = None
     # Process-wide store of staged custom cards awaiting Apply.
     cards: CardStore | None = None
+    # Process-wide log of background verification outcomes.
+    verifications: VerificationLog | None = None

@@ -42,6 +42,7 @@ from typing import Any, Literal
 
 from mylo.files.backup import BackupHandle, take_backup
 from mylo.files.manager import atomic_write
+from mylo.files.verifications import VerificationLog
 from mylo.ha.ws_client import CommandError, CommandTimeout, HaWsClient
 from mylo.logging_setup import get_logger
 from mylo.safety.audit import AuditLogger, make_entry
@@ -72,12 +73,18 @@ class RollbackResult:
     steps: list[StepResult] = field(default_factory=list)
     backup_path: str | None = None
     rolled_back: bool = False
+    # "synchronous" when verify ran inline; "pending" when a background
+    # task will finish it (see VerificationLog for the outcome).
+    verification: str = "synchronous"
+    verification_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "ok": self.ok,
             "rolled_back": self.rolled_back,
             "backup_path": self.backup_path,
+            "verification": self.verification,
+            "verification_id": self.verification_id,
             "steps": [
                 {
                     "step": s.step,
@@ -336,6 +343,26 @@ async def _rollback(
         )
 
 
+def complete_verification(
+    verifications: VerificationLog | None,
+    verification_id: str | None,
+    status: str,
+    message: str,
+) -> None:
+    """Record a verification outcome. No-op if bookkeeping wasn't wired up.
+
+    Shared by the optimistic-reload path here and by rename_entities'
+    own background-verify task, which times out on the same 2000+
+    entity registries this module was built for.
+    """
+    if verifications is None or verification_id is None:
+        return
+    try:
+        verifications.complete(verification_id, status=status, message=message)
+    except Exception:  # bookkeeping must never mask the real outcome
+        log.exception("verifications.complete_failed", id=verification_id)
+
+
 # ─── Optimistic apply (reload_all cold path) ────────────────────────────────
 
 
@@ -352,6 +379,8 @@ async def apply_optimistic_reload_all(
     tool_name: str = "",
     conversation_id: str = "",
     notify_on_failure: bool = True,
+    verifications: VerificationLog | None = None,
+    target: str = "",
 ) -> RollbackResult:
     """Write synchronously, trigger reload_all, return immediately with an
     optimistic success. Kick off a background task that waits for the
@@ -367,7 +396,14 @@ async def apply_optimistic_reload_all(
     reloads — its rollback semantics are only meaningful when HA is
     known to be in a consistent state.
     """
-    result = RollbackResult(ok=True)
+    verification_id: str | None = None
+    if verifications is not None:
+        verification_id = verifications.start(
+            tool=tool_name or "apply_optimistic_reload_all",
+            target=target or path.name,
+            conversation_id=conversation_id,
+        ).id
+    result = RollbackResult(ok=True, verification="pending", verification_id=verification_id)
 
     # 1. Backup.
     backup: BackupHandle = take_backup(path, config_dir, mylo_data_dir)
@@ -391,6 +427,7 @@ async def apply_optimistic_reload_all(
     except Exception as exc:
         result.steps.append(StepResult("write", ok=False, message=f"{type(exc).__name__}: {exc}"))
         result.ok = False
+        complete_verification(verifications, verification_id, "failed", f"write failed: {exc}")
         return result
 
     # 3. Fire the reload asynchronously and return. The verification
@@ -425,6 +462,8 @@ async def apply_optimistic_reload_all(
             tool_name=tool_name,
             conversation_id=conversation_id,
             notify_on_failure=notify_on_failure,
+            verifications=verifications,
+            verification_id=verification_id,
         )
     )
     _BACKGROUND_TASKS.add(task)
@@ -443,6 +482,8 @@ async def _background_verify_reload_all(
     tool_name: str,
     conversation_id: str,
     notify_on_failure: bool,
+    verifications: VerificationLog | None = None,
+    verification_id: str | None = None,
 ) -> None:
     """Fire reload_all, wait for reconnect, verify, surface outcome."""
     try:
@@ -466,6 +507,8 @@ async def _background_verify_reload_all(
                 path,
                 f"reload_all call failed: {exc.code}: {exc.message}",
                 notify_on_failure,
+                verifications=verifications,
+                verification_id=verification_id,
             )
             return
 
@@ -480,6 +523,8 @@ async def _background_verify_reload_all(
                 path,
                 "websocket never reconnected after reload_all",
                 notify_on_failure,
+                verifications=verifications,
+                verification_id=verification_id,
             )
             return
 
@@ -493,6 +538,8 @@ async def _background_verify_reload_all(
                 conversation_id,
                 path,
                 "reload_all completed (no verifier attached)",
+                verifications=verifications,
+                verification_id=verification_id,
             )
             return
 
@@ -503,7 +550,15 @@ async def _background_verify_reload_all(
             message = f"verifier raised {type(exc).__name__}: {exc}"
 
         if ok:
-            await _record_background_success(audit, tool_name, conversation_id, path, message)
+            await _record_background_success(
+                audit,
+                tool_name,
+                conversation_id,
+                path,
+                message,
+                verifications=verifications,
+                verification_id=verification_id,
+            )
         else:
             await _record_background_failure(
                 client,
@@ -513,6 +568,8 @@ async def _background_verify_reload_all(
                 path,
                 message,
                 notify_on_failure,
+                verifications=verifications,
+                verification_id=verification_id,
             )
     except Exception:
         # Any uncaught exception in a background task would otherwise
@@ -526,8 +583,11 @@ async def _record_background_success(
     conversation_id: str,
     path: Path,
     message: str,
+    verifications: VerificationLog | None = None,
+    verification_id: str | None = None,
 ) -> None:
     log.info("background_verify.ok", path=str(path), message=message, tool_name=tool_name)
+    complete_verification(verifications, verification_id, "verified", message)
     if audit is None:
         return
     entry = make_entry(
@@ -554,6 +614,8 @@ async def _record_background_failure(
     path: Path,
     message: str,
     notify_on_failure: bool,
+    verifications: VerificationLog | None = None,
+    verification_id: str | None = None,
 ) -> None:
     log.warning(
         "background_verify.failed",
@@ -561,6 +623,7 @@ async def _record_background_failure(
         message=message,
         tool_name=tool_name,
     )
+    complete_verification(verifications, verification_id, "failed", message)
     if audit is not None:
         entry = make_entry(
             conversation_id=conversation_id,

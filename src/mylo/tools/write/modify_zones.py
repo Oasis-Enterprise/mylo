@@ -226,6 +226,8 @@ async def handler(params: ModifyZonesParams, ctx: ToolContext) -> ToolResult:
         audit=ctx.audit,
         conversation_id=ctx.conversation_id,
         tool_name="modify_zones",
+        verifications=ctx.verifications,
+        target=pkg_path.name,
     )
 
     if not rollback_result.ok:
@@ -240,6 +242,9 @@ async def handler(params: ModifyZonesParams, ctx: ToolContext) -> ToolResult:
         )
 
     preview_data["preview"] = False
+    preview_data["verification"] = rollback_result.verification
+    preview_data["verification_id"] = rollback_result.verification_id
+    preview_data["backup_path"] = rollback_result.backup_path
     return ToolResult.ok(preview_data)
 
 

@@ -235,11 +235,16 @@ async def handler(params: ModifyAutomationParams, ctx: ToolContext) -> ToolResul
         audit=ctx.audit,
         tool_name="modify_automation",
         conversation_id=ctx.conversation_id,
+        verifications=ctx.verifications,
+        target=f"automation {automation_id}",
     )
     envelope: dict[str, Any] = {
         **preview,
         "preview": False,
         "apply": rollback_result.to_dict(),
+        "verification": rollback_result.verification,
+        "verification_id": rollback_result.verification_id,
+        "backup_path": rollback_result.backup_path,
     }
     if not rollback_result.ok:
         return ToolResult.error(

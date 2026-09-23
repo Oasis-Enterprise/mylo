@@ -38,6 +38,7 @@ from mylo.conversation.manager import ConversationManager
 from mylo.conversation.storage import ConversationStorage
 from mylo.dashboard.cards import CardStore
 from mylo.dashboard.store import PlanStore
+from mylo.files.verifications import VERIFICATIONS_FILENAME, VerificationLog
 from mylo.ha.registries import Registries
 from mylo.ha.ws_client import HaWsClient
 from mylo.llm.anthropic_provider import AnthropicProvider
@@ -75,6 +76,7 @@ class AppKeys:
     LAST_TURN = web.AppKey("last_turn", dict)
     PLANS = web.AppKey("plans", PlanStore)
     CARDS = web.AppKey("cards", CardStore)
+    VERIFICATIONS = web.AppKey("verifications", VerificationLog)
 
 
 _DEFAULT_MODELS: dict[str, str] = {
@@ -258,6 +260,8 @@ async def _startup(app: web.Application) -> None:
     app[AppKeys.PLANS] = plan_store
     card_store = CardStore()
     app[AppKeys.CARDS] = card_store
+    verifications = VerificationLog(config.mylo_data_dir / VERIFICATIONS_FILENAME)
+    app[AppKeys.VERIFICATIONS] = verifications
     app[AppKeys.TOOL_CONTEXT] = ToolContext(
         ws_client=client,
         registries=registries,
@@ -267,6 +271,7 @@ async def _startup(app: web.Application) -> None:
         conversation_id=conv.conversation_id,
         plans=plan_store,
         cards=card_store,
+        verifications=verifications,
     )
 
     # Background scheduler (nightly reconciler + hourly availability).
