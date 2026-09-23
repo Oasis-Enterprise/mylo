@@ -163,28 +163,49 @@ async def _next_or_cancel(
     cancel: asyncio.Event | None,
 ) -> StreamDelta | ProviderResponse | _Sentinel:
     """Await the next provider item, or ``_CANCELLED`` if ``cancel`` fires
-    first (the pending fetch is cancelled, which closes the HTTP stream)."""
+    first (the pending fetch is cancelled, which closes the HTTP stream).
+
+    ``asyncio.wait`` does not cancel its member tasks when the task
+    awaiting it is itself cancelled from outside (server shutdown, a
+    wrapping ``asyncio.timeout``) — it just lets the CancelledError
+    through, leaving ``next_task``/``cancel_task`` pending. That strands
+    an ``Event.wait`` task and keeps the provider's ``anext`` alive, so a
+    later ``items.aclose()`` sees the generator still "running" instead
+    of letting the CancelledError propagate. The ``finally`` below runs
+    on every exit from the wait — normal completion or cancellation —
+    and always leaves both tasks cancelled and consumed.
+    """
     next_task = asyncio.ensure_future(anext(items))
     if cancel is None:
         try:
             return await next_task
         except StopAsyncIteration:
             return _EXHAUSTED
+
     cancel_task = asyncio.ensure_future(cancel.wait())
-    done, _pending = await asyncio.wait(
-        {next_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
-    )
+    try:
+        done, _pending = await asyncio.wait(
+            {next_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        # On any exit — including an outer CancelledError from here — make
+        # sure neither task is left pending. This does not swallow an
+        # outer cancellation: only CancelledError/StopAsyncIteration from
+        # these two *cleanup* awaits are suppressed, so if the wait above
+        # raised (e.g. the outer task was cancelled), that exception is
+        # left to propagate once this ``finally`` finishes.
+        for task in (next_task, cancel_task):
+            if not task.done():
+                task.cancel()
+        for task in (next_task, cancel_task):
+            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                await task
+
     if next_task in done:
-        cancel_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await cancel_task
         try:
             return next_task.result()
         except StopAsyncIteration:
             return _EXHAUSTED
-    next_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
-        await next_task
     return _CANCELLED
 
 
@@ -306,7 +327,14 @@ async def run_turn(
                 )
             raise
         finally:
-            await items.aclose()
+            # The generator is normally already closed by this point (via
+            # _next_or_cancel's own cleanup on cancellation, or natural
+            # exhaustion). Guard against "already running" if some path
+            # ever leaves it mid-``__anext__`` — that RuntimeError must
+            # never replace the real exception/cancellation propagating
+            # out of this block.
+            with contextlib.suppress(RuntimeError):
+                await items.aclose()
 
         if response is None:
             if cancel is not None and cancel.is_set():

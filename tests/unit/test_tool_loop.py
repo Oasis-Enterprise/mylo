@@ -726,3 +726,63 @@ async def test_stream_error_after_deltas_persists_partial_and_raises(
     with pytest.raises(RuntimeError, match="stream died"):
         await _run(_Boom([]), _conv, tmp_path)
     assert _conv.history[-1]["content"] == [{"type": "text", "text": "half"}]
+
+
+class _HangingStreamProvider:
+    """Yields one delta, then blocks forever — simulates a live HTTP
+    stream still open when the caller is cancelled from outside the
+    loop (server shutdown, a wrapping ``asyncio.timeout``)."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def message(self, **kwargs: Any) -> ProviderResponse:  # pragma: no cover
+        raise AssertionError("streaming provider must be driven through stream()")
+
+    async def stream(self, **kwargs: Any) -> Any:
+        try:
+            yield StreamDelta(text="Hel")
+            await asyncio.Event().wait()
+        finally:
+            self.closed = True
+
+
+async def test_outer_cancellation_closes_stream_and_propagates(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    """When the task running ``run_turn`` is cancelled from outside (not
+    via the ``cancel`` event, but e.g. server shutdown or a wrapping
+    ``asyncio.timeout``), the provider stream must be closed and no
+    ``Event.wait`` task left behind. Regression test for a bug where
+    ``asyncio.wait`` didn't cancel its member tasks on outer
+    cancellation, leaking a task and making the cleanup ``aclose()``
+    raise "already running" instead of letting CancelledError through.
+    """
+    provider = _HangingStreamProvider()
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+    got_delta = asyncio.Event()
+    events: list[Any] = []
+
+    async def _consume() -> None:
+        async for e in run_turn(
+            user_message="hi",
+            conversation=_conv,
+            provider=provider,
+            ctx=ctx,
+            system="s",
+            tools=[],
+            model="m",
+            cancel=asyncio.Event(),
+        ):
+            events.append(e)
+            if isinstance(e, TextDeltaEvent):
+                got_delta.set()
+
+    task = asyncio.create_task(_consume())
+    await got_delta.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert provider.closed is True
+    assert len(asyncio.all_tasks()) == 1  # only this test's own task remains
