@@ -387,3 +387,36 @@ def test_monthly_warning_skipped_for_local_provider(tmp_path: Path) -> None:
 def test_monthly_warning_off_when_budget_zero(tmp_path: Path) -> None:
     result = _assemble_with_monthly(tmp_path, spent=99.0, budget=0.0)
     assert "MONTHLY COST NOTE" not in result.system
+
+
+def test_verifications_surface_present_when_given(tmp_path: Path) -> None:
+    from mylo.files.verifications import Verification
+
+    v = Verification(
+        id="vf_1",
+        tool="modify_automation",
+        target="automation porch",
+        status="failed",
+        message="never reconnected",
+        conversation_id="c",
+        requested_at="2026-09-22T12:00:00+00:00",
+        completed_at="2026-09-22T12:01:00+00:00",
+    )
+    with_v = assemble_system_prompt(
+        registries=None,
+        memory=empty_memory(),
+        conversation_text="hi",
+        mylo_data_dir=tmp_path,
+        base_prompt=LoadedPrompt(version="t", text="ID"),
+        verifications=[v],
+    )
+    without = assemble_system_prompt(
+        registries=None,
+        memory=empty_memory(),
+        conversation_text="hi",
+        mylo_data_dir=tmp_path,
+        base_prompt=LoadedPrompt(version="t", text="ID"),
+    )
+    assert "VERIFICATION OUTCOMES" in with_v.system
+    assert "modify_automation automation porch — FAILED: never reconnected" in with_v.system
+    assert "VERIFICATION OUTCOMES" not in without.system

@@ -162,6 +162,15 @@ def register_chat_routes(app: web.Application) -> None:
     app.router.add_get("/api/health", _handle_health)
     app.router.add_get("/api/status", _handle_status)
     app.router.add_get("/api/activity", _handle_activity)
+    app.router.add_post("/api/verifications/{id}/ack", _handle_ack_verification)
+
+
+async def _handle_ack_verification(request: web.Request) -> web.Response:
+    """Hide one verification card. Idempotent; unknown id → ok False."""
+    from mylo.server.app import AppKeys
+
+    vlog = request.app[AppKeys.VERIFICATIONS]
+    return web.json_response({"ok": vlog.acknowledge(request.match_info["id"])})
 
 
 async def _handle_health(_request: web.Request) -> web.Response:
@@ -321,6 +330,8 @@ async def _handle_status(request: web.Request) -> web.Response:
 
     registries = request.app.get(AppKeys.REGISTRIES)
     memory_store = request.app.get(AppKeys.MEMORY)
+    config = request.app[AppKeys.CONFIG]
+    vlog = request.app.get(AppKeys.VERIFICATIONS)
 
     entity_count = 0
     automation_count = 0
@@ -368,6 +379,11 @@ async def _handle_status(request: web.Request) -> web.Response:
             # the last turn's usage into the session counters.
             "turn_active": bool(conv.turn_active) if conv is not None else False,
             "last_turn": request.app.get(AppKeys.LAST_TURN),
+            "model": config.model,
+            "provider": config.llm_provider,
+            "verifications": [v.to_dict() for v in vlog.unacknowledged()]
+            if vlog is not None
+            else [],
         }
     )
 
@@ -504,12 +520,14 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     # task references to include. Scratchpad is re-read each turn so
     # notes the user just recorded are available immediately.
     memory_store = request.app[AppKeys.MEMORY]
+    vlog = request.app.get(AppKeys.VERIFICATIONS)
     assembled = assemble_system_prompt(
         registries=request.app.get(AppKeys.REGISTRIES),
         memory=memory_store.current(),
         conversation_text=message,
         mylo_data_dir=config.mylo_data_dir,
         timezone=request.app.get(AppKeys.HA_TIMEZONE),
+        verifications=vlog.recent() if vlog is not None else None,
         session_cost_usd=session_cost,
         session_budget_usd=config.session_budget_usd,
         monthly_spent_usd=monthly_spent,

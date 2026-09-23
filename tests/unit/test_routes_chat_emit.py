@@ -110,3 +110,22 @@ async def test_cancel_endpoint_sets_event_only_while_turn_active(tmp_path) -> No
     active = await _handle_cancel(request)  # type: ignore[arg-type]
     assert json.loads(active.body) == {"ok": True, "cancelling": True}
     assert conv.cancel_requested.is_set()
+
+
+async def test_ack_verification_endpoint(tmp_path) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from mylo.files.verifications import VerificationLog
+    from mylo.server.app import AppKeys
+    from mylo.server.routes_chat import _handle_ack_verification
+
+    log = VerificationLog(tmp_path / "v.json")
+    v = log.start(tool="t", target="x", conversation_id="c")
+    log.complete(v.id, status="verified", message="ok")
+    request = SimpleNamespace(app={AppKeys.VERIFICATIONS: log}, match_info={"id": v.id})
+    resp = await _handle_ack_verification(request)  # type: ignore[arg-type]
+    assert json.loads(resp.body) == {"ok": True}
+    assert log.unacknowledged() == []
+    missing = SimpleNamespace(app={AppKeys.VERIFICATIONS: log}, match_info={"id": "vf_nope"})
+    assert json.loads((await _handle_ack_verification(missing)).body) == {"ok": False}  # type: ignore[arg-type]

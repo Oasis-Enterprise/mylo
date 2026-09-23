@@ -42,6 +42,7 @@ from mylo.context.selector import select_sections
 from mylo.context.surfaces import TopologySurface
 from mylo.context.task_detector import detect_task_type
 from mylo.context.working_set import WorkingSetSurface
+from mylo.files.verifications import Verification, render_verifications
 from mylo.ha.registries import Registries
 from mylo.logging_setup import get_logger
 from mylo.memory.schema import MemoryFile, Suggestion
@@ -73,6 +74,7 @@ def assemble_system_prompt(
     mylo_data_dir: Path,
     timezone: str | None = None,
     base_prompt: LoadedPrompt | None = None,
+    verifications: list[Verification] | None = None,
     session_cost_usd: float = 0.0,
     session_budget_usd: float = 0.50,
     monthly_spent_usd: float = 0.0,
@@ -113,6 +115,13 @@ def assemble_system_prompt(
         )
         if conflicts_text:
             surfaces.append(TextSurface("critical_memory", conflicts_text))
+
+    # Background verification outcomes the user may not have seen yet —
+    # high priority: a failed write is the first thing to say.
+    if verifications:
+        text = render_verifications(verifications, timezone=timezone)
+        if text:
+            surfaces.append(TextSurface("verifications", text))
 
     # Layer 4 — Task references, only when we have a confident match.
     task_type = detect_task_type(conversation_text)

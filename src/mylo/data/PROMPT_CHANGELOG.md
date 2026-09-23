@@ -5,6 +5,16 @@ first-class versioned artifacts. Every change to ``system_prompt.txt``
 bumps the version in the first line of that file and adds an entry
 here explaining what changed and why.
 
+## 0.8.0 — 2026-09-22 (Trust)
+
+- Writes that verify in the background must be described as "applied,
+  verifying" until an outcome arrives; verification outcomes injected into
+  the system prompt are reported first.
+- The model states the backup path after every write that reports one.
+- Scoped approval: only the exact previewed calls are authorised; a
+  `not_approved` result means the user deselected that change.
+- The four manage_* tools now go through the same approval gate.
+
 ## 0.7.0 — 2026-09-21
 
 Custom card authoring. New "Custom cards" block: when a custom card is
