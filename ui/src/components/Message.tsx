@@ -41,7 +41,7 @@ export function Message({ item }: Props) {
           }}
         >
           {item.fragments.map((fragment, i) => {
-            if (fragment.kind === "text") {
+            if (fragment.kind === "text" || fragment.kind === "draft") {
               return (
                 <div key={i} className="prose-signal">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -60,7 +60,7 @@ export function Message({ item }: Props) {
   return (
     <div style={{ paddingRight: 40 }}>
       {item.fragments.map((fragment, i) => {
-        if (fragment.kind === "text") {
+        if (fragment.kind === "text" || fragment.kind === "draft") {
           return (
             <div key={i} className="prose-signal">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -71,7 +71,7 @@ export function Message({ item }: Props) {
         }
         return <ToolCallBlock key={i} call={fragment.call} />;
       })}
-      {item.pending ? <ThinkingIndicator /> : null}
+      {item.pending ? <ThinkingIndicator label={item.status?.label ?? "Thinking"} /> : null}
     </div>
   );
 }

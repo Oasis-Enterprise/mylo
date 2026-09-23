@@ -23,6 +23,10 @@ interface Props {
   // Set by the plan card's Modify button: pre-fill and focus. The
   // nonce changes on every request so the same text can be re-applied.
   draft?: { text: string; nonce: number } | null;
+  // While a turn runs the send button becomes Stop. `stopping` is true
+  // after the click until the server ends the turn.
+  onStop?: () => void;
+  stopping?: boolean;
 }
 
 // Composer with the tactical status row above the input: budget
@@ -31,7 +35,7 @@ interface Props {
 // the ApprovalCard border weight. The input itself is dark on dark
 // with a muted border and accent focus — deliberately uncluttered
 // so the status row reads as the ambient telemetry.
-export function Composer({ disabled, onSubmit, draft }: Props) {
+export function Composer({ disabled, onSubmit, draft, onStop, stopping }: Props) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastContext = useSession((s) => s.lastContextTokens);
@@ -109,18 +113,35 @@ export function Composer({ disabled, onSubmit, draft }: Props) {
             style={{ color: "var(--color-text)" }}
           />
         </div>
-        <button
-          type="submit"
-          disabled={disabled || !text.trim()}
-          className="rounded px-4 font-mono text-[11px] font-bold uppercase tracking-label disabled:opacity-40"
-          style={{
-            backgroundColor: "var(--color-accent-soft)",
-            border: "1px solid rgba(16, 185, 129, 0.55)",
-            color: "var(--color-accent)",
-          }}
-        >
-          →
-        </button>
+        {disabled ? (
+          <button
+            type="button"
+            onClick={onStop}
+            disabled={stopping || !onStop}
+            title="Stop"
+            className="rounded px-4 font-mono text-[11px] font-bold uppercase tracking-label disabled:opacity-40"
+            style={{
+              backgroundColor: "var(--color-error-soft)",
+              border: "1px solid var(--color-error)",
+              color: "var(--color-error)",
+            }}
+          >
+            {stopping ? "Stopping…" : "■"}
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={!text.trim()}
+            className="rounded px-4 font-mono text-[11px] font-bold uppercase tracking-label disabled:opacity-40"
+            style={{
+              backgroundColor: "var(--color-accent-soft)",
+              border: "1px solid rgba(16, 185, 129, 0.55)",
+              color: "var(--color-accent)",
+            }}
+          >
+            →
+          </button>
+        )}
       </div>
     </form>
   );

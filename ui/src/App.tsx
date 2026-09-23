@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  cancelChat,
   fetchCatchup,
   fetchConversation,
   fetchFindings,
@@ -62,6 +63,8 @@ export default function App() {
   // server for the finished turn. Rendered as a calm status line, not
   // an error — the server is still working.
   const [reconnecting, setReconnecting] = useState(false);
+  // Stop was clicked; cleared when the turn ends.
+  const [stopping, setStopping] = useState(false);
   // Set when the last turn included a previewed write. planIds are the
   // plan_dashboard ids in that turn; Apply sends them back so the
   // server can bind approval to exactly those plans.
@@ -182,9 +185,21 @@ export default function App() {
         }
       } finally {
         setItems((prev) =>
-          prev.map((it) => (it.id === assistantId ? { ...it, pending: false } : it)),
+          prev.map((it) =>
+            it.id === assistantId
+              ? {
+                  ...it,
+                  pending: false,
+                  status: undefined,
+                  fragments: it.fragments.map<ChatFragment>((f) =>
+                    f.kind === "draft" ? { kind: "text", text: f.text } : f,
+                  ),
+                }
+              : it,
+          ),
         );
         setSending(false);
+        setStopping(false);
         if (turnSawPreview) {
           setPendingApproval({ planIds: planIdsFromRecords(toolCallsById.values()) });
         }
@@ -292,6 +307,18 @@ export default function App() {
   const handleReject = useCallback(() => {
     setPendingApproval(null);
     setQueuedApply(null);
+  }, []);
+
+  const handleStop = useCallback(async () => {
+    setStopping(true);
+    setItems((prev) =>
+      prev.map((it) =>
+        it.pending
+          ? { ...it, status: { phase: "cancelling", label: "Stopping after the current step…" } }
+          : it,
+      ),
+    );
+    await cancelChat();
   }, []);
 
   const handleModify = useCallback(() => {
@@ -407,7 +434,13 @@ export default function App() {
             </div>
           ) : null}
 
-          <Composer disabled={sending} onSubmit={(m) => handleSubmit(m)} draft={composerDraft} />
+          <Composer
+            disabled={sending}
+            onSubmit={(m) => handleSubmit(m)}
+            draft={composerDraft}
+            onStop={() => void handleStop()}
+            stopping={stopping}
+          />
         </>
       ) : tab === "memory" ? (
         <MemoryTab />
@@ -667,9 +700,42 @@ function applyEvent(
       setItems((prev) =>
         prev.map((it) =>
           it.id === assistantId
-            ? { ...it, fragments: [...it.fragments, { kind: "text", text: event.text }] }
+            ? {
+                ...it,
+                fragments: [
+                  ...it.fragments.filter((f) => f.kind !== "draft"),
+                  { kind: "text", text: event.text },
+                ],
+              }
             : it,
         ),
+      );
+      break;
+    }
+    case "text_delta": {
+      setItems((prev) =>
+        prev.map((it) => {
+          if (it.id !== assistantId) return it;
+          const last = it.fragments[it.fragments.length - 1];
+          if (last && last.kind === "draft") {
+            return {
+              ...it,
+              fragments: [...it.fragments.slice(0, -1), { kind: "draft", text: last.text + event.text }],
+            };
+          }
+          return { ...it, fragments: [...it.fragments, { kind: "draft", text: event.text }] };
+        }),
+      );
+      break;
+    }
+    case "status": {
+      setItems((prev) =>
+        prev.map((it) => {
+          if (it.id !== assistantId) return it;
+          // Keep "Stopping…" sticky until the server confirms the stop.
+          if (it.status?.phase === "cancelling" && event.phase !== "cancelled") return it;
+          return { ...it, status: { phase: event.phase, label: event.label } };
+        }),
       );
       break;
     }
@@ -721,6 +787,9 @@ function applyEvent(
     }
     case "done":
       recordTurn(event.usage || {});
+      setItems((prev) =>
+        prev.map((it) => (it.id === assistantId ? { ...it, status: undefined } : it)),
+      );
       break;
     case "error":
       setError(`${event.errorType}: ${event.message}`);

@@ -12,61 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useEffect, useState } from "react";
+interface Props {
+  label: string;
+}
 
-const PHRASES = [
-  "thinking",
-  "querying entities",
-  "scanning registries",
-  "checking states",
-  "reviewing context",
-  "analyzing topology",
-  "searching memory",
-  "reasoning",
-  "building response",
-  "evaluating options",
-  "cross-referencing",
-  "inspecting automations",
-  "looking up devices",
-  "processing",
-  "reading config",
-  "checking history",
-  "considering approach",
-  "formulating plan",
-  "resolving references",
-  "connecting the dots",
-];
-
-const INTERVAL_MS = 1800;
-
-export function ThinkingIndicator() {
-  const [index, setIndex] = useState(() =>
-    Math.floor(Math.random() * PHRASES.length),
-  );
-  const [fade, setFade] = useState(true);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setFade(false);
-      setTimeout(() => {
-        setIndex((i) => (i + 1) % PHRASES.length);
-        setFade(true);
-      }, 150);
-    }, INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, []);
-
+// Live status beside the pulsing dots. The label comes from the server's
+// `status` events ("Reading your automations"), so it describes what is
+// actually happening rather than cycling decorative phrases.
+export function ThinkingIndicator({ label }: Props) {
   return (
     <div className="flex items-center gap-2 py-1">
       <PulsingDots />
-      <span
-        className="font-mono text-[10px] transition-opacity duration-150"
-        style={{
-          color: "var(--color-text-muted)",
-          opacity: fade ? 1 : 0,
-        }}
-      >
-        {PHRASES[index]}
+      <span className="font-mono text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+        {label}
       </span>
     </div>
   );

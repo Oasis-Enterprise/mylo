@@ -40,10 +40,17 @@ export interface ChatItem {
   role: Role;
   fragments: ChatFragment[];
   pending: boolean;
+  // Live status while the turn runs ("Reading your automations"). Set
+  // from `status` events; cleared on `done`. Phase "cancelling" is
+  // client-side only (Stop clicked, server not yet finished).
+  status?: { phase: string; label: string };
 }
 
 export type ChatFragment =
   | { kind: "text"; text: string }
+  // Streamed text not yet finalised. Replaced by a `text` fragment when
+  // the model call finishes; never persisted.
+  | { kind: "draft"; text: string }
   | { kind: "tool"; call: ToolCallRecord };
 
 export interface DoneEvent {

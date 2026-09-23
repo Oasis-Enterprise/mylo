@@ -20,6 +20,8 @@
 
 export type ServerEvent =
   | { type: "text"; text: string }
+  | { type: "text_delta"; text: string }
+  | { type: "status"; phase: string; tool: string | null; label: string }
   | { type: "tool_call"; id: string; name: string; input: Record<string, unknown> }
   | {
       type: "tool_result";
@@ -111,6 +113,15 @@ function parseFrame(frame: string): ServerEvent | null {
   switch (eventName) {
     case "text":
       return { type: "text", text: String(obj.text ?? "") };
+    case "text_delta":
+      return { type: "text_delta", text: String(obj.text ?? "") };
+    case "status":
+      return {
+        type: "status",
+        phase: String(obj.phase ?? "thinking"),
+        tool: typeof obj.tool === "string" ? obj.tool : null,
+        label: String(obj.label ?? "Working"),
+      };
     case "tool_call":
       return {
         type: "tool_call",
@@ -146,6 +157,15 @@ function parseFrame(frame: string): ServerEvent | null {
 
 export async function clearConversation(): Promise<void> {
   await fetch(apiUrl("api/conversation/clear"), { method: "POST" });
+}
+
+// Ask the server to stop the running turn. Resolves true when a turn was
+// actually running; the stream itself closes when the server emits `done`.
+export async function cancelChat(): Promise<boolean> {
+  const response = await fetch(apiUrl("api/chat/cancel"), { method: "POST" });
+  if (!response.ok) return false;
+  const body = (await response.json()) as { cancelling?: boolean };
+  return Boolean(body.cancelling);
 }
 
 export interface RawMessage {
