@@ -529,7 +529,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         conversation_text=message,
         mylo_data_dir=config.mylo_data_dir,
         timezone=request.app.get(AppKeys.HA_TIMEZONE),
-        verifications=vlog.recent() if vlog is not None else None,
+        verifications=vlog.for_prompt() if vlog is not None else None,
         session_cost_usd=session_cost,
         session_budget_usd=config.session_budget_usd,
         monthly_spent_usd=monthly_spent,

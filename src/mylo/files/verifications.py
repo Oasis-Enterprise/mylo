@@ -70,21 +70,23 @@ class VerificationLog:
         self._path = Path(path)
         self._capacity = capacity
         self._clock = clock or (lambda: datetime.now(UTC))
-        self._items: list[Verification] = self._load()
+        self._items, reaped = self._load()
+        if reaped:
+            self._save()
 
     # ── persistence ──────────────────────────────────────────────────────
 
     def _now_iso(self) -> str:
         return self._clock().replace(microsecond=0).isoformat()
 
-    def _load(self) -> list[Verification]:
+    def _load(self) -> tuple[list[Verification], bool]:
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            return []
+            return [], False
         except (OSError, json.JSONDecodeError) as exc:
             log.warning("verifications.unreadable_resetting", error=str(exc))
-            return []
+            return [], False
         items: list[Verification] = []
         for entry in raw if isinstance(raw, list) else []:
             if not isinstance(entry, dict):
@@ -93,7 +95,19 @@ class VerificationLog:
                 items.append(Verification(**entry))
             except TypeError:
                 continue
-        return items[-self._capacity :]
+        # A pending item with no completed_at means Mylo was killed or
+        # restarted mid-verification — the background task that would have
+        # completed it is gone, so it would otherwise stay "pending"
+        # forever, blocking the model from ever reporting an outcome for it.
+        reaped = False
+        now = self._now_iso()
+        for v in items:
+            if v.status == "pending" and v.completed_at is None:
+                v.status = "failed"
+                v.message = "Mylo restarted before verification finished"
+                v.completed_at = now
+                reaped = True
+        return items[-self._capacity :], reaped
 
     def _save(self) -> None:
         self._items = self._items[-self._capacity :]
@@ -159,9 +173,20 @@ class VerificationLog:
     def unacknowledged(self) -> list[Verification]:
         return [v for v in self._items if v.completed_at is not None and not v.acknowledged]
 
+    def for_prompt(self, *, hours: float = 24.0) -> list[Verification]:
+        """Outcomes worth telling the model about: recent and not yet
+        acknowledged by the user. Pending items have ``acknowledged=False``
+        by construction, so they stay included until they complete."""
+        return [v for v in self.recent(hours=hours) if not v.acknowledged]
+
 
 def _parse(iso: str) -> datetime:
-    dt = datetime.fromisoformat(iso)
+    try:
+        dt = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        # A corrupt/unparseable timestamp sorts oldest so it falls outside
+        # every "recent" window instead of raising through the caller.
+        return datetime.min.replace(tzinfo=UTC)
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
@@ -170,7 +195,10 @@ def render_verifications(items: list[Verification], *, timezone: str | None = No
     if not items:
         return ""
     tz = ZoneInfo(timezone) if timezone else UTC
-    lines = ["VERIFICATION OUTCOMES (last 24h) — tell the user about any they have not seen:"]
+    lines = [
+        "VERIFICATION OUTCOMES the user has not dismissed (last 24h) — report each "
+        "completed one before anything else; a pending one only if asked:"
+    ]
     for v in items:
         when = _parse(v.completed_at or v.requested_at).astimezone(tz).strftime("%H:%M")
         if v.status == "pending":

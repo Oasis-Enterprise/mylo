@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -44,8 +45,11 @@ def test_start_records_pending_and_persists(tmp_path: Path) -> None:
     assert v.id.startswith("vf_") and len(v.id) == 15
     assert v.status == "pending" and v.completed_at is None and v.acknowledged is False
     reloaded = _log(tmp_path)
-    assert reloaded.get(v.id) is not None
-    assert reloaded.get(v.id).status == "pending"  # type: ignore[union-attr]
+    reloaded_item = reloaded.get(v.id)
+    assert reloaded_item is not None
+    # Never completed before the reload — a fresh load reaps orphaned
+    # pendings (see test_reap_orphaned_pending_on_load below).
+    assert reloaded_item.status == "failed"
 
 
 def test_complete_sets_status_and_time(tmp_path: Path) -> None:
@@ -96,6 +100,79 @@ def test_capacity_keeps_newest(tmp_path: Path) -> None:
 def test_corrupt_file_resets_to_empty(tmp_path: Path) -> None:
     (tmp_path / "verifications.json").write_text("{not json", encoding="utf-8")
     assert _log(tmp_path).recent() == []
+
+
+def test_reap_orphaned_pending_on_load(tmp_path: Path) -> None:
+    # Simulates Mylo restarting mid-verification: the file on disk still
+    # has a "pending" entry that nothing will ever complete now.
+    path = tmp_path / "verifications.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "vf_orphan",
+                    "tool": "modify_automation",
+                    "target": "automation porch",
+                    "status": "pending",
+                    "message": "",
+                    "conversation_id": "c1",
+                    "requested_at": "2026-09-22T11:00:00+00:00",
+                    "completed_at": None,
+                    "acknowledged": False,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    log = _log(tmp_path)
+    v = log.get("vf_orphan")
+    assert v is not None
+    assert v.status == "failed"
+    assert v.message == "Mylo restarted before verification finished"
+    assert v.completed_at is not None
+    assert v in log.unacknowledged()
+    # The reap was persisted, not just held in memory.
+    reloaded = _log(tmp_path)
+    assert reloaded.get("vf_orphan").status == "failed"  # type: ignore[union-attr]
+
+
+def test_for_prompt_excludes_acknowledged_includes_pending(tmp_path: Path) -> None:
+    log = _log(tmp_path)
+    acked = log.start(tool="t", target="acked", conversation_id="c")
+    log.complete(acked.id, status="verified", message="ok")
+    log.acknowledge(acked.id)
+    pending = log.start(tool="t", target="pending", conversation_id="c")
+    unacked = log.start(tool="t", target="unacked", conversation_id="c")
+    log.complete(unacked.id, status="failed", message="boom")
+
+    ids = {v.id for v in log.for_prompt()}
+    assert acked.id not in ids
+    assert pending.id in ids
+    assert unacked.id in ids
+
+
+def test_recent_skips_corrupt_timestamp_without_raising(tmp_path: Path) -> None:
+    path = tmp_path / "verifications.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "vf_bad",
+                    "tool": "t",
+                    "target": "x",
+                    "status": "verified",
+                    "message": "ok",
+                    "conversation_id": "c",
+                    "requested_at": "garbage",
+                    "completed_at": "garbage",
+                    "acknowledged": False,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    log = _log(tmp_path)
+    assert log.recent() == []  # does not raise; sorts oldest, falls out of every window
 
 
 def test_render_lists_outcomes(tmp_path: Path) -> None:
