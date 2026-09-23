@@ -58,6 +58,8 @@ class ApplyDashboardPlanParams(BaseModel):
 
 
 async def handler(params: ApplyDashboardPlanParams, ctx: ToolContext) -> ToolResult:
+    # Deliberately requires the real plan_id — unlike the executor's scoped-
+    # approval gate, this check does not honour the in-process "*" wildcard.
     if params.plan_id not in ctx.approved_plan_ids:
         return ToolResult.error(
             "plan_not_approved",

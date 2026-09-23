@@ -41,6 +41,8 @@ class ApplyCustomCardParams(BaseModel):
 
 
 async def handler(params: ApplyCustomCardParams, ctx: ToolContext) -> ToolResult:
+    # Deliberately requires the real card_id — unlike the executor's scoped-
+    # approval gate, this check does not honour the in-process "*" wildcard.
     if params.card_id not in ctx.approved_plan_ids:
         return ToolResult.error(
             "card_not_approved",

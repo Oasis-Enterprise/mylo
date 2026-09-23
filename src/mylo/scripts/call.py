@@ -39,10 +39,11 @@ import os
 import sys
 from typing import Any
 
-from mylo.config import load_config
+from mylo.config import AppConfig, load_config
 from mylo.ha.registries import Registries
 from mylo.ha.ws_client import AuthFailed, HaWsClient
 from mylo.logging_setup import configure_logging, get_logger
+from mylo.safety.approval import WILDCARD
 from mylo.safety.audit import AuditLogger
 from mylo.safety.permissions import default_permissions
 from mylo.tools import registry as tool_registry
@@ -138,6 +139,33 @@ def _merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _build_ctx(
+    ns: argparse.Namespace,
+    *,
+    client: HaWsClient,
+    registries: Registries,
+    config: AppConfig,
+) -> ToolContext:
+    """Build the per-invocation ToolContext from parsed CLI args.
+
+    ``--approve`` is a blanket "I approve whatever this single call does"
+    flag for this one-shot script — there's no preview step to fingerprint
+    against, so it grants the in-process wildcard rather than a specific
+    preview id. (Never valid over HTTP; see
+    ``routes_chat._approved_plan_ids_from_body``.)
+    """
+    return ToolContext(
+        ws_client=client,
+        registries=registries,
+        config=config,
+        permissions=default_permissions(),
+        audit=AuditLogger(config.mylo_data_dir),
+        user_approved=ns.approve,
+        dry_run=ns.dry_run,
+        approved_plan_ids=frozenset({WILDCARD}) if ns.approve else frozenset(),
+    )
+
+
 async def _run(ns: argparse.Namespace, params: dict[str, Any]) -> int:
     url = ns.url or os.environ.get("HA_URL")
     token = ns.token or os.environ.get("HA_TOKEN")
@@ -159,15 +187,7 @@ async def _run(ns: argparse.Namespace, params: dict[str, Any]) -> int:
         registries = await Registries.attach(client)
         await registries.wait_loaded(timeout=15.0)
 
-        ctx = ToolContext(
-            ws_client=client,
-            registries=registries,
-            config=config,
-            permissions=default_permissions(),
-            audit=AuditLogger(config.mylo_data_dir),
-            user_approved=ns.approve,
-            dry_run=ns.dry_run,
-        )
+        ctx = _build_ctx(ns, client=client, registries=registries, config=config)
         result = await execute(ns.tool, params, ctx)
         payload = result.to_dict()
         if ns.pretty:
