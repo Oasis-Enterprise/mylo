@@ -21,6 +21,7 @@ along with the full context assembler.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -42,6 +43,10 @@ class ConversationManager:
     # would replace history out from under the turn check this instead of
     # racing (single process, single event loop — a flag is sufficient).
     turn_active: bool = False
+    # Set by POST /api/chat/cancel while a turn runs. run_turn checks it
+    # before each model call and after each tool batch. Cleared by the
+    # chat route when a new turn starts.
+    cancel_requested: asyncio.Event = field(default_factory=asyncio.Event)
 
     async def peek(self, limit: int | None = None) -> list[dict[str, Any]]:
         """Read-only view of stored rows for the UI.

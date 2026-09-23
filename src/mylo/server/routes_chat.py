@@ -18,6 +18,9 @@
 stream of tool_loop events. Event types match the CLI:
 
 * ``text`` — ``{"text": "..."}``
+* ``text_delta`` — ``{"text": "..."}`` (partial assistant text; a later
+  ``text`` carries the final block and supersedes the deltas)
+* ``status`` — ``{"phase": "thinking|tool|cancelled", "tool": ..., "label": "..."}``
 * ``tool_call`` — ``{"name": "...", "input": {...}, "id": "..."}``
 * ``tool_result`` — ``{"name": "...", "status": "ok|error", "data": ...}``
 * ``done`` — ``{"stop_reason": "...", "usage": {...}}``
@@ -25,6 +28,10 @@ stream of tool_loop events. Event types match the CLI:
 SSE was chosen over websocket because: (a) HA Ingress proxies SSE cleanly,
 (b) a single POST→stream is sufficient for our flow — no bidirectional
 signaling needed in M5a.
+
+``POST /api/chat/cancel`` asks the running turn to stop; the loop finishes
+the current tool (never interrupts one), keeps partial text, and ends the
+turn with ``stop_reason: "cancelled"``.
 
 ``POST /api/conversation/clear`` resets the conversation — trivial helper
 so the UI can offer a ``/clear`` button.
@@ -49,6 +56,8 @@ from mylo.llm.cost import cache_hit_ratio, estimate_usd
 from mylo.llm.tool_loop import (
     DoneEvent,
     LoopEvent,
+    StatusEvent,
+    TextDeltaEvent,
     TextEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -109,8 +118,43 @@ def _approved_plan_ids_from_body(body: dict[str, Any]) -> frozenset[str]:
     return frozenset(p for p in raw if isinstance(p, str) and p)
 
 
+def _sse_for(event: LoopEvent) -> tuple[str, dict[str, Any]] | None:
+    """Map a loop event to its SSE (name, payload). ``DoneEvent`` is
+    handled inline by the chat handler because it needs cost context."""
+    if isinstance(event, TextDeltaEvent):
+        return "text_delta", {"text": event.text}
+    if isinstance(event, StatusEvent):
+        return "status", {"phase": event.phase, "tool": event.tool, "label": event.label}
+    if isinstance(event, TextEvent):
+        return "text", {"text": event.text}
+    if isinstance(event, ToolCallEvent):
+        return "tool_call", {"id": event.id, "name": event.name, "input": event.input}
+    if isinstance(event, ToolResultEvent):
+        return "tool_result", {
+            "id": event.id,
+            "name": event.name,
+            "status": event.status,
+            "error_code": event.error_code,
+            "data": event.data,
+        }
+    return None
+
+
+async def _handle_cancel(request: web.Request) -> web.Response:
+    """Ask the running turn to stop. Idempotent; a no-op when idle."""
+    from mylo.server.app import AppKeys
+
+    conv = request.app[AppKeys.CONVERSATION]
+    if not conv.turn_active:
+        return web.json_response({"ok": True, "cancelling": False})
+    conv.cancel_requested.set()
+    log.info("chat.cancel_requested")
+    return web.json_response({"ok": True, "cancelling": True})
+
+
 def register_chat_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", _handle_chat)
+    app.router.add_post("/api/chat/cancel", _handle_cancel)
     app.router.add_post("/api/conversation/clear", _handle_clear)
     app.router.add_post("/api/conversation/new", _handle_new_conversation)
     app.router.add_get("/api/conversation", _handle_get_conversation)
@@ -492,6 +536,7 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
         await _safe_emit(response, name, data)
 
     conv.turn_active = True
+    conv.cancel_requested.clear()
     heartbeat = asyncio.create_task(_heartbeat(response))
     try:
         async for event in _turn_events(
@@ -503,25 +548,11 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
             tools=tools,
             model=config.model,
             prompt_version=assembled.prompt_version,
+            cancel=conv.cancel_requested,
         ):
-            if isinstance(event, TextEvent):
-                await emit("text", {"text": event.text})
-            elif isinstance(event, ToolCallEvent):
-                await emit(
-                    "tool_call",
-                    {"id": event.id, "name": event.name, "input": event.input},
-                )
-            elif isinstance(event, ToolResultEvent):
-                await emit(
-                    "tool_result",
-                    {
-                        "id": event.id,
-                        "name": event.name,
-                        "status": event.status,
-                        "error_code": event.error_code,
-                        "data": event.data,
-                    },
-                )
+            mapped = _sse_for(event)
+            if mapped is not None:
+                await emit(*mapped)
             elif isinstance(event, DoneEvent):
                 turn_cost = estimate_usd(event.usage, config.model, is_local=is_local)
                 # Accumulate into the persistent monthly total (returns the

@@ -71,3 +71,42 @@ async def test_heartbeat_stops_when_transport_closes() -> None:
 
     task = asyncio.create_task(_heartbeat(_ClosedResponse(), interval=0.01))
     await asyncio.wait_for(task, timeout=1.0)  # returns on its own, no exception
+
+
+# ─── Event mapping + cancel endpoint ────────────────────────────────────────
+
+
+def test_sse_for_maps_new_events() -> None:
+    from mylo.llm.tool_loop import StatusEvent, TextDeltaEvent, TextEvent
+    from mylo.server.routes_chat import _sse_for
+
+    assert _sse_for(TextDeltaEvent(text="x")) == ("text_delta", {"text": "x"})
+    assert _sse_for(StatusEvent(phase="tool", tool="query_logs", label="Checking the logs")) == (
+        "status",
+        {"phase": "tool", "tool": "query_logs", "label": "Checking the logs"},
+    )
+    assert _sse_for(TextEvent(text="hi")) == ("text", {"text": "hi"})
+
+
+async def test_cancel_endpoint_sets_event_only_while_turn_active(tmp_path) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from mylo.conversation.manager import ConversationManager
+    from mylo.conversation.storage import ConversationStorage
+    from mylo.server.app import AppKeys
+    from mylo.server.routes_chat import _handle_cancel
+
+    storage = ConversationStorage(tmp_path / "c.db")
+    await storage.init()
+    conv = ConversationManager(storage=storage, conversation_id="t")
+    request = SimpleNamespace(app={AppKeys.CONVERSATION: conv})
+
+    idle = await _handle_cancel(request)  # type: ignore[arg-type]
+    assert json.loads(idle.body) == {"ok": True, "cancelling": False}
+    assert not conv.cancel_requested.is_set()
+
+    conv.turn_active = True
+    active = await _handle_cancel(request)  # type: ignore[arg-type]
+    assert json.loads(active.body) == {"ok": True, "cancelling": True}
+    assert conv.cancel_requested.is_set()
