@@ -206,13 +206,27 @@ async def _next_or_cancel(
         for task in (next_task, cancel_task):
             if not task.done():
                 task.cancel()
-        for task in (next_task, cancel_task):
-            # Any exception here — including a genuine one from
-            # next_task, which is already surfaced below via
-            # next_task.result() — must not replace an outer
-            # cancellation that lands during this very await.
-            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
-                await task
+        # A single `gather()` over both tasks, instead of the previous
+        # per-task `await ... suppress(...)` loop. `return_exceptions=True`
+        # makes gather() retrieve every child's exception itself as each
+        # one finishes, so nothing here can log "exception never
+        # retrieved" — without an explicit t.cancelled() or t.exception()
+        # step, which `asyncio.wait` would need instead.
+        #
+        # gather() over asyncio.wait() specifically: `_GatheringFuture`
+        # forwards a cancellation of the *outer* await into every child
+        # (the same forwarding an `await task` gets for free) and only
+        # resolves once they've all actually finished. `asyncio.wait`
+        # does not forward into its member tasks — cancelling the task
+        # that's awaiting it only cancels wait()'s own internal waiter,
+        # so a second outer cancel landing here would let this cleanup
+        # return while `next_task` is still unwinding, unobserved. That
+        # is a real regression (confirmed against
+        # test_outer_cancel_during_cleanup_still_propagates, which relies
+        # on the cleanup actually waiting out a slow unwind) — gather()
+        # keeps the old sequential loop's guarantee in one await.
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.gather(next_task, cancel_task, return_exceptions=True)
         cur = asyncio.current_task()
         if cur is not None and cur.cancelling() > 0:
             # An outer cancel arrived during the cleanup above and was

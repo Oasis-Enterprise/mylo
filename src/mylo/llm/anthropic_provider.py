@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -259,11 +260,32 @@ class AnthropicProvider:
             return await manager.__aenter__()
 
         stream = await self._with_retries(_open)
+        final: Any = None
         try:
             async for event in stream:
                 if getattr(event, "type", None) == "text":
                     yield StreamDelta(text=event.text)
             final = await stream.get_final_message()
         finally:
-            await stream.close()
+            # Captured *before* the nested try/except below: once we're
+            # inside `except Exception:` there, sys.exc_info() reflects
+            # the close failure itself, not whatever was propagating (if
+            # anything) when we entered this finally — so this has to be
+            # read first.
+            already_propagating = sys.exc_info()[0] is not None
+            try:
+                await stream.close()
+            except Exception:
+                # A close failure must never mask an exception already
+                # propagating (get_final_message() failed, or the loop
+                # above raised) and must never discard a turn that
+                # finished successfully. Only when neither is true — no
+                # completed turn, nothing else in flight — does the
+                # close error become the one that surfaces.
+                if final is None and not already_propagating:
+                    raise
+                log.warning(
+                    "anthropic.stream_close_failed",
+                    turn_completed=final is not None,
+                )
         yield self._to_response(final)

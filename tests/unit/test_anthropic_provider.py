@@ -26,7 +26,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from anthropic import BadRequestError, InternalServerError
+from anthropic import APIConnectionError, BadRequestError, InternalServerError
 
 # anthropic >= 1.0 moved its HTTP layer from httpx to httpx2. The SDK's
 # error classes wrap whichever library it ships with, so the fake
@@ -287,10 +287,86 @@ async def test_stream_retries_transient_error_on_open() -> None:
     assert len(items) == 2
 
 
-async def test_stream_does_not_retry_after_open_on_4xx() -> None:
+async def test_stream_does_not_retry_4xx_on_open() -> None:
     provider = AnthropicProvider(api_key="x")
     provider._client.messages.stream = lambda **_kw: _RaisingStreamManager(  # type: ignore[attr-defined]
         _status_error(BadRequestError, 400)
     )
     with pytest.raises(BadRequestError):
         await _collect(provider)
+
+
+async def test_stream_error_after_first_delta_is_not_retried() -> None:
+    """Once text has reached the panel, a mid-stream error must propagate
+    as-is — retrying here would silently redo work the user already saw
+    output for."""
+
+    class _FailingAfterFirstDelta(_FakeStream):
+        async def _events(self) -> Any:
+            yield SimpleNamespace(type="text", text=self._deltas[0], snapshot="")
+            raise APIConnectionError(
+                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            )
+
+    provider = AnthropicProvider(api_key="x")
+    fake = _FailingAfterFirstDelta(["Hel"], _final_message("unused"))
+    calls: list[dict[str, Any]] = []
+
+    def _stream(**kw: Any) -> Any:
+        calls.append(kw)
+        return _FakeStreamManager(fake)
+
+    provider._client.messages.stream = _stream  # type: ignore[attr-defined]
+
+    with pytest.raises(APIConnectionError):
+        await _collect(provider)
+
+    assert len(calls) == 1
+    assert fake.closed
+
+
+# ─── Close-after-completion (finding 2) ────────────────────────────────────
+
+
+class _CloseFailingStream(_FakeStream):
+    """A ``_FakeStream`` whose ``close()`` always raises."""
+
+    async def close(self) -> None:
+        self.closed = True
+        raise ConnectionError("close failed")
+
+
+class _CloseFailingStreamNoFinal(_CloseFailingStream):
+    """Same, but ``get_final_message()`` also fails — nothing completed."""
+
+    async def get_final_message(self) -> Any:
+        raise RuntimeError("boom")
+
+
+async def test_stream_close_error_after_completion_is_ignored() -> None:
+    """A transport error from close() after a full turn already arrived
+    must not discard that turn — it's logged, not raised."""
+    from mylo.llm.provider import ProviderResponse
+
+    provider = AnthropicProvider(api_key="x")
+    fake = _CloseFailingStream(["Hi"], _final_message("Hi"))
+    provider._client.messages.stream = lambda **_kw: _FakeStreamManager(fake)  # type: ignore[attr-defined]
+
+    items = await _collect(provider)
+
+    assert isinstance(items[-1], ProviderResponse)
+    assert items[-1].text == "Hi"
+    assert fake.closed
+
+
+async def test_stream_close_error_before_completion_propagates() -> None:
+    """When nothing completed, a close() failure must not mask the real
+    error — and must not itself surface in its place."""
+    provider = AnthropicProvider(api_key="x")
+    fake = _CloseFailingStreamNoFinal(["Hi"], _final_message("unused"))
+    provider._client.messages.stream = lambda **_kw: _FakeStreamManager(fake)  # type: ignore[attr-defined]
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await _collect(provider)
+
+    assert fake.closed

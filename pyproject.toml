@@ -19,7 +19,7 @@ classifiers = [
 
 dependencies = [
     "aiohttp>=3.10",
-    "anthropic>=0.40",
+    "anthropic>=0.40,<2",
     "openai>=1.40",
     "pydantic>=2.8",
     "ruamel.yaml>=0.18",
