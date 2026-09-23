@@ -427,6 +427,7 @@ async def apply_optimistic_reload_all(
     except Exception as exc:
         result.steps.append(StepResult("write", ok=False, message=f"{type(exc).__name__}: {exc}"))
         result.ok = False
+        result.verification = "failed"
         complete_verification(verifications, verification_id, "failed", f"write failed: {exc}")
         return result
 

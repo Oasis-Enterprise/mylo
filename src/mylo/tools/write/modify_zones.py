@@ -238,6 +238,9 @@ async def handler(params: ModifyZonesParams, ctx: ToolContext) -> ToolResult:
                 **preview_data,
                 "preview": False,
                 "rollback": rollback_result.to_dict(),
+                "verification": rollback_result.verification,
+                "verification_id": rollback_result.verification_id,
+                "backup_path": rollback_result.backup_path,
             },
         )
 

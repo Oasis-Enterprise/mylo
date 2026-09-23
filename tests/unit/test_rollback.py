@@ -25,6 +25,8 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from mylo.files import rollback as rollback_module
 from mylo.files.rollback import (
     apply_optimistic_reload_all,
@@ -307,3 +309,34 @@ async def test_synchronous_path_reports_synchronous(tmp_path: Path) -> None:
         reload_wait_seconds=0,
     )
     assert result.verification == "synchronous" and result.verification_id is None
+
+
+async def test_optimistic_write_failure_reports_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write that raises before the reload even fires must not leave
+    verification stuck at "pending" — the log entry is already completed
+    "failed", so RollbackResult.verification must agree."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    log = VerificationLog(tmp_path / "v.json")
+
+    def _raise(_path: Path, _content: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(rollback_module, "atomic_write", _raise)
+
+    result = await apply_optimistic_reload_all(
+        client=_ReadyClient(),  # type: ignore[arg-type]
+        path=config_dir / "pkg.yaml",
+        content="x: 1\n",
+        config_dir=config_dir,
+        mylo_data_dir=tmp_path / ".mylo",
+        verify=None,
+        reload_wait_seconds=0,
+        verifications=log,
+    )
+    assert not result.ok
+    assert result.verification == "failed"
+    done = log.get(result.verification_id or "")
+    assert done is not None and done.status == "failed" and "disk full" in done.message

@@ -171,6 +171,9 @@ async def handler(params: ModifyScriptParams, ctx: ToolContext) -> ToolResult:
                 **preview,
                 "preview": False,
                 "rollback": rollback_result.to_dict(),
+                "verification": rollback_result.verification,
+                "verification_id": rollback_result.verification_id,
+                "backup_path": rollback_result.backup_path,
             },
         )
 
