@@ -50,6 +50,8 @@ from mylo.ha.ws_client import AuthFailed, HaWsClient
 from mylo.llm.anthropic_provider import AnthropicProvider
 from mylo.llm.tool_loop import (
     DoneEvent,
+    StatusEvent,
+    TextDeltaEvent,
     TextEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -97,6 +99,11 @@ def _print_tool_result(event: ToolResultEvent) -> None:
 
 def _print_text(event: TextEvent) -> None:
     sys.stdout.write(f"\n{event.text}\n")
+    sys.stdout.flush()
+
+
+def _print_delta(event: TextDeltaEvent) -> None:
+    sys.stdout.write(event.text)
     sys.stdout.flush()
 
 
@@ -215,6 +222,7 @@ async def _run() -> int:
                     conversation_text=user_line,
                     mylo_data_dir=config.mylo_data_dir,
                 )
+                saw_delta = False
                 async for event in run_turn(
                     user_message=user_line,
                     conversation=conv,
@@ -225,8 +233,20 @@ async def _run() -> int:
                     model=config.model,
                     prompt_version=assembled.prompt_version,
                 ):
-                    if isinstance(event, TextEvent):
-                        _print_text(event)
+                    if isinstance(event, StatusEvent):
+                        if event.phase == "thinking":
+                            saw_delta = False
+                    elif isinstance(event, TextDeltaEvent):
+                        if not saw_delta:
+                            sys.stdout.write("\n")
+                        saw_delta = True
+                        _print_delta(event)
+                    elif isinstance(event, TextEvent):
+                        if saw_delta:
+                            sys.stdout.write("\n")
+                            sys.stdout.flush()
+                        else:
+                            _print_text(event)
                     elif isinstance(event, ToolCallEvent):
                         _print_tool_call(event)
                     elif isinstance(event, ToolResultEvent):
