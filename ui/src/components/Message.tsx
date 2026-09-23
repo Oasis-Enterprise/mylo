@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatItem } from "../types";
@@ -27,7 +28,7 @@ interface Props {
 // Agent: no bubble — prose flows in the container with 40px right
 // padding. This asymmetry is deliberate: user turns are finite
 // utterances, agent turns are running commentary.
-export function Message({ item }: Props) {
+function MessageImpl({ item }: Props) {
   const isUser = item.role === "user";
   if (isUser) {
     return (
@@ -75,3 +76,7 @@ export function Message({ item }: Props) {
     </div>
   );
 }
+
+// Items are replaced immutably by App's setItems updaters, so a shallow
+// compare on `item` skips every transcript entry a text_delta did not touch.
+export const Message = memo(MessageImpl);
