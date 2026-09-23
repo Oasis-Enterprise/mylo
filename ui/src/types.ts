@@ -255,4 +255,7 @@ export interface ApprovalContext {
   tierLabel: string;
   plan?: DashboardPlanData;
   card?: StagedCardData;
+  previewId?: string;
+  destructive: boolean;
+  target?: string;
 }

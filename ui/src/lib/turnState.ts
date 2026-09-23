@@ -21,6 +21,21 @@ import type {
   ToolCallRecord,
 } from "../types";
 
+const DESTRUCTIVE_ACTIONS = new Set(["delete", "remove"]);
+const DESTRUCTIVE_OPS = new Set(["remove_card", "remove_section", "delete_view"]);
+
+function isDestructive(call: ToolCallRecord, plan?: DashboardPlanData): boolean {
+  const action = String(call.input?.action ?? "");
+  if (DESTRUCTIVE_ACTIONS.has(action)) return true;
+  const ops = (plan?.operations as Array<{ op?: string }> | undefined) ?? [];
+  return ops.some((o) => DESTRUCTIVE_OPS.has(String(o.op ?? "")));
+}
+
+function previewIdOf(call: ToolCallRecord): string | undefined {
+  const data = call.data as Record<string, unknown> | undefined;
+  return typeof data?.preview_id === "string" ? data.preview_id : undefined;
+}
+
 export function detectPendingApproval(items: ChatItem[]): boolean {
   // Walk backwards from the last assistant turn. If any tool fragment
   // has confirmation_required or preview:true, the user hasn't applied
@@ -104,7 +119,7 @@ export function callNeedsApproval(call: ToolCallRecord): boolean {
   );
 }
 
-export function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
+function describeCall(call: ToolCallRecord): Omit<ApprovalContext, "destructive"> {
   const input = call.input || {};
   const data = (call.data as Record<string, unknown> | undefined) || {};
 
@@ -186,16 +201,26 @@ export function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
   };
 }
 
+export function buildApprovalContext(call: ToolCallRecord): ApprovalContext {
+  const base = describeCall(call);
+  return { ...base, previewId: previewIdOf(call), destructive: isDestructive(call, base.plan) };
+}
+
 export function planIdsFromRecords(records: Iterable<ToolCallRecord>): string[] {
   const ids: string[] = [];
   for (const call of records) {
-    if (call.state !== "ok") continue;
     const data = call.data as Record<string, unknown> | undefined;
-    if (data?.preview !== true) continue;
-    if (call.name === "plan_dashboard" && typeof data.plan_id === "string") {
-      ids.push(data.plan_id);
-    } else if (call.name === "stage_custom_card" && typeof data.card_id === "string") {
-      ids.push(data.card_id);
+    if (call.errorCode === "confirmation_required") {
+      const pid = previewIdOf(call);
+      if (pid) ids.push(pid);
+      continue;
+    }
+    if (call.state !== "ok" || data?.preview !== true) continue;
+    if (call.name === "plan_dashboard" && typeof data.plan_id === "string") ids.push(data.plan_id);
+    else if (call.name === "stage_custom_card" && typeof data.card_id === "string") ids.push(data.card_id);
+    else {
+      const pid = previewIdOf(call);
+      if (pid) ids.push(pid);
     }
   }
   return ids;

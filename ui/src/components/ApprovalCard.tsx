@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { useEffect, useState } from "react";
 import { StatusDot } from "./StatusDot";
 import { Tag } from "./Tag";
 
@@ -25,13 +26,17 @@ export interface ApprovalItem {
   // Metadata line under the diff — "references: 0 automations · 0 dashboards · 0 scripts".
   meta?: string;
   tierLabel?: string;
+  destructive?: boolean;
+  target?: string;
 }
 
 interface Props {
   // One or more previewed changes. The model can dry-run several writes
   // in a single turn; they're all listed here and approved together.
   items: ApprovalItem[];
-  onApprove: () => void;
+  // Indices of the items the user chose to apply (checkbox selection
+  // when there's more than one item; all of them otherwise).
+  onApprove: (selectedIndices: number[]) => void;
   onReject: () => void;
   // True when an apply has been queued but not yet submitted (prior
   // turn's SSE stream still closing). Disables APPLY to avoid double-
@@ -45,6 +50,11 @@ interface Props {
 // and a single Reject / Apply pair that authorizes the whole set.
 export function ApprovalCard({ items, onApprove, onReject, applying = false }: Props) {
   const multiple = items.length > 1;
+  const [selected, setSelected] = useState<boolean[]>(() => items.map(() => true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when the item count changes
+  useEffect(() => setSelected(items.map(() => true)), [items.length]);
+  const chosen = selected.flatMap((v, i) => (v ? [i] : []));
+  const destructive = chosen.some((i) => items[i].destructive);
 
   return (
     <div
@@ -88,6 +98,14 @@ export function ApprovalCard({ items, onApprove, onReject, applying = false }: P
           >
             <div className="flex items-center gap-2">
               {multiple ? (
+                <input
+                  type="checkbox"
+                  checked={selected[i]}
+                  onChange={() => setSelected((s) => s.map((v, j) => (j === i ? !v : v)))}
+                  aria-label={`Include change ${i + 1}`}
+                />
+              ) : null}
+              {multiple ? (
                 <span
                   className="font-mono text-[10px]"
                   style={{ color: "var(--color-text-dim)" }}
@@ -124,6 +142,14 @@ export function ApprovalCard({ items, onApprove, onReject, applying = false }: P
         );
       })}
 
+      {destructive ? (
+        <div
+          className="px-3 pb-1 font-mono text-[10px]"
+          style={{ color: "var(--color-error)" }}
+        >
+          Deletes: {chosen.filter((i) => items[i].destructive).map((i) => items[i].target ?? items[i].description).join(", ")}
+        </div>
+      ) : null}
       <div className="flex items-center justify-end gap-2 px-3 py-2 border-t"
         style={{ borderColor: "var(--color-border)" }}
       >
@@ -141,16 +167,34 @@ export function ApprovalCard({ items, onApprove, onReject, applying = false }: P
         </button>
         <button
           type="button"
-          onClick={onApprove}
-          disabled={applying}
-          className="btn-glow rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
-          style={{
-            backgroundColor: "var(--color-accent-soft)",
-            border: "1px solid var(--color-accent)",
-            color: "var(--color-accent)",
-          }}
+          onClick={() => onApprove(chosen)}
+          disabled={applying || chosen.length === 0}
+          className={
+            destructive
+              ? "rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
+              : "btn-glow rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
+          }
+          style={
+            destructive
+              ? {
+                  backgroundColor: "var(--color-error-soft)",
+                  border: "1px solid var(--color-error)",
+                  color: "var(--color-error)",
+                }
+              : {
+                  backgroundColor: "var(--color-accent-soft)",
+                  border: "1px solid var(--color-accent)",
+                  color: "var(--color-accent)",
+                }
+          }
         >
-          {applying ? "Applying…" : multiple ? `Apply all ${items.length}` : "Apply"}
+          {applying
+            ? "Applying…"
+            : !multiple
+              ? "Apply"
+              : chosen.length === items.length
+                ? `Apply all ${items.length}`
+                : `Apply ${chosen.length} of ${items.length}`}
         </button>
       </div>
     </div>

@@ -305,12 +305,19 @@ export default function App() {
     (c) => c.plan === undefined && c.card === undefined,
   );
 
-  const handleApply = useCallback(async () => {
+  const handleApply = useCallback(async (selectedIndices?: number[]) => {
+    const all = pendingApproval?.planIds ?? [];
+    const chosen = selectedIndices ?? approvalContexts.map((_, i) => i);
+    const ids = chosen.map((i) => approvalContexts[i]?.previewId ?? "").filter(Boolean);
+    // Plan/card ids are not per-item selectable; always include them.
+    const planIds = Array.from(new Set([...all.filter((id) => !id.startsWith("pv_")), ...ids]));
+    const total = approvalContexts.length;
     const message =
-      approvalCount > 1
-        ? `Yes, apply all ${approvalCount} changes.`
-        : "Yes, apply the change.";
-    const planIds = pendingApproval?.planIds ?? [];
+      total <= 1
+        ? "Yes, apply the change."
+        : chosen.length === total
+          ? `Yes, apply all ${total} changes.`
+          : `Yes, apply these ${chosen.length} of ${total} changes: ${chosen.map((i) => approvalContexts[i].description).join("; ")}. Do not apply the others.`;
     if (sending) {
       // Previous stream still closing out — queue the submit so it
       // fires the moment sending clears, and give the button visible
@@ -319,7 +326,7 @@ export default function App() {
       return;
     }
     await handleSubmit(message, { approved: true, approvedPlanIds: planIds });
-  }, [handleSubmit, sending, approvalCount, pendingApproval]);
+  }, [handleSubmit, sending, approvalContexts, pendingApproval]);
 
   const handleReject = useCallback(() => {
     setPendingApproval(null);
@@ -422,11 +429,12 @@ export default function App() {
                     onReject={handleReject}
                     onModify={handleModify}
                     applying={queuedApply !== null}
+                    destructive={approvalContexts.some((c) => c.destructive)}
                   />
                 ) : (
                   <ApprovalCard
                     items={approvalContexts}
-                    onApprove={() => void handleApply()}
+                    onApprove={(sel) => void handleApply(sel)}
                     onReject={handleReject}
                     applying={queuedApply !== null}
                   />

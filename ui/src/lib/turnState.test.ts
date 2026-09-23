@@ -100,4 +100,36 @@ describe("deriveTurnState", () => {
     ];
     expect(deriveTurnState(items).pendingQuestion).toBeNull();
   });
+
+  it("collects preview ids from previews and confirmation_required errors", () => {
+    const items = [
+      assistant([
+        tool({ id: "a", name: "modify_automation", data: { preview: true, preview_id: "pv_aaa" } }),
+        tool({ id: "b", name: "call_service", state: "error", errorCode: "confirmation_required", data: { preview_id: "pv_bbb" } }),
+      ]),
+    ];
+    const st = deriveTurnState(items);
+    expect(st.pendingApproval).toEqual({ planIds: ["pv_aaa", "pv_bbb"] });
+    expect(st.approvalContexts.map((c) => c.previewId)).toEqual(["pv_aaa", "pv_bbb"]);
+  });
+
+  it("marks delete and remove actions destructive", () => {
+    const items = [
+      assistant([
+        tool({ id: "a", name: "modify_automation", input: { action: "delete", automation_id: "x" }, data: { preview: true } }),
+        tool({ id: "b", name: "manage_labels", input: { action: "remove" }, state: "error", errorCode: "confirmation_required", data: {} }),
+        tool({ id: "c", name: "modify_script", input: { action: "update" }, data: { preview: true } }),
+      ]),
+    ];
+    expect(deriveTurnState(items).approvalContexts.map((c) => c.destructive)).toEqual([true, true, false]);
+  });
+
+  it("marks a plan with a remove op destructive", () => {
+    const items = [
+      assistant([
+        tool({ name: "plan_dashboard", data: { preview: true, plan_id: "p1", plan: { summary: "s", operations: [{ op: "remove_card" }] } } }),
+      ]),
+    ];
+    expect(deriveTurnState(items).approvalContexts[0].destructive).toBe(true);
+  });
 });

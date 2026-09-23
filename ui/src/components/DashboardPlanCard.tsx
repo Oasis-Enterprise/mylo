@@ -36,6 +36,9 @@ export interface DashboardPlanCardProps {
   onReject: () => void;
   onModify: () => void;
   applying?: boolean;
+  // True when the plan includes a remove_card / remove_section /
+  // delete_view op — switches Apply to the error-coloured styling.
+  destructive?: boolean;
 }
 
 // Wireframe preview of a dashboard plan: one block per operation, each
@@ -50,6 +53,7 @@ export function DashboardPlanCard({
   onReject,
   onModify,
   applying = false,
+  destructive = false,
 }: DashboardPlanCardProps) {
   const [showYaml, setShowYaml] = useState(false);
   const assumptions = plans.flatMap((p) => p.assumptions);
@@ -176,12 +180,24 @@ export function DashboardPlanCard({
           type="button"
           onClick={onApprove}
           disabled={applying}
-          className="btn-glow rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
-          style={{
-            backgroundColor: "var(--color-accent-soft)",
-            border: "1px solid var(--color-accent)",
-            color: "var(--color-accent)",
-          }}
+          className={
+            destructive
+              ? "rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
+              : "btn-glow rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
+          }
+          style={
+            destructive
+              ? {
+                  backgroundColor: "var(--color-error-soft)",
+                  border: "1px solid var(--color-error)",
+                  color: "var(--color-error)",
+                }
+              : {
+                  backgroundColor: "var(--color-accent-soft)",
+                  border: "1px solid var(--color-accent)",
+                  color: "var(--color-accent)",
+                }
+          }
         >
           {applying ? "Applying…" : "Apply"}
         </button>
