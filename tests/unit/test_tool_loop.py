@@ -778,6 +778,7 @@ async def test_outer_cancellation_closes_stream_and_propagates(
             if isinstance(e, TextDeltaEvent):
                 got_delta.set()
 
+    before = asyncio.all_tasks()
     task = asyncio.create_task(_consume())
     await got_delta.wait()
     task.cancel()
@@ -785,4 +786,66 @@ async def test_outer_cancellation_closes_stream_and_propagates(
         await task
 
     assert provider.closed is True
-    assert len(asyncio.all_tasks()) == 1  # only this test's own task remains
+    assert asyncio.all_tasks() == before  # no tasks leaked
+
+
+async def test_outer_cancel_during_cleanup_still_propagates(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    """A subtler variant of the outer-cancellation leak: the outer cancel
+    can also arrive *while* ``_next_or_cancel``'s own cleanup is awaiting
+    one of its two inner tasks — a real stream can take more than one
+    tick to unwind on cancellation. That CancelledError is
+    indistinguishable, by type, from the cleanup's own expected one, so
+    a plain ``suppress(CancelledError)`` around the cleanup await eats
+    it: the task finishes "normally" (``cancelling() == 1`` but
+    ``cancelled() == False``) instead of actually cancelling, and the
+    caller never learns the turn was aborted mid-cleanup.
+    """
+
+    class _SlowUnwindStreamProvider:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def message(self, **kwargs: Any) -> ProviderResponse:  # pragma: no cover
+            raise AssertionError("streaming provider must be driven through stream()")
+
+        async def stream(self, **kwargs: Any) -> Any:
+            try:
+                yield StreamDelta(text="Hel")
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    await asyncio.sleep(0.05)
+                    raise
+            finally:
+                self.closed = True
+
+    provider = _SlowUnwindStreamProvider()
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+    cancel = asyncio.Event()
+
+    async def _consume() -> None:
+        async for e in run_turn(
+            user_message="hi",
+            conversation=_conv,
+            provider=provider,
+            ctx=ctx,
+            system="s",
+            tools=[],
+            model="m",
+            cancel=cancel,
+        ):
+            if isinstance(e, TextDeltaEvent):
+                cancel.set()
+
+    before = asyncio.all_tasks()
+    task = asyncio.create_task(_consume())
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert task.cancelled() is True
+    assert provider.closed is True
+    assert asyncio.all_tasks() == before  # no tasks leaked

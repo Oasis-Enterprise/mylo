@@ -174,6 +174,19 @@ async def _next_or_cancel(
     of letting the CancelledError propagate. The ``finally`` below runs
     on every exit from the wait — normal completion or cancellation —
     and always leaves both tasks cancelled and consumed.
+
+    A second, subtler case: an outer cancel can also arrive *while* this
+    very cleanup is awaiting one of those two tasks — a real stream can
+    take more than one tick to unwind once cancelled. That CancelledError
+    is indistinguishable, by type, from the cleanup's own expected one,
+    so it's suppressed right along with it and would otherwise vanish —
+    leaving the caller's task finishing "normally" instead of cancelled.
+    ``Task.cancelling()`` is the one reliable signal here: it only counts
+    requests aimed at *this* task (never our own ``next_task.cancel()`` /
+    ``cancel_task.cancel()`` calls below), so checking it after cleanup
+    tells us whether an outer cancel is still owed a CancelledError, and
+    we re-raise one if so — without ``uncancel()``, since consuming that
+    request isn't this function's job, only not eating it silently.
     """
     next_task = asyncio.ensure_future(anext(items))
     if cancel is None:
@@ -189,17 +202,24 @@ async def _next_or_cancel(
         )
     finally:
         # On any exit — including an outer CancelledError from here — make
-        # sure neither task is left pending. This does not swallow an
-        # outer cancellation: only CancelledError/StopAsyncIteration from
-        # these two *cleanup* awaits are suppressed, so if the wait above
-        # raised (e.g. the outer task was cancelled), that exception is
-        # left to propagate once this ``finally`` finishes.
+        # sure neither task is left pending.
         for task in (next_task, cancel_task):
             if not task.done():
                 task.cancel()
         for task in (next_task, cancel_task):
-            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+            # Any exception here — including a genuine one from
+            # next_task, which is already surfaced below via
+            # next_task.result() — must not replace an outer
+            # cancellation that lands during this very await.
+            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
                 await task
+        cur = asyncio.current_task()
+        if cur is not None and cur.cancelling() > 0:
+            # An outer cancel arrived during the cleanup above and was
+            # swallowed by the suppress (it's indistinguishable by type
+            # from our own). This is the one case that must not be
+            # silently absorbed: let it propagate.
+            raise asyncio.CancelledError()
 
     if next_task in done:
         try:
@@ -330,11 +350,14 @@ async def run_turn(
             # The generator is normally already closed by this point (via
             # _next_or_cancel's own cleanup on cancellation, or natural
             # exhaustion). Guard against "already running" if some path
-            # ever leaves it mid-``__anext__`` — that RuntimeError must
-            # never replace the real exception/cancellation propagating
-            # out of this block.
-            with contextlib.suppress(RuntimeError):
+            # ever leaves it mid-``__anext__`` — but only that specific
+            # RuntimeError; any other exception from aclose() is real and
+            # must not be swallowed in place of whatever is propagating.
+            try:
                 await items.aclose()
+            except RuntimeError as exc:
+                if "already running" not in str(exc):
+                    raise
 
         if response is None:
             if cancel is not None and cancel.is_set():
