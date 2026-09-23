@@ -26,6 +26,7 @@ call consumes the next one. We verify:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -36,9 +37,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.storage import ConversationStorage
 from mylo.ha.registries import Registries
-from mylo.llm.provider import ProviderResponse, ToolCall
+from mylo.llm.provider import ProviderResponse, StreamDelta, ToolCall
 from mylo.llm.tool_loop import (
     DoneEvent,
+    StatusEvent,
+    TextDeltaEvent,
     TextEvent,
     ToolCallEvent,
     ToolResultEvent,
@@ -562,3 +565,164 @@ async def test_identical_read_calls_deduped_and_nudged(
         if isinstance(b, dict) and b.get("type") == "text"
     ]
     assert any("already fetched" in t.lower() for t in text_blocks)
+
+
+# ─── Streaming + status + cancel ────────────────────────────────────────────
+
+
+class _FakeStreamingProvider:
+    """Each scripted call is a list of StreamDelta / ProviderResponse items.
+    A ``None`` item blocks forever (simulates a model call in progress)."""
+
+    def __init__(self, scripted: list[list[Any]]) -> None:
+        self._queue = list(scripted)
+        self.calls: list[dict[str, Any]] = []
+
+    async def message(self, **kwargs: Any) -> ProviderResponse:  # pragma: no cover
+        raise AssertionError("streaming provider must be driven through stream()")
+
+    async def stream(self, **kwargs: Any) -> Any:
+        self.calls.append(kwargs)
+        if not self._queue:
+            raise AssertionError("fake provider ran out of scripted responses")
+        for item in self._queue.pop(0):
+            if item is None:
+                await asyncio.Event().wait()
+            yield item
+
+
+async def _run(provider: Any, conv: ConversationManager, tmp_path: Path, **kw: Any) -> list[Any]:
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+    return [
+        e
+        async for e in run_turn(
+            user_message="hi",
+            conversation=conv,
+            provider=provider,
+            ctx=ctx,
+            system="you are a test",
+            tools=[],
+            model="fake-model",
+            **kw,
+        )
+    ]
+
+
+async def test_streaming_provider_yields_deltas_then_final_text(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    provider = _FakeStreamingProvider(
+        [[StreamDelta(text="Hel"), StreamDelta(text="lo"), _text_turn("Hello")]]
+    )
+    events = await _run(provider, _conv, tmp_path)
+    kinds = [type(e).__name__ for e in events]
+    assert kinds == ["StatusEvent", "TextDeltaEvent", "TextDeltaEvent", "TextEvent", "DoneEvent"]
+    assert [e.text for e in events if isinstance(e, TextDeltaEvent)] == ["Hel", "lo"]
+    assert events[3].text == "Hello"
+    assert events[0].phase == "thinking" and events[0].label == "Thinking"
+    assert _conv.history[-1]["content"] == [{"type": "text", "text": "Hello"}]
+
+
+async def test_non_streaming_provider_yields_no_deltas(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    provider = _FakeProvider([_text_turn("Hello")])
+    events = await _run(provider, _conv, tmp_path)
+    assert not any(isinstance(e, TextDeltaEvent) for e in events)
+    assert [e.text for e in events if isinstance(e, TextEvent)] == ["Hello"]
+
+
+async def test_status_events_name_each_tool(tmp_path: Path, _conv: ConversationManager) -> None:
+    provider = _FakeProvider([_tool_turn("t1", "echo", {"value": 1}), _text_turn("done")])
+    events = await _run(provider, _conv, tmp_path)
+    statuses = [(e.phase, e.tool) for e in events if isinstance(e, StatusEvent)]
+    assert statuses == [("thinking", None), ("tool", "echo"), ("thinking", None)]
+    tool_status = next(e for e in events if isinstance(e, StatusEvent) and e.phase == "tool")
+    assert tool_status.label == "Working"  # "echo" is a test-only tool → fallback
+    # The status precedes the tool's result but follows its call event.
+    order = [type(e).__name__ for e in events]
+    assert order.index("ToolCallEvent") < order.index("ToolResultEvent")
+    assert order[order.index("ToolCallEvent") + 1] == "StatusEvent"
+
+
+async def test_cancel_before_call_skips_provider(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    provider = _FakeProvider([_text_turn("never")])
+    cancel = asyncio.Event()
+    cancel.set()
+    events = await _run(provider, _conv, tmp_path, cancel=cancel)
+    assert provider.calls == []
+    done = events[-1]
+    assert isinstance(done, DoneEvent) and done.stop_reason == "cancelled"
+    assert any(isinstance(e, StatusEvent) and e.phase == "cancelled" for e in events)
+    assert [e.text for e in events if isinstance(e, TextEvent)] == ["Stopped."]
+    assert _conv.history[-1]["role"] == "assistant"
+    assert _conv.history[-1]["content"] == [{"type": "text", "text": "Stopped."}]
+
+
+async def test_cancel_during_call_keeps_partial_text(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    provider = _FakeStreamingProvider([[StreamDelta(text="Partial"), None]])
+    cancel = asyncio.Event()
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+    events: list[Any] = []
+    async for e in run_turn(
+        user_message="hi",
+        conversation=_conv,
+        provider=provider,
+        ctx=ctx,
+        system="s",
+        tools=[],
+        model="m",
+        cancel=cancel,
+    ):
+        events.append(e)
+        if isinstance(e, TextDeltaEvent):
+            cancel.set()
+    assert isinstance(events[-1], DoneEvent) and events[-1].stop_reason == "cancelled"
+    assert [e.text for e in events if isinstance(e, TextEvent)] == ["Partial"]
+    assert _conv.history[-1]["content"] == [{"type": "text", "text": "Partial"}]
+
+
+async def test_cancel_during_tool_lets_tool_finish(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    cancel = asyncio.Event()
+
+    async def _cancelling_handler(params: _Params, _ctx: Any) -> ToolResult:
+        cancel.set()
+        return ToolResult.ok({"echoed": params.value})
+
+    tool_registry.register(
+        ToolDefinition(
+            name="cancelling",
+            description="sets cancel while running",
+            params_model=_Params,
+            tier=Tier.READ,
+            handler=_cancelling_handler,
+        )
+    )
+    provider = _FakeProvider([_tool_turn("t1", "cancelling", {"value": 3}), _text_turn("never")])
+    events = await _run(provider, _conv, tmp_path, cancel=cancel)
+    results = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert len(results) == 1 and results[0].status == "ok"
+    assert len(provider.calls) == 1
+    assert isinstance(events[-1], DoneEvent) and events[-1].stop_reason == "cancelled"
+    roles = [m["role"] for m in _conv.history]
+    assert roles == ["user", "assistant", "user", "assistant"]
+    assert _conv.history[-1]["content"] == [{"type": "text", "text": "Stopped."}]
+
+
+async def test_stream_error_after_deltas_persists_partial_and_raises(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    class _Boom(_FakeStreamingProvider):
+        async def stream(self, **kwargs: Any) -> Any:
+            yield StreamDelta(text="half")
+            raise RuntimeError("stream died")
+
+    with pytest.raises(RuntimeError, match="stream died"):
+        await _run(_Boom([]), _conv, tmp_path)
+    assert _conv.history[-1]["content"] == [{"type": "text", "text": "half"}]

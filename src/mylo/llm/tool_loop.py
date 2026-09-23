@@ -18,6 +18,9 @@ Given a provider, a conversation, a system prompt, and a tool context,
 :func:`run_turn` yields a stream of typed events:
 
 * :class:`TextEvent` — something the model said.
+* :class:`TextDeltaEvent` — a chunk of assistant text while streaming.
+* :class:`StatusEvent` — what the loop is doing right now (thinking / tool /
+  cancelled), for a live status panel.
 * :class:`ToolCallEvent` — about to execute a tool.
 * :class:`ToolResultEvent` — tool finished with this result.
 * :class:`DoneEvent` — turn over.
@@ -29,15 +32,18 @@ turns; the bound prevents runaway loops on misbehaving models.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.summarize import compress_old_tool_results
 from mylo.llm.cost import cache_hit_ratio, estimate_usd
-from mylo.llm.provider import Provider, ProviderMessage
+from mylo.llm.provider import Provider, ProviderMessage, ProviderResponse, StreamDelta
+from mylo.llm.status_labels import CANCELLED_LABEL, THINKING_LABEL, label_for
 from mylo.logging_setup import get_logger
 from mylo.tools.base import Tier
 from mylo.tools.context import ToolContext
@@ -99,8 +105,101 @@ class DoneEvent:
     truncated: bool = False
 
 
+@dataclass(slots=True)
+class TextDeltaEvent:
+    """A chunk of assistant text while the model call is still running.
+    The full text arrives afterwards as :class:`TextEvent`; consumers that
+    paint deltas replace them with that final text."""
+
+    text: str
+
+
+@dataclass(slots=True)
+class StatusEvent:
+    """What the loop is doing right now, in plain words for the panel.
+
+    ``phase`` is ``"thinking"`` (about to call the model), ``"tool"``
+    (about to run ``tool``), or ``"cancelled"`` (the loop honoured a stop
+    request and is ending the turn).
+    """
+
+    phase: str
+    tool: str | None
+    label: str
+
+
 # Union type alias for consumers.
-LoopEvent = TextEvent | ToolCallEvent | ToolResultEvent | DoneEvent
+LoopEvent = TextEvent | TextDeltaEvent | StatusEvent | ToolCallEvent | ToolResultEvent | DoneEvent
+
+# Assistant text persisted when a turn is stopped before any text arrived,
+# so history keeps its user/assistant alternation and the panel has
+# something to show.
+STOPPED_TEXT = "Stopped."
+
+
+class _Sentinel:
+    pass
+
+
+_CANCELLED = _Sentinel()
+_EXHAUSTED = _Sentinel()
+
+
+async def _provider_items(
+    provider: Provider,
+    **kwargs: Any,
+) -> AsyncGenerator[StreamDelta | ProviderResponse, None]:
+    """Drive ``provider.stream`` when it exists, else wrap ``message``."""
+    stream_fn = getattr(provider, "stream", None)
+    if stream_fn is None:
+        yield await provider.message(**kwargs)
+        return
+    async for item in stream_fn(**kwargs):
+        yield item
+
+
+async def _next_or_cancel(
+    items: AsyncGenerator[StreamDelta | ProviderResponse, None],
+    cancel: asyncio.Event | None,
+) -> StreamDelta | ProviderResponse | _Sentinel:
+    """Await the next provider item, or ``_CANCELLED`` if ``cancel`` fires
+    first (the pending fetch is cancelled, which closes the HTTP stream)."""
+    next_task = asyncio.ensure_future(anext(items))
+    if cancel is None:
+        try:
+            return await next_task
+        except StopAsyncIteration:
+            return _EXHAUSTED
+    cancel_task = asyncio.ensure_future(cancel.wait())
+    done, _pending = await asyncio.wait(
+        {next_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
+    )
+    if next_task in done:
+        cancel_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cancel_task
+        try:
+            return next_task.result()
+        except StopAsyncIteration:
+            return _EXHAUSTED
+    next_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+        await next_task
+    return _CANCELLED
+
+
+async def _persist_stop(
+    conversation: ConversationManager,
+    partial: list[str],
+    prompt_version: str | None,
+) -> list[LoopEvent]:
+    """Append the stopped turn's assistant text and return the events that
+    tell consumers about it (final text, then the cancelled status)."""
+    text = "".join(partial) or STOPPED_TEXT
+    await conversation.append(
+        "assistant", [{"type": "text", "text": text}], prompt_version=prompt_version
+    )
+    return [TextEvent(text=text), StatusEvent(phase="cancelled", tool=None, label=CANCELLED_LABEL)]
 
 
 # ─── Loop ────────────────────────────────────────────────────────────────────
@@ -117,12 +216,17 @@ async def run_turn(
     model: str,
     max_iterations: int = 25,
     prompt_version: str | None = None,
+    cancel: asyncio.Event | None = None,
 ) -> AsyncIterator[LoopEvent]:
     """Run one user-initiated turn to completion.
 
     Appends the user message, then loops: call the model, emit text +
     tool calls, execute each tool, feed results back, call the model
     again. Stops when the model declares end of turn.
+
+    cancel — when set, the loop stops before the next model call or after
+    the current tool batch; a model call in flight is aborted and its
+    partial text kept. Tools are never interrupted.
     """
     await conversation.append("user", user_message, prompt_version=prompt_version)
 
@@ -168,12 +272,49 @@ async def run_turn(
             log.warning("llm.empty_messages_fallback")
             messages = [ProviderMessage(role="user", content=user_message)]
 
-        response = await provider.message(
-            system=system,
-            messages=messages,
-            tools=tools,
-            model=model,
+        yield StatusEvent(phase="thinking", tool=None, label=THINKING_LABEL)
+        if cancel is not None and cancel.is_set():
+            for ev in await _persist_stop(conversation, [], prompt_version):
+                yield ev
+            stop_reason = "cancelled"
+            break
+
+        partial: list[str] = []
+        response: ProviderResponse | None = None
+        items = _provider_items(
+            provider, system=system, messages=messages, tools=tools, model=model
         )
+        try:
+            while True:
+                item = await _next_or_cancel(items, cancel)
+                if isinstance(item, _Sentinel):
+                    break
+                if isinstance(item, StreamDelta):
+                    partial.append(item.text)
+                    yield TextDeltaEvent(text=item.text)
+                else:
+                    response = item
+        except Exception:
+            # The stream died after (maybe) some text reached the panel.
+            # Keep what we have so history stays a valid alternation, then
+            # let the route report the error.
+            if partial:
+                await conversation.append(
+                    "assistant",
+                    [{"type": "text", "text": "".join(partial)}],
+                    prompt_version=prompt_version,
+                )
+            raise
+        finally:
+            await items.aclose()
+
+        if response is None:
+            if cancel is not None and cancel.is_set():
+                for ev in await _persist_stop(conversation, partial, prompt_version):
+                    yield ev
+                stop_reason = "cancelled"
+                break
+            raise RuntimeError("provider stream ended without a final response")
 
         for key, value in response.usage.items():
             usage_total[key] = usage_total.get(key, 0) + value
@@ -203,6 +344,7 @@ async def run_turn(
         nudge_repeat = False
         for call in response.tool_calls:
             yield ToolCallEvent(name=call.name, input=call.input, id=call.id)
+            yield StatusEvent(phase="tool", tool=call.name, label=label_for(call.name))
             read_key = _read_call_key(call.name, call.input)
             if read_key is not None and read_key in seen_reads:
                 # Identical read already run this turn — reuse it, don't
@@ -249,6 +391,12 @@ async def run_turn(
                 }
             )
         await conversation.append("user", result_blocks, prompt_version=prompt_version)
+
+        if cancel is not None and cancel.is_set():
+            for ev in await _persist_stop(conversation, [], prompt_version):
+                yield ev
+            stop_reason = "cancelled"
+            break
 
         # ask_user pauses the turn HERE — after the tool_result is
         # persisted (the next turn's history and UI hydration need it),
