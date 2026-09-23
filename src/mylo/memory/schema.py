@@ -337,6 +337,10 @@ class MemoryFile(BaseModel):
     version: int = 2
     last_sync: str | None = None
     sync_hash: str | None = None
+    # Set when the most recent nightly reconcile did not produce a merge;
+    # cleared by the next successful one. Drives the header/Memory tab.
+    last_sync_error: str | None = None
+    last_sync_attempt: str | None = None
 
     household: Household = Field(default_factory=Household)
     preferences: Preferences = Field(default_factory=Preferences)

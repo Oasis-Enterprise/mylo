@@ -37,6 +37,7 @@ without circular imports.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -44,6 +45,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from mylo.logging_setup import get_logger
+from mylo.monitor.sync_outcome import SYNC_NOOP_PREFIX, apply_sync_outcome
 
 if TYPE_CHECKING:
     from aiohttp import web
@@ -169,6 +171,8 @@ async def _nightly_job(app: web.Application) -> None:
     log.info("nightly.started")
 
     # 1. Memory reconciliation.
+    sync_failed = False
+    sync_summary = ""
     try:
         from typing import cast
 
@@ -202,16 +206,24 @@ async def _nightly_job(app: web.Application) -> None:
             log.info("nightly.prune_only", dropped=result.prune_report.total)
 
         if result.conflicts_added > 0:
-            from datetime import UTC, datetime
-
             mem = store.current()
             if record_sync_conflicts(
                 mem, conflicts_added=result.conflicts_added, now=datetime.now(UTC)
             ):
                 await store.save(mem, note="nightly: sync conflict finding")
+        sync_summary = result.summary
+        sync_failed = result.updated is None and not result.summary.startswith(SYNC_NOOP_PREFIX)
         log.info("nightly.sync_done", summary=result.summary)
-    except Exception:
+    except Exception as exc:
         log.exception("nightly.sync_failed")
+        sync_failed = True
+        sync_summary = f"{type(exc).__name__}: {exc}"
+    try:
+        mem = store.current()
+        if apply_sync_outcome(mem, summary=sync_summary, failed=sync_failed, now=datetime.now(UTC)):
+            await store.save(mem, note="nightly: sync outcome")
+    except Exception:
+        log.exception("nightly.sync_outcome_failed")
 
     # 2. Baseline recompute.
     try:

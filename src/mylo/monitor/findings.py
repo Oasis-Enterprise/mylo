@@ -182,6 +182,15 @@ def dismiss_finding(memory: MemoryFile, finding_id: str, now: datetime) -> bool:
     return False
 
 
+def remove_finding(memory: MemoryFile, finding_id: str) -> bool:
+    """Delete a finding outright (no cooldown) — for conditions that cleared."""
+    for pa in memory.pending_actions:
+        if pa.id == finding_id:
+            memory.pending_actions.remove(pa)
+            return True
+    return False
+
+
 def dismiss_all(memory: MemoryFile, now: datetime) -> int:
     """Dismiss everything currently in the store."""
     count = len(memory.pending_actions)

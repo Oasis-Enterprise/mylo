@@ -310,3 +310,14 @@ def test_sync_conflicts_respect_suppression() -> None:
 
     assert changed is False
     assert memory.pending_actions == []
+
+
+def test_remove_finding_deletes_without_cooldown() -> None:
+    from mylo.monitor.findings import remove_finding
+
+    memory = empty_memory()
+    _upsert(memory)
+    assert remove_finding(memory, "duration_anomaly_light.kitchen") is True
+    assert memory.pending_actions == []
+    assert not in_cooldown(memory, "duration_anomaly", "light.kitchen", NOW)
+    assert remove_finding(memory, "missing") is False
