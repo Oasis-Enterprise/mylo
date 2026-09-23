@@ -230,3 +230,28 @@ export interface StagedCardData {
   config_example: Record<string, unknown> | null;
   description: string;
 }
+
+// ─── Derived turn state ─────────────────────────────────────────────────────
+
+export interface QuestionOption {
+  label: string;
+  value?: string;
+  description?: string;
+}
+
+export interface PendingQuestion {
+  question: string;
+  options: QuestionOption[];
+  allowFreeText: boolean;
+}
+
+// One previewed change awaiting approval, as rendered by ApprovalCard /
+// DashboardPlanCard.
+export interface ApprovalContext {
+  description: string;
+  diff?: { before: string; after: string };
+  meta?: string;
+  tierLabel: string;
+  plan?: DashboardPlanData;
+  card?: StagedCardData;
+}

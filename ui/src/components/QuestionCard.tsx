@@ -13,18 +13,7 @@
 // limitations under the License.
 
 import { StatusDot } from "./StatusDot";
-
-export interface QuestionOption {
-  label: string;
-  value?: string;
-  description?: string;
-}
-
-export interface PendingQuestion {
-  question: string;
-  options: QuestionOption[];
-  allowFreeText: boolean;
-}
+import type { PendingQuestion } from "../types";
 
 interface Props {
   question: PendingQuestion;
