@@ -824,6 +824,7 @@ async def test_outer_cancel_during_cleanup_still_propagates(
     provider = _SlowUnwindStreamProvider()
     ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
     cancel = asyncio.Event()
+    got_delta = asyncio.Event()
 
     async def _consume() -> None:
         async for e in run_turn(
@@ -837,11 +838,18 @@ async def test_outer_cancel_during_cleanup_still_propagates(
             cancel=cancel,
         ):
             if isinstance(e, TextDeltaEvent):
-                cancel.set()
+                got_delta.set()
 
     before = asyncio.all_tasks()
     task = asyncio.create_task(_consume())
-    await asyncio.sleep(0.01)
+    await got_delta.wait()
+    cancel.set()
+    # Give the loop two ticks to re-enter _next_or_cancel on the delta's
+    # heels, see `cancel` already set, and start cancelling next_task —
+    # landing it inside the fake's 50ms unwind, where the outer
+    # task.cancel() below actually lands mid-cleanup instead of before it.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
