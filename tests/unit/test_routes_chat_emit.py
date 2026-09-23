@@ -112,6 +112,38 @@ async def test_cancel_endpoint_sets_event_only_while_turn_active(tmp_path) -> No
     assert conv.cancel_requested.is_set()
 
 
+async def test_status_payload_carries_trust_fields(tmp_path) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from mylo.files.verifications import VerificationLog
+    from mylo.server.app import AppKeys
+    from mylo.server.routes_chat import _handle_status
+
+    vlog = VerificationLog(tmp_path / "v.json")
+    v = vlog.start(tool="modify_automation", target="automation porch", conversation_id="c")
+    vlog.complete(v.id, status="verified", message="ok")
+
+    config = SimpleNamespace(model="claude-sonnet-4-6", llm_provider="anthropic")
+    # AppKeys.REGISTRIES, MEMORY, CONVERSATION and LAST_TURN are deliberately
+    # absent — the handler must fall back gracefully via .get(), not KeyError.
+    request = SimpleNamespace(
+        app={
+            AppKeys.CONFIG: config,
+            AppKeys.VERIFICATIONS: vlog,
+        }
+    )
+
+    resp = await _handle_status(request)  # type: ignore[arg-type]
+    payload = json.loads(resp.body)
+
+    assert payload["model"] == "claude-sonnet-4-6"
+    assert payload["provider"] == "anthropic"
+    assert payload["verifications"] == [v.to_dict()]
+    assert payload["memory"]["last_sync_error"] is None
+    assert payload["turn_active"] is False
+
+
 async def test_ack_verification_endpoint(tmp_path) -> None:
     import json
     from types import SimpleNamespace
@@ -129,3 +161,16 @@ async def test_ack_verification_endpoint(tmp_path) -> None:
     assert log.unacknowledged() == []
     missing = SimpleNamespace(app={AppKeys.VERIFICATIONS: log}, match_info={"id": "vf_nope"})
     assert json.loads((await _handle_ack_verification(missing)).body) == {"ok": False}  # type: ignore[arg-type]
+
+
+async def test_ack_verification_endpoint_without_verification_log() -> None:
+    """No VerificationLog configured (e.g. degraded startup) → ok False,
+    not a KeyError."""
+    import json
+    from types import SimpleNamespace
+
+    from mylo.server.routes_chat import _handle_ack_verification
+
+    request = SimpleNamespace(app={}, match_info={"id": "vf_whatever"})
+    resp = await _handle_ack_verification(request)  # type: ignore[arg-type]
+    assert json.loads(resp.body) == {"ok": False}

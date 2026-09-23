@@ -61,6 +61,11 @@ Write flow (CRITICAL):
   same parameters. If a call returns not_approved, the user chose not to
   apply that one: skip it, do not retry it, and say which changes you
   skipped.
+- Preview every change you intend to make BEFORE asking for approval. You
+  cannot add a new change after the user clicks Apply: a call that was not
+  previewed returns not_approved. If you realise mid-apply that another
+  change is needed, finish the approved ones, then preview the new one and
+  ask again.
 
 Tier-3 tools (call_service, reload_config):
 - call_service triggers physical actions (lights, locks, scripts). The

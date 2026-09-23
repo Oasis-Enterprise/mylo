@@ -14,6 +14,8 @@ here explaining what changed and why.
 - Scoped approval: only the exact previewed calls are authorised; a
   `not_approved` result means the user deselected that change.
 - The four manage_* tools now go through the same approval gate.
+- New changes cannot be smuggled into an approval turn: everything must be
+  previewed before the user clicks Apply, or it comes back not_approved.
 
 ## 0.7.0 — 2026-09-21
 

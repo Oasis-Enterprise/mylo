@@ -171,7 +171,9 @@ async def _handle_ack_verification(request: web.Request) -> web.Response:
     """Hide one verification card. Idempotent; unknown id → ok False."""
     from mylo.server.app import AppKeys
 
-    vlog = request.app[AppKeys.VERIFICATIONS]
+    vlog = request.app.get(AppKeys.VERIFICATIONS)
+    if vlog is None:
+        return web.json_response({"ok": False})
     return web.json_response({"ok": vlog.acknowledge(request.match_info["id"])})
 
 

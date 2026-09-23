@@ -122,6 +122,20 @@ async def test_refuses_unapproved(tmp_path: Path) -> None:
     assert not (tmp_path / "www" / "mylo-cards" / "mylo-entity-row.js").exists()
 
 
+async def test_handler_refuses_id_absent_even_with_wildcard_present(tmp_path: Path) -> None:
+    # The executor's scoped-approval gate honours the in-process "*"
+    # wildcard, but the handler's own approved_plan_ids check must not —
+    # calling the handler directly (bypassing execute()) proves that.
+    from mylo.tools.write.apply_custom_card import ApplyCustomCardParams, handler
+
+    client, store = _Client(), CardStore()
+    card_id = await _staged(tmp_path, client, store)
+    ctx = _apply_ctx(tmp_path, client, store, card_id, approved_plan_ids=frozenset({"*"}))
+    result = await handler(ApplyCustomCardParams(card_id=card_id), ctx)
+    assert result.error_code == "card_not_approved"
+    assert not (tmp_path / "www" / "mylo-cards" / "mylo-entity-row.js").exists()
+
+
 async def test_unknown_card(tmp_path: Path) -> None:
     client, store = _Client(), CardStore()
     result = await execute(

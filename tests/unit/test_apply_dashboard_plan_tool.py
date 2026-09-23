@@ -152,6 +152,22 @@ async def test_refuses_unapproved_plan(tmp_path: Path) -> None:
     assert store.get(plan_id) is not None
 
 
+async def test_handler_refuses_id_absent_even_with_wildcard_present(tmp_path: Path) -> None:
+    # The executor's scoped-approval gate honours the in-process "*"
+    # wildcard, but the handler's own approved_plan_ids check must not —
+    # calling the handler directly (bypassing execute()) proves that.
+    from mylo.tools.write.apply_dashboard_plan import ApplyDashboardPlanParams, handler
+
+    client = _FakeClient(_dashboard())
+    store = PlanStore()
+    plan_id = await _staged(tmp_path, client, store, OPS)
+    ctx = _apply_ctx(tmp_path, client, store, plan_id, approved_plan_ids=frozenset({"*"}))
+    result = await handler(ApplyDashboardPlanParams(plan_id=plan_id), ctx)
+    assert result.error_code == "plan_not_approved"
+    assert client.saves() == []
+    assert store.get(plan_id) is not None
+
+
 async def test_requires_tier2_approval_flag(tmp_path: Path) -> None:
     client = _FakeClient(_dashboard())
     store = PlanStore()
