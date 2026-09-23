@@ -5,6 +5,23 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] — 2026-09-22
+
+### Added
+- **Mylo tells you when a change is actually verified.** Writes that Home Assistant reloads in the background now say "applied, verifying", and the real outcome (verified, failed, rolled back) appears as a card in the chat and is known to Mylo on your next message.
+- **A failed nightly memory sync is visible.** The header and Memory tab show "sync failed" with the reason, and a finding appears in the catch-up banner. It clears itself on the next good sync.
+- **Approve exactly what you saw.** Each previewed change carries an id; Apply authorises only those. When several changes are previewed you can tick which ones to apply. Deletions get a red Apply and a "Deletes:" line.
+- Mylo states where the backup is after every write.
+
+### Changed
+- Session cost is priced against the configured model and provider (local models show $0.00).
+- `manage_helpers`, `manage_labels`, `manage_monitored` and `manage_notification_filters` go through the standard approval gate.
+
+### Developer
+- `VerificationLog` (`.mylo/verifications.json`), `/api/status.verifications`, `POST /api/verifications/{id}/ack`.
+- Executor `preview_id` fingerprints; new `not_approved` error; `ToolDefinition.approval_key` / `free_actions`.
+- Prompt 0.8.0.
+
 ## [1.7.0] — 2026-09-22
 
 ### Added
