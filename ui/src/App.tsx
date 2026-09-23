@@ -82,6 +82,12 @@ export default function App() {
   // Unacknowledged background-verification outcomes from the last
   // status poll — rendered as dismissible cards in the chat stream.
   const [verifications, setVerifications] = useState<VerificationData[]>([]);
+  // Ids dismissed locally. A poll can land before the ack round-trip
+  // persists server-side (or the ack can fail outright), so we filter
+  // dismissed ids out of every status response rather than trusting
+  // the server to have caught up — once the user asked for it gone,
+  // it stays gone for this session regardless.
+  const dismissedVerifications = useRef<Set<string>>(new Set());
   const endRef = useRef<HTMLDivElement>(null);
   const recordTurn = useSession((s) => s.recordTurn);
   const resetSession = useSession((s) => s.reset);
@@ -91,12 +97,15 @@ export default function App() {
   const handleStatus = useCallback(
     (s: ServerStatus) => {
       if (s.model) setModel(s.model, s.provider);
-      setVerifications(s.verifications ?? []);
+      setVerifications(
+        (s.verifications ?? []).filter((v) => !dismissedVerifications.current.has(v.id)),
+      );
     },
     [setModel],
   );
 
   const handleDismissVerification = useCallback(async (id: string) => {
+    dismissedVerifications.current.add(id);
     setVerifications((prev) => prev.filter((v) => v.id !== id));
     await ackVerification(id);
   }, []);
