@@ -64,6 +64,7 @@ from mylo.llm.tool_loop import (
     run_turn,
 )
 from mylo.logging_setup import get_logger
+from mylo.safety.approval import WILDCARD
 
 log = get_logger(__name__)
 
@@ -110,12 +111,13 @@ def _approved_plan_ids_from_body(body: dict[str, Any]) -> frozenset[str]:
     Tolerant of garbage: a missing/non-list field yields no approvals, and
     non-string or empty-string entries within the list are dropped rather
     than raising — a malformed request should degrade to "nothing approved"
-    instead of a 500.
+    instead of a 500. The ``"*"`` wildcard is only valid in-process (tests,
+    internal callers) — a request arriving over HTTP can never carry it.
     """
     raw = body.get("approved_plan_ids")
     if not isinstance(raw, list):
         return frozenset()
-    return frozenset(p for p in raw if isinstance(p, str) and p)
+    return frozenset(p for p in raw if isinstance(p, str) and p and p != WILDCARD)
 
 
 def _sse_for(event: LoopEvent) -> tuple[str, dict[str, Any]] | None:

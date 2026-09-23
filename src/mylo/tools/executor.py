@@ -38,10 +38,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from mylo.logging_setup import get_logger
+from mylo.safety.approval import WILDCARD, preview_id
 from mylo.safety.audit import make_entry
 from mylo.safety.permissions import PermissionDecision
 from mylo.tools import registry as tool_registry
-from mylo.tools.base import Tier, ToolResult
+from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 
 log = get_logger(__name__)
@@ -126,8 +127,13 @@ async def execute(
     # context — the LLM asks for dry runs per-call. Extract it early so
     # the permission check can allow tier-2 previews without approval.
     tool_dry_run = _dry_run_from_params(raw_params)
+    effective_tier = tool.tier
+    if tool.free_actions and (raw_params or {}).get("action") in tool.free_actions:
+        effective_tier = Tier.READ
+    approval_id = _approval_id(tool, raw_params)
+
     decision: PermissionDecision = ctx.permissions.check(
-        tier=tool.tier,
+        tier=effective_tier,
         conversation_id=ctx.conversation_id,
         user_approved=ctx.user_approved,
         dry_run=tool_dry_run,
@@ -136,17 +142,40 @@ async def execute(
         await _audit(
             ctx,
             tool_name=tool.name,
-            tier=int(tool.tier),
+            tier=int(effective_tier),
             params=raw_params,
             dry_run=ctx.dry_run,
             user_approved=ctx.user_approved,
             result="denied",
             details={"reason_code": decision.reason_code},
         )
-        return ToolResult.error(
-            decision.reason_code,
-            decision.reason_message,
+        data = (
+            {"preview_id": approval_id, "tool": tool.name, "params": raw_params}
+            if decision.reason_code == "confirmation_required"
+            else None
         )
+        return ToolResult.error(decision.reason_code, decision.reason_message, data=data)
+
+    # Scoped approval: an approved turn authorises only the exact calls
+    # the user saw. Plan/card ids and fingerprints share one set.
+    if effective_tier is not Tier.READ and not tool_dry_run:
+        approved = ctx.approved_plan_ids
+        if approval_id not in approved and WILDCARD not in approved:
+            await _audit(
+                ctx,
+                tool_name=tool.name,
+                tier=int(effective_tier),
+                params=raw_params,
+                dry_run=False,
+                user_approved=ctx.user_approved,
+                result="denied",
+                details={"reason_code": "not_approved"},
+            )
+            return ToolResult.error(
+                "not_approved",
+                "this exact change was not in the set the user approved — preview it again and wait for Apply",
+                data={"preview_id": approval_id},
+            )
 
     # Cache check for read-only tools — same params within 120s reuse
     # the prior result. Write/action tools are never cached.
@@ -173,10 +202,18 @@ async def execute(
             "handler did not return a ToolResult",
         )
 
+    if (
+        effective_tier is Tier.MODIFY
+        and tool_dry_run
+        and result.status.value == "ok"
+        and isinstance(result.data, dict)
+    ):
+        result.data["preview_id"] = approval_id
+
     await _audit(
         ctx,
         tool_name=tool.name,
-        tier=int(tool.tier),
+        tier=int(effective_tier),
         params=raw_params,
         dry_run=ctx.dry_run,
         user_approved=ctx.user_approved,
@@ -221,6 +258,13 @@ async def _audit(
 def _dry_run_from_params(raw_params: dict[str, Any]) -> bool:
     value = (raw_params or {}).get("dry_run")
     return bool(value)
+
+
+def _approval_id(tool: ToolDefinition[Any], raw_params: dict[str, Any]) -> str:
+    if tool.approval_key:
+        value = (raw_params or {}).get(tool.approval_key)
+        return str(value) if value is not None else ""
+    return preview_id(tool.name, raw_params or {})
 
 
 def _serialize_validation_errors(exc: ValidationError) -> list[dict[str, Any]]:

@@ -116,7 +116,9 @@ async def test_refuses_unapproved(tmp_path: Path) -> None:
         {"card_id": card_id},
         _apply_ctx(tmp_path, client, store, card_id, approved_plan_ids=frozenset()),
     )
-    assert result.error_code == "card_not_approved"
+    # The executor's scoped-approval gate (approval_key="card_id") now
+    # refuses this before the handler's own approved_plan_ids check runs.
+    assert result.error_code == "not_approved"
     assert not (tmp_path / "www" / "mylo-cards" / "mylo-entity-row.js").exists()
 
 

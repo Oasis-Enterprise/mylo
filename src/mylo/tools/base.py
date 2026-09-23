@@ -120,6 +120,13 @@ class ToolDefinition[Params: BaseModel]:
     # ask_user pauses the turn) opt out.
     cacheable: bool = True
 
+    # Tools that bind approval to an id they minted name the parameter
+    # here (apply_dashboard_plan → "plan_id"); otherwise the executor
+    # fingerprints the call with mylo.safety.approval.preview_id.
+    approval_key: str | None = None
+    # Parameter `action` values that are reads and need no approval.
+    free_actions: frozenset[str] = frozenset()
+
     # Providers sometimes want a slightly different shape than pydantic's
     # default JSON schema. Filled lazily via :meth:`json_schema`.
     _schema_cache: dict[str, Any] | None = field(default=None, init=False)

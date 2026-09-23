@@ -243,6 +243,7 @@ async def test_modify_automation_update_requires_existing_id(_ctx: ToolContext) 
 
 async def test_call_service_blocked(_ctx: ToolContext) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "call_service",
         {"domain": "homeassistant", "service": "restart"},
@@ -267,6 +268,7 @@ async def test_call_service_without_approval_blocked(_ctx: ToolContext) -> None:
 
 async def test_call_service_with_approval_invokes_ha(_ctx: ToolContext) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     client: _FakeClient = _ctx.ws_client  # type: ignore[assignment]
     result = await execute(
         "call_service",
@@ -289,6 +291,7 @@ async def test_call_service_with_approval_invokes_ha(_ctx: ToolContext) -> None:
 
 async def test_call_service_restricted_service_adds_warning(_ctx: ToolContext) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "call_service",
         {
@@ -305,11 +308,13 @@ async def test_call_service_restricted_service_adds_warning(_ctx: ToolContext) -
 
 async def test_reload_config_valid_scope(_ctx: ToolContext) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute("reload_config", {"scope": "automation"}, _ctx)
     assert result.status.value == "ok"
 
 
 async def test_reload_config_unknown_scope(_ctx: ToolContext) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute("reload_config", {"scope": "not_a_scope"}, _ctx)
     assert result.error_code == "unknown_scope"

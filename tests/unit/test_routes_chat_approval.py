@@ -37,3 +37,9 @@ def test_make_ctx_carries_card_store(tmp_path) -> None:
     store = CardStore()
     ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path, cards=store)
     assert ctx.cards is store
+
+
+def test_wildcard_is_stripped_from_wire() -> None:
+    assert _approved_plan_ids_from_body({"approved_plan_ids": ["*", "pv_abc"]}) == frozenset(
+        {"pv_abc"}
+    )

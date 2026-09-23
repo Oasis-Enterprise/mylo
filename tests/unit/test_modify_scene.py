@@ -129,6 +129,7 @@ async def test_create_writes_scene_entry(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "modify_scene",
         {
@@ -166,6 +167,7 @@ async def test_create_capture_entities_snapshots_states(
 ) -> None:
     """capture_entities should snapshot current state+attributes from ws."""
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "modify_scene",
         {
@@ -217,6 +219,7 @@ async def test_explicit_entities_win_over_captured(
     """When an entity is both captured and given explicitly, the explicit
     value replaces the snapshot."""
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_scene",
         {
@@ -241,7 +244,7 @@ async def test_update_replaces_scene_entry(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
-
+    _ctx.approved_plan_ids = frozenset({"*"})
     # First create
     await execute(
         "modify_scene",
@@ -297,7 +300,7 @@ async def test_update_dry_run_preview(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
-
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_scene",
         {
@@ -335,7 +338,7 @@ async def test_delete_removes_scene_entry(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
-
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_scene",
         {
@@ -374,6 +377,7 @@ async def test_delete_dry_run_preview(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_scene",
         {
@@ -405,6 +409,7 @@ async def test_delete_dry_run_preview(
 
 async def test_activate_calls_scene_turn_on(_ctx: ToolContext, _client: _FakeClient) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "modify_scene",
         {"action": "activate", "scene_id": "evening_chill", "dry_run": False},
@@ -500,6 +505,7 @@ async def test_activate_requires_scene_id(_ctx: ToolContext) -> None:
 
 async def test_create_duplicate_id_returns_error(_ctx: ToolContext, _client: _FakeClient) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     params = {
         "action": "create",
         "name": "Evening Chill",

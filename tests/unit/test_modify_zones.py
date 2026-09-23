@@ -111,6 +111,7 @@ async def test_create_writes_zone_entry(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "modify_zones",
         {
@@ -150,6 +151,7 @@ async def test_create_uses_default_radius(
 ) -> None:
     """radius defaults to 100 when not supplied."""
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_zones",
         {
@@ -218,7 +220,7 @@ async def test_update_replaces_zone_entry(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
-
+    _ctx.approved_plan_ids = frozenset({"*"})
     # First create
     await execute(
         "modify_zones",
@@ -280,7 +282,7 @@ async def test_update_dry_run_preview(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
-
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_zones",
         {
@@ -335,7 +337,7 @@ async def test_delete_removes_zone_entry(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
-
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_zones",
         {
@@ -375,6 +377,7 @@ async def test_delete_dry_run_preview(
     _ctx: ToolContext, tmp_path: Path, _client: _FakeClient
 ) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_zones",
         {
@@ -521,6 +524,7 @@ async def test_delete_blocked_without_approval(
 ) -> None:
     """Attempting delete with dry_run=false but no approval must be blocked."""
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     await execute(
         "modify_zones",
         {
@@ -549,6 +553,7 @@ async def test_delete_blocked_without_approval(
 
 async def test_create_duplicate_id_returns_error(_ctx: ToolContext, _client: _FakeClient) -> None:
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     params = {
         "action": "create",
         "name": "Work",

@@ -145,7 +145,9 @@ async def test_refuses_unapproved_plan(tmp_path: Path) -> None:
     plan_id = await _staged(tmp_path, client, store, OPS)
     ctx = _apply_ctx(tmp_path, client, store, plan_id, approved_plan_ids=frozenset())
     result = await execute("apply_dashboard_plan", {"plan_id": plan_id}, ctx)
-    assert result.error_code == "plan_not_approved"
+    # The executor's scoped-approval gate (approval_key="plan_id") now
+    # refuses this before the handler's own approved_plan_ids check runs.
+    assert result.error_code == "not_approved"
     assert client.saves() == []
     assert store.get(plan_id) is not None
 

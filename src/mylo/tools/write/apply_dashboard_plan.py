@@ -157,5 +157,6 @@ TOOL = ToolDefinition(
     params_model=ApplyDashboardPlanParams,
     tier=Tier.MODIFY,
     handler=handler,
+    approval_key="plan_id",
 )
 register(TOOL)

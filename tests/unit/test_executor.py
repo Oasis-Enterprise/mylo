@@ -213,3 +213,100 @@ async def test_invalidate_clears_cached_result(tmp_path: Path) -> None:
 
     await execute("cached", {"n": 2}, _ctx(tmp_path))
     assert calls == [2, 2]
+
+
+# ─── Scoped approval ──────────────────────────────────────────────────────────
+
+
+class _WriteParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: str = "create"
+    dry_run: bool = False
+
+
+async def _write(params: _WriteParams, _ctx: Any) -> ToolResult:
+    return ToolResult.ok({"preview": params.dry_run, "action": params.action})
+
+
+def _define_write(**kw: Any) -> ToolDefinition[_WriteParams]:
+    t = ToolDefinition(
+        name="w", description="t", params_model=_WriteParams, tier=Tier.MODIFY, handler=_write, **kw
+    )
+    tool_registry.register(t)
+    return t
+
+
+async def test_dry_run_preview_carries_preview_id(tmp_path: Path) -> None:
+    from mylo.safety.approval import preview_id
+
+    _define_write()
+    result = await execute("w", {"action": "create", "dry_run": True}, _ctx(tmp_path))
+    assert result.status.value == "ok"
+    assert result.data["preview_id"] == preview_id("w", {"action": "create"})
+
+
+async def test_unapproved_write_is_confirmation_required_with_preview_id(tmp_path: Path) -> None:
+    _define_write()
+    result = await execute("w", {"action": "create"}, _ctx(tmp_path))
+    assert result.error_code == "confirmation_required"
+    assert result.data["preview_id"].startswith("pv_")
+    assert result.data["tool"] == "w" and result.data["params"] == {"action": "create"}
+
+
+async def test_approved_but_different_call_is_not_approved(tmp_path: Path) -> None:
+    from mylo.safety.approval import preview_id
+
+    _define_write()
+    approved = frozenset({preview_id("w", {"action": "create"})})
+    ctx = _ctx(tmp_path, user_approved=True, approved_plan_ids=approved)
+    ok = await execute("w", {"action": "create"}, ctx)
+    assert ok.status.value == "ok" and ok.data["preview"] is False
+    other = await execute("w", {"action": "delete"}, ctx)
+    assert other.error_code == "not_approved"
+    assert other.data["preview_id"] == preview_id("w", {"action": "delete"})
+
+
+async def test_wildcard_approves_anything_in_process(tmp_path: Path) -> None:
+    _define_write()
+    ctx = _ctx(tmp_path, user_approved=True)  # make_ctx defaults to {"*"}
+    assert (await execute("w", {"action": "delete"}, ctx)).status.value == "ok"
+
+
+async def test_free_action_needs_no_approval_and_is_not_cached(tmp_path: Path) -> None:
+    _define_write(free_actions=frozenset({"list"}))
+    first = await execute("w", {"action": "list"}, _ctx(tmp_path))
+    assert first.status.value == "ok"
+    second = await execute("w", {"action": "list"}, _ctx(tmp_path))
+    assert second is not first
+
+
+async def test_approval_key_uses_param_as_id(tmp_path: Path) -> None:
+    class _P2(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        plan_id: str
+
+    async def _apply(params: _P2, _ctx: Any) -> ToolResult:
+        return ToolResult.ok({"applied": params.plan_id})
+
+    tool_registry.register(
+        ToolDefinition(
+            name="ap",
+            description="t",
+            params_model=_P2,
+            tier=Tier.MODIFY,
+            handler=_apply,
+            approval_key="plan_id",
+        )
+    )
+    ok = await execute(
+        "ap",
+        {"plan_id": "p1"},
+        _ctx(tmp_path, user_approved=True, approved_plan_ids=frozenset({"p1"})),
+    )
+    assert ok.status.value == "ok"
+    no = await execute(
+        "ap",
+        {"plan_id": "p2"},
+        _ctx(tmp_path, user_approved=True, approved_plan_ids=frozenset({"p1"})),
+    )
+    assert no.error_code == "not_approved"

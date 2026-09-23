@@ -22,8 +22,9 @@ Users currently have to create these one at a time through
 Settings → Helpers in the UI.
 
 All operations use HA's websocket API and take effect immediately —
-no file writes, no reload. The ``list`` action is tier-1 (free);
-``create``, ``update``, and ``delete`` require user approval.
+no file writes, no reload. The ``list`` action is free (declared via
+``free_actions``); ``create``, ``update``, and ``delete`` require user
+approval, gated by the executor's scoped-approval check.
 
 Websocket commands per helper type:
   input_boolean  — config/input_boolean/{create,update,delete}
@@ -169,12 +170,6 @@ class ManageHelpersParams(BaseModel):
 async def handler(params: ManageHelpersParams, ctx: ToolContext) -> ToolResult:
     if params.action == "list":
         return await _list_helpers(ctx, params.helper_type)
-
-    if not ctx.user_approved:
-        return ToolResult.error(
-            "confirmation_required",
-            f"'{params.action}' requires user approval — click Apply",
-        )
 
     if params.action == "create":
         return await _create_helper(ctx, params)
@@ -368,7 +363,8 @@ TOOL = ToolDefinition(
         "no file writes or reload needed."
     ),
     params_model=ManageHelpersParams,
-    tier=Tier.READ,
+    tier=Tier.MODIFY,
     handler=handler,
+    free_actions=frozenset({"list"}),
 )
 register(TOOL)

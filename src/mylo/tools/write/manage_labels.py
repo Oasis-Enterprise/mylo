@@ -56,15 +56,6 @@ class ManageLabelsParams(BaseModel):
 
 
 async def handler(params: ManageLabelsParams, ctx: ToolContext) -> ToolResult:
-    # "list" is a read — no approval needed. Mutating actions check
-    # user_approved explicitly since this tool is registered as tier-1
-    # to keep list freely callable.
-    if params.action != "list" and not ctx.user_approved:
-        return ToolResult.error(
-            "confirmation_required",
-            f"'{params.action}' requires user approval — click Apply",
-        )
-
     if params.action == "list":
         return ToolResult.ok(
             {
@@ -165,7 +156,8 @@ TOOL = ToolDefinition(
         "assign/remove."
     ),
     params_model=ManageLabelsParams,
-    tier=Tier.READ,
+    tier=Tier.MODIFY,
     handler=handler,
+    free_actions=frozenset({"list"}),
 )
 register(TOOL)

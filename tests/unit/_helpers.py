@@ -62,9 +62,11 @@ def make_ctx(
     dry_run: bool = False,
     plans: PlanStore | None = None,
     cards: CardStore | None = None,
-    approved_plan_ids: frozenset[str] = frozenset(),
+    approved_plan_ids: frozenset[str] | None = None,
     verifications: VerificationLog | None = None,
 ) -> ToolContext:
+    if approved_plan_ids is None:
+        approved_plan_ids = frozenset({"*"}) if user_approved else frozenset()
     config = make_config(tmp_path)
     return ToolContext(
         ws_client=ws_client,

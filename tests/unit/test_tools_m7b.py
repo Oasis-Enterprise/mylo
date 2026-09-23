@@ -101,6 +101,7 @@ def _load_tools():
 
 async def test_create_area(_ctx):
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "modify_areas",
         {
@@ -117,6 +118,7 @@ async def test_create_area(_ctx):
 
 async def test_rename_area(_ctx):
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "modify_areas",
         {"action": "rename", "area_id": "kitchen", "new_name": "Main Kitchen"},
@@ -127,6 +129,7 @@ async def test_rename_area(_ctx):
 
 async def test_assign_device_to_area(_ctx):
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "modify_areas",
         {"action": "assign_device", "area_id": "kitchen", "target_ids": ["d1"]},
@@ -162,6 +165,7 @@ async def test_list_labels(_ctx):
 
 async def test_create_label(_ctx):
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "manage_labels",
         {"action": "create", "label": "Outdoor", "color": "#00ff00"},
@@ -177,6 +181,7 @@ async def test_create_label(_ctx):
 
 async def test_assign_label_to_entity(_ctx):
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "manage_labels",
         {
@@ -252,6 +257,7 @@ async def test_rename_rejects_existing_target(_ctx):
 
 async def test_rename_apply_calls_registry_update(_ctx):
     _ctx.user_approved = True
+    _ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "rename_entities",
         {
@@ -289,6 +295,7 @@ def _helpers_ctx(tmp_path: Path):
 async def test_create_input_button(_helpers_ctx):
     """create input_button routes to config/input_button/create with name."""
     _helpers_ctx.user_approved = True
+    _helpers_ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "manage_helpers",
         {"action": "create", "helper_type": "input_button", "name": "Ring Doorbell"},
@@ -307,6 +314,7 @@ async def test_create_schedule_with_blocks(_helpers_ctx):
     """create schedule routes to config/schedule/create with weekday blocks in payload."""
     _helpers_ctx.ws_client._responses["config/schedule/create"] = {"id": "sched1"}
     _helpers_ctx.user_approved = True
+    _helpers_ctx.approved_plan_ids = frozenset({"*"})
     blocks = {"monday": [{"from": "08:00:00", "to": "17:00:00"}]}
     result = await execute(
         "manage_helpers",
@@ -330,6 +338,7 @@ async def test_create_schedule_with_blocks(_helpers_ctx):
 async def test_delete_schedule_routes_correctly(_helpers_ctx):
     """delete schedule routes to config/schedule/delete with schedule_id."""
     _helpers_ctx.user_approved = True
+    _helpers_ctx.approved_plan_ids = frozenset({"*"})
     result = await execute(
         "manage_helpers",
         {"action": "delete", "helper_type": "schedule", "helper_id": "work_hours"},

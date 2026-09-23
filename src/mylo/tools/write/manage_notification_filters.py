@@ -89,12 +89,6 @@ async def handler(params: ManageNotificationFiltersParams, ctx: ToolContext) -> 
             }
         )
 
-    if not ctx.user_approved:
-        return ToolResult.error(
-            "confirmation_required",
-            f"'{params.action}' requires user approval — click Apply",
-        )
-
     if not params.type:
         return ToolResult.error("missing_param", f"'{params.action}' requires 'type'")
 
@@ -163,7 +157,8 @@ TOOL = ToolDefinition(
         "specific entity_id. 'list' is free; add/remove require approval."
     ),
     params_model=ManageNotificationFiltersParams,
-    tier=Tier.READ,
+    tier=Tier.MODIFY,
     handler=handler,
+    free_actions=frozenset({"list"}),
 )
 register(TOOL)

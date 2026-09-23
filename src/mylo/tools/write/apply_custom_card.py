@@ -107,5 +107,6 @@ TOOL = ToolDefinition(
     params_model=ApplyCustomCardParams,
     tier=Tier.MODIFY,
     handler=handler,
+    approval_key="card_id",
 )
 register(TOOL)

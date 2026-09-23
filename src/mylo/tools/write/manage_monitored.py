@@ -26,8 +26,9 @@ asking the user to hand-edit ``context.yaml``. Typical flow: the
 model calls ``query_entities`` to discover measurement sensors, then
 calls this tool with ``action="add"`` after the user confirms.
 
-Tier-1 for ``list``; ``add``/``remove``/``replace`` require approval
-(checked in-handler like ``manage_labels``).
+``list`` is free (declared via ``free_actions``); ``add``/``remove``/
+``replace`` require approval, gated by the executor's scoped-approval
+check.
 """
 
 from __future__ import annotations
@@ -73,12 +74,6 @@ async def handler(params: ManageMonitoredParams, ctx: ToolContext) -> ToolResult
                 "monitored_entities": memory.monitored_entities,
                 "count": len(memory.monitored_entities),
             }
-        )
-
-    if not ctx.user_approved:
-        return ToolResult.error(
-            "confirmation_required",
-            f"'{params.action}' requires user approval — click Apply",
         )
 
     if not params.entity_ids and params.action != "replace":
@@ -134,7 +129,8 @@ TOOL = ToolDefinition(
         "'list' is free; add/remove/replace require approval."
     ),
     params_model=ManageMonitoredParams,
-    tier=Tier.READ,
+    tier=Tier.MODIFY,
     handler=handler,
+    free_actions=frozenset({"list"}),
 )
 register(TOOL)
