@@ -14,9 +14,9 @@
 
 """Anthropic Provider implementation.
 
-Uses the async SDK's non-streaming ``messages.create``. Streaming is a
-polish concern for the UI (M5); the CLI doesn't need it yet, and avoiding
-streaming keeps the tool loop a straightforward sequence of turns.
+Uses the async SDK's ``messages.create`` for :meth:`message` and
+``messages.stream`` for :meth:`stream`. Both produce the same
+:class:`ProviderResponse`; streaming only adds text deltas on the way.
 
 Applies Anthropic's prompt caching on the system prompt and the tool
 block:
@@ -39,14 +39,17 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 
-from mylo.llm.provider import ProviderMessage, ProviderResponse, ToolCall
+from mylo.llm.provider import ProviderMessage, ProviderResponse, StreamDelta, ToolCall
 from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
+
+_BACKOFF_DELAYS: tuple[float, ...] = (2.0, 5.0, 15.0)
 
 
 def _with_history_cache_breakpoint(
@@ -99,15 +102,13 @@ class AnthropicProvider:
         """
         self._client = AsyncAnthropic(api_key=self._api_key)
 
-    async def message(
+    def _build_request(
         self,
-        *,
         system: str,
         messages: list[ProviderMessage],
         tools: list[dict[str, Any]],
-        model: str,
-        max_tokens: int = 8192,
-    ) -> ProviderResponse:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[ProviderMessage]]:
+        """Cache-annotated system / tools / history — shared by both paths."""
         # Cache the system prompt.
         system_blocks: list[dict[str, Any]] = [
             {
@@ -132,32 +133,25 @@ class AnthropicProvider:
         # only writes its new tail. Copy-on-write so we never mutate the
         # caller's history (it flushes to SQLite).
         cached_messages = _with_history_cache_breakpoint(messages)
+        return system_blocks, cached_tools, cached_messages
 
-        async def _call() -> Any:
-            return await self._client.messages.create(
-                model=model,
-                system=system_blocks,  # type: ignore[arg-type]
-                messages=cached_messages,  # type: ignore[arg-type]
-                tools=cached_tools,  # type: ignore[arg-type]
-                max_tokens=max_tokens,
-            )
+    async def _with_retries(self, call: Callable[[], Awaitable[Any]]) -> Any:
+        """Run ``call`` with the transient-error ladder.
 
-        _BACKOFF_DELAYS = (2.0, 5.0, 15.0)
-
+        429 (rate limit) and 5xx — including 529 "overloaded", which
+        Anthropic returns during platform-wide load spikes — are
+        transient: back off and retry. Other 4xx are caller errors (bad
+        request, auth, etc.); re-raise. A connection error rebuilds the
+        client pool once and retries immediately.
+        """
         for attempt in range(len(_BACKOFF_DELAYS) + 1):
             try:
-                response = await _call()
-                break
+                return await call()
             except APIConnectionError:
                 log.warning("anthropic.connection_error_rebuilding_pool")
                 self._rebuild_client()
-                response = await _call()
-                break
+                return await call()
             except APIStatusError as exc:
-                # 429 (rate limit) and 5xx — including 529 "overloaded",
-                # which Anthropic returns during platform-wide load spikes
-                # — are transient. Back off and retry. Other 4xx are
-                # caller errors (bad request, auth, etc.); re-raise.
                 if exc.status_code != 429 and exc.status_code < 500:
                     raise
                 if attempt >= len(_BACKOFF_DELAYS):
@@ -174,7 +168,11 @@ class AnthropicProvider:
                     backoff_seconds=round(delay, 1),
                 )
                 await asyncio.sleep(delay)
+        raise AssertionError("unreachable: retry ladder exhausted without raising")
 
+    @staticmethod
+    def _to_response(response: Any) -> ProviderResponse:
+        """Convert an SDK ``Message`` into the provider-agnostic shape."""
         content_blocks: list[dict[str, Any]] = []
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
@@ -209,3 +207,63 @@ class AnthropicProvider:
             stop_reason=response.stop_reason or "",
             usage=usage,
         )
+
+    async def message(
+        self,
+        *,
+        system: str,
+        messages: list[ProviderMessage],
+        tools: list[dict[str, Any]],
+        model: str,
+        max_tokens: int = 8192,
+    ) -> ProviderResponse:
+        system_blocks, cached_tools, cached_messages = self._build_request(system, messages, tools)
+
+        async def _call() -> Any:
+            return await self._client.messages.create(
+                model=model,
+                system=system_blocks,  # type: ignore[arg-type]
+                messages=cached_messages,  # type: ignore[arg-type]
+                tools=cached_tools,  # type: ignore[arg-type]
+                max_tokens=max_tokens,
+            )
+
+        response = await self._with_retries(_call)
+        return self._to_response(response)
+
+    async def stream(
+        self,
+        *,
+        system: str,
+        messages: list[ProviderMessage],
+        tools: list[dict[str, Any]],
+        model: str,
+        max_tokens: int = 8192,
+    ) -> AsyncIterator[StreamDelta | ProviderResponse]:
+        """Yield text deltas as they arrive, then the final response.
+
+        The retry ladder covers opening the stream (that is where 429/5xx
+        surface). An error after the first delta is not retried: partial
+        text may already be on screen, so it propagates to the caller.
+        """
+        system_blocks, cached_tools, cached_messages = self._build_request(system, messages, tools)
+
+        async def _open() -> Any:
+            manager = self._client.messages.stream(
+                model=model,
+                system=system_blocks,  # type: ignore[arg-type]
+                messages=cached_messages,  # type: ignore[arg-type]
+                tools=cached_tools,  # type: ignore[arg-type]
+                max_tokens=max_tokens,
+            )
+            return await manager.__aenter__()
+
+        stream = await self._with_retries(_open)
+        try:
+            async for event in stream:
+                if getattr(event, "type", None) == "text":
+                    yield StreamDelta(text=event.text)
+            final = await stream.get_final_message()
+        finally:
+            await stream.close()
+        yield self._to_response(final)

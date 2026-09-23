@@ -26,6 +26,7 @@ in a single list. The OpenAI adapter (when it lands) will translate.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, TypedDict
 
@@ -69,6 +70,15 @@ class ProviderResponse:
     usage: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class StreamDelta:
+    """A chunk of assistant text produced while a model call is still
+    running. Only text streams; tool calls arrive with the final
+    :class:`ProviderResponse`."""
+
+    text: str
+
+
 class Provider(Protocol):
     """Minimal LLM provider interface.
 
@@ -86,3 +96,24 @@ class Provider(Protocol):
         model: str,
         max_tokens: int = 8192,
     ) -> ProviderResponse: ...
+
+
+class StreamingProvider(Protocol):
+    """Optional extension: a provider that can stream text deltas.
+
+    ``stream`` yields zero or more :class:`StreamDelta` and then exactly
+    one :class:`ProviderResponse` shaped identically to what ``message``
+    returns, so callers persist the result through one code path. The
+    tool loop probes for this method with ``getattr`` and falls back to
+    ``message`` when absent.
+    """
+
+    def stream(
+        self,
+        *,
+        system: str,
+        messages: list[ProviderMessage],
+        tools: list[dict[str, Any]],
+        model: str,
+        max_tokens: int = 8192,
+    ) -> AsyncIterator[StreamDelta | ProviderResponse]: ...

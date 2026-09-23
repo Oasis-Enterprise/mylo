@@ -160,3 +160,137 @@ def test_default_max_tokens_fits_a_full_view() -> None:
 
     sig = inspect.signature(AnthropicProvider.message)
     assert sig.parameters["max_tokens"].default == 8192
+
+
+# ─── Streaming ──────────────────────────────────────────────────────────────
+
+
+class _FakeStream:
+    """Mimics anthropic's AsyncMessageStream: iterable events, then a
+    final message. Only the surface the provider touches."""
+
+    def __init__(self, deltas: list[str], final: Any) -> None:
+        self._deltas = deltas
+        self._final = final
+        self.closed = False
+
+    def __aiter__(self) -> Any:
+        return self._events()
+
+    async def _events(self) -> Any:
+        for text in self._deltas:
+            yield SimpleNamespace(type="text", text=text, snapshot="")
+        yield SimpleNamespace(type="message_stop")
+
+    async def get_final_message(self) -> Any:
+        return self._final
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _FakeStreamManager:
+    def __init__(self, stream: _FakeStream) -> None:
+        self._stream = stream
+
+    async def __aenter__(self) -> _FakeStream:
+        return self._stream
+
+    async def __aexit__(self, *_exc: Any) -> None:
+        await self._stream.close()
+
+
+class _RaisingStreamManager:
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    async def __aenter__(self) -> Any:
+        raise self._exc
+
+    async def __aexit__(self, *_exc: Any) -> None:
+        return None
+
+
+def _text_block(text: str) -> Any:
+    return SimpleNamespace(
+        type="text", text=text, model_dump=lambda: {"type": "text", "text": text}
+    )
+
+
+def _final_message(text: str) -> Any:
+    return SimpleNamespace(
+        content=[_text_block(text)],
+        stop_reason="end_turn",
+        usage=SimpleNamespace(
+            input_tokens=11,
+            output_tokens=3,
+            cache_creation_input_tokens=None,
+            cache_read_input_tokens=None,
+        ),
+    )
+
+
+async def _collect(provider: AnthropicProvider) -> list[Any]:
+    return [
+        item
+        async for item in provider.stream(
+            system="sys", messages=[{"role": "user", "content": "hi"}], tools=[], model="m"
+        )
+    ]
+
+
+async def test_stream_yields_deltas_then_response() -> None:
+    from mylo.llm.provider import ProviderResponse, StreamDelta
+
+    provider = AnthropicProvider(api_key="x")
+    fake = _FakeStream(["Hel", "lo"], _final_message("Hello"))
+    provider._client.messages.stream = lambda **_kw: _FakeStreamManager(fake)  # type: ignore[attr-defined]
+
+    items = await _collect(provider)
+
+    assert items[:2] == [StreamDelta(text="Hel"), StreamDelta(text="lo")]
+    assert isinstance(items[2], ProviderResponse)
+    assert len(items) == 3
+    assert items[2].text == "Hello"
+    assert items[2].stop_reason == "end_turn"
+    assert items[2].usage == {"input_tokens": 11, "output_tokens": 3}
+    assert items[2].content_blocks == [{"type": "text", "text": "Hello"}]
+    assert fake.closed
+
+
+async def test_stream_response_matches_message_response() -> None:
+    provider = AnthropicProvider(api_key="x")
+    final = _final_message("Same")
+    provider._client.messages.stream = lambda **_kw: _FakeStreamManager(  # type: ignore[attr-defined]
+        _FakeStream([], final)
+    )
+    provider._client.messages.create = AsyncMock(return_value=final)  # type: ignore[attr-defined]
+
+    streamed = (await _collect(provider))[-1]
+    direct = await provider.message(
+        system="sys", messages=[{"role": "user", "content": "hi"}], tools=[], model="m"
+    )
+    assert streamed == direct
+
+
+async def test_stream_retries_transient_error_on_open() -> None:
+    provider = AnthropicProvider(api_key="x")
+    fake = _FakeStream(["ok"], _final_message("ok"))
+    managers = [
+        _RaisingStreamManager(_status_error(InternalServerError, 529)),
+        _FakeStreamManager(fake),
+    ]
+    provider._client.messages.stream = lambda **_kw: managers.pop(0)  # type: ignore[attr-defined]
+
+    items = await _collect(provider)
+    assert items[0].text == "ok"
+    assert len(items) == 2
+
+
+async def test_stream_does_not_retry_after_open_on_4xx() -> None:
+    provider = AnthropicProvider(api_key="x")
+    provider._client.messages.stream = lambda **_kw: _RaisingStreamManager(  # type: ignore[attr-defined]
+        _status_error(BadRequestError, 400)
+    )
+    with pytest.raises(BadRequestError):
+        await _collect(provider)
