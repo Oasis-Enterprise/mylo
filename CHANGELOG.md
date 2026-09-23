@@ -5,6 +5,20 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] — 2026-09-22
+
+### Added
+- **Mylo's replies stream in as they are written.** No more minute of silence on a long plan: text appears word by word, and the indicator says what Mylo is doing ("Reading your automations", "Updating the dashboard") instead of cycling filler phrases.
+- **Stop button.** While Mylo is working the send button becomes Stop. Stopping aborts the model call or waits for the current step to finish, never interrupts a change mid-write, and keeps whatever Mylo had said so far.
+
+### Changed
+- The panel derives "is there something to apply or answer" from one function shared by the live stream and the reconnect path, closing the class of bug where the Apply button went missing after a dropped connection.
+- Streaming is used with the Anthropic provider; OpenAI, Gemini and Ollama continue to reply in one piece.
+
+### Developer
+- `POST /api/chat/cancel`; SSE events `text_delta` and `status`.
+- UI unit tests with Vitest; CI now typechecks and tests the panel.
+
 ## [1.6.0] — 2026-09-21
 
 ### Added
