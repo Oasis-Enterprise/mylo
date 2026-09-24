@@ -5,6 +5,18 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] — 2026-09-23
+
+### Added
+- **Plain language everywhere.** Tool rows say "Reading your automations" instead of `query_automations`; approval cards say "Changes config" or "Controls devices" instead of TIER-2/TIER-3; errors read as a sentence with the technical detail one click away.
+- **Memory tab for homeowners.** It now opens on what Mylo knows: your household, preferences, what it remembers, known issues, and what it is monitoring. Sync, conflicts, scratchpad, and pruning sit behind an Advanced toggle. "Forget" asks once before deleting.
+- **First run.** A three-line "How Mylo works" card and clickable quick-starts. Monitoring set-up now says that alerts begin after about two weeks of learning.
+- Keyboard focus is visible, controls have labels for screen readers, and the panel fits a phone screen.
+
+### Changed
+- The review cards share one action bar and one set of buttons.
+- Tool descriptions describe mechanics only; usage policy lives in the prompt (0.9.0). `verify_change` lists only the checks it implements. `query_entities` gains `detail="ids"` for whole-home gathers at a third of the tokens.
+
 ## [1.8.0] — 2026-09-22
 
 ### Added
