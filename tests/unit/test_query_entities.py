@@ -309,12 +309,12 @@ async def test_detail_downgrades_to_minimal_above_100_returned() -> None:
         tool_registry._reset_for_tests()
 
 
-async def test_ids_detail_returns_only_id_and_name() -> None:
+async def test_ids_detail_returns_id_name_and_domain() -> None:
     ctx = _ctx_with_entities(count=3)
     result = await execute("query_entities", {"detail": "ids", "limit": 10}, ctx)
     rows = result.data["entities"]
     assert len(rows) == 3
-    assert set(rows[0].keys()) == {"entity_id", "friendly_name"}
+    assert set(rows[0].keys()) == {"entity_id", "friendly_name", "domain"}
 
 
 async def test_large_gather_downgrades_to_ids() -> None:
@@ -322,7 +322,10 @@ async def test_large_gather_downgrades_to_ids() -> None:
     result = await execute("query_entities", {"detail": "full", "limit": 2000}, ctx)
     rows = result.data["entities"]
     assert len(rows) == 501
-    assert set(rows[0].keys()) == {"entity_id", "friendly_name"}
+    assert set(rows[0].keys()) == {"entity_id", "friendly_name", "domain"}
+    # Regression: shape_entity_ids must carry "domain" so summarize_entities
+    # can group rows correctly instead of bucketing everything under "?".
+    assert "?" not in result.data["summary"]
 
 
 async def test_medium_gather_downgrades_to_minimal() -> None:

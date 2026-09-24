@@ -299,7 +299,7 @@ TOOL = ToolDefinition(
         "Surgical add/update/remove on a single location inside a YAML "
         "config file. Use when only one nested value is changing — safer "
         "than rewriting the whole file. dry_run=true returns a structural "
-        "diff preview; only retry with dry_run=false after user approval."
+        "diff preview."
     ),
     params_model=PatchConfigFileParams,
     tier=Tier.MODIFY,

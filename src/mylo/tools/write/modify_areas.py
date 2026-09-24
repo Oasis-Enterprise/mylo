@@ -179,7 +179,7 @@ TOOL = ToolDefinition(
     description=(
         "Create, rename, or delete areas. Reassign devices and entities "
         "between areas. All operations take effect immediately via HA's "
-        "websocket API (no file writes or reloads). Requires approval."
+        "websocket API (no file writes or reloads)."
     ),
     params_model=ModifyAreasParams,
     tier=Tier.MODIFY,

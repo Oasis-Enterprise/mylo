@@ -152,8 +152,7 @@ TOOL = ToolDefinition(
     description=(
         "Create, assign, and remove labels/tags on entities, devices, and "
         "automations. 'list' returns all existing labels. Operations take "
-        "effect immediately via HA's websocket API. Requires approval for "
-        "assign/remove."
+        "effect immediately via HA's websocket API."
     ),
     params_model=ManageLabelsParams,
     tier=Tier.MODIFY,

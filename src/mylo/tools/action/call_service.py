@@ -133,10 +133,9 @@ TOOL = ToolDefinition(
     name="call_service",
     description=(
         "Execute a Home Assistant service — turn on/off devices, set values, "
-        "trigger scenes, run scripts. Requires explicit user approval. "
-        "Certain services are hard-blocked (host restart/shutdown). Others "
-        "are flagged with a warning (unlock a lock, disarm alarm, open a "
-        "cover). Rate-limited."
+        "trigger scenes, run scripts. Certain services are hard-blocked (host "
+        "restart/shutdown). Others are flagged with a warning (unlock a lock, "
+        "disarm alarm, open a cover). Rate-limited."
     ),
     params_model=CallServiceParams,
     tier=Tier.ACTION,

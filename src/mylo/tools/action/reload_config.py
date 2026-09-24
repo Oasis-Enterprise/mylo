@@ -65,7 +65,7 @@ TOOL = ToolDefinition(
     description=(
         "Reload a specific HA configuration domain. Use when the user has "
         "manually edited a config file and wants HA to pick up the change. "
-        "Requires approval; rate-limited."
+        "Rate-limited."
     ),
     params_model=ReloadConfigParams,
     tier=Tier.ACTION,

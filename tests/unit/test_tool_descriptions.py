@@ -18,7 +18,16 @@ from __future__ import annotations
 
 from mylo.tools import registry
 
-POLICY_PHRASES = ("ALWAYS", "never guess", "Check the topology", "Only when native")
+POLICY_PHRASES = (
+    "ALWAYS",
+    "never guess",
+    "Check the topology",
+    "Only when native",
+    "require approval",
+    "requires approval",
+    "user must approve",
+    "require user approval",
+)
 
 
 def test_every_description_is_short_and_mechanical() -> None:
@@ -29,7 +38,9 @@ def test_every_description_is_short_and_mechanical() -> None:
             (t.name, len(t.description)) for t in registry.all_tools() if len(t.description) > 300
         ]
         policy = [
-            t.name for t in registry.all_tools() if any(p in t.description for p in POLICY_PHRASES)
+            t.name
+            for t in registry.all_tools()
+            if any(p.lower() in t.description.lower() for p in POLICY_PHRASES)
         ]
         missing = [t.name for t in registry.all_tools() if not t.description.strip()]
     finally:
