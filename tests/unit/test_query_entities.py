@@ -328,5 +328,39 @@ async def test_large_gather_downgrades_to_ids() -> None:
 async def test_medium_gather_downgrades_to_minimal() -> None:
     ctx = _ctx_with_entities(count=101)
     result = await execute("query_entities", {"detail": "full", "limit": 2000}, ctx)
-    assert "state" in result.data["entities"][0]
-    assert "attributes" not in result.data["entities"][0]
+    row = result.data["entities"][0]
+    # "key_attributes" only appears when detail=full is actually honored
+    # (shape_entity with include_attributes=True); "area" is present on
+    # both minimal and full rows, so the absence of key_attributes is what
+    # proves the downgrade to minimal actually happened.
+    assert "area" in row
+    assert "key_attributes" not in row
+
+
+async def test_ids_detail_falls_back_to_entity_id_like_minimal() -> None:
+    """shape_entity_ids must derive friendly_name with the same priority
+    order as shape_entity_minimal: when the registry has no name/
+    original_name and the state carries no friendly_name attribute, both
+    fall back to the bare entity_id — never None."""
+    reg = Registries()
+    reg.entities = {
+        "light.mystery": EntityEntry.from_raw(
+            {
+                "entity_id": "light.mystery",
+                "name": None,
+                "original_name": None,
+                "platform": "hue",
+                "area_id": None,
+                "labels": [],
+            }
+        ),
+    }
+    states = [{"entity_id": "light.mystery", "state": "off", "attributes": {}}]
+    ctx = make_ctx(
+        ws_client=_FakeClient(states),
+        registries=reg,
+        tmp_path=__import__("pathlib").Path("/tmp"),
+    )
+    result = await execute("query_entities", {"detail": "ids", "limit": 10}, ctx)
+    row = result.data["entities"][0]
+    assert row["friendly_name"] == "light.mystery"

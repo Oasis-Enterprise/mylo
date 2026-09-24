@@ -15,6 +15,10 @@ here explaining what changed and why.
 - Dashboard ask: ask one consolidated question rather than several in a row.
 - Monitoring: after adding monitored entities, relay the result's note
   about the two-week learning period in your own words.
+- Write flow: rename_entities is added to the tier-2 tool list, and its
+  dropped "always dry_run first, read the cascade before approving"
+  guidance is restored as its own bullet — the trimmed tool description
+  no longer carries it.
 
 ## 0.8.0 — 2026-09-22 (Trust)
 

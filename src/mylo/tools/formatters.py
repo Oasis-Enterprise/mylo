@@ -97,6 +97,14 @@ def _key_attributes(domain: str, attributes: dict[str, Any]) -> dict[str, Any]:
 # ─── Entity shaping ──────────────────────────────────────────────────────────
 
 
+def _friendly_name(entry: EntityEntry, state: dict[str, Any] | None) -> str:
+    """Shared priority order for every shaper: registry name, then the
+    state's runtime-computed friendly_name, then original_name, then the
+    bare entity_id as the last resort — never None."""
+    state_attrs = (state or {}).get("attributes") or {}
+    return entry.name or state_attrs.get("friendly_name") or entry.original_name or entry.entity_id
+
+
 def shape_entity_minimal(
     entry: EntityEntry,
     state: dict[str, Any] | None,
@@ -111,14 +119,9 @@ def shape_entity_minimal(
     if area_id:
         area = registries.areas.get(area_id)
 
-    state_attrs = (state or {}).get("attributes") or {}
-    friendly = (
-        entry.name or state_attrs.get("friendly_name") or entry.original_name or entry.entity_id
-    )
-
     return {
         "entity_id": entry.entity_id,
-        "name": friendly,
+        "name": _friendly_name(entry, state),
         "domain": entry.domain,
         "state": (state or {}).get("state"),
         "area": area.name if area else None,
@@ -127,13 +130,7 @@ def shape_entity_minimal(
 
 def shape_entity_ids(entry: EntityEntry, state: dict[str, Any] | None) -> dict[str, Any]:
     """~12 tokens per entity: just enough to reference it in a plan."""
-    name = None
-    if state is not None:
-        name = (state.get("attributes") or {}).get("friendly_name")
-    return {
-        "entity_id": entry.entity_id,
-        "friendly_name": name or entry.name or entry.original_name,
-    }
+    return {"entity_id": entry.entity_id, "friendly_name": _friendly_name(entry, state)}
 
 
 def shape_entity(
