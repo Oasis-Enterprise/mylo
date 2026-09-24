@@ -22,6 +22,7 @@ import {
   syncMemory,
 } from "../api";
 import { formatRelative } from "../lib/format";
+import { entriesOf, readAdvanced, sortNotesNewestFirst, writeAdvanced } from "../lib/memoryView";
 import type {
   MemoryConflict,
   MemoryFull,
@@ -34,6 +35,7 @@ import type {
 import { SeverityCard } from "./SeverityCard";
 import { StatusDot } from "./StatusDot";
 import { Tag } from "./Tag";
+import { GhostButton } from "./ui/Button";
 
 export function MemoryTab() {
   const [memory, setMemory] = useState<MemoryFull | null>(null);
@@ -43,6 +45,8 @@ export function MemoryTab() {
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncResult | null>(null);
   const [busyItem, setBusyItem] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(readAdvanced);
+  const [forgetArmed, setForgetArmed] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +65,12 @@ export function MemoryTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!forgetArmed) return;
+    const timer = setTimeout(() => setForgetArmed(null), 5000);
+    return () => clearTimeout(timer);
+  }, [forgetArmed]);
 
   const handleSync = useCallback(async () => {
     setSyncing(true);
@@ -126,6 +136,26 @@ export function MemoryTab() {
     [load],
   );
 
+  const toggleAdvanced = useCallback(() => {
+    setAdvanced((prev) => {
+      const next = !prev;
+      writeAdvanced(next);
+      return next;
+    });
+  }, []);
+
+  const handleForgetClick = useCallback(
+    (noteId: string) => {
+      if (forgetArmed === noteId) {
+        setForgetArmed(null);
+        void handleDelete("notes", noteId);
+      } else {
+        setForgetArmed(noteId);
+      }
+    },
+    [forgetArmed, handleDelete],
+  );
+
   if (loading && !memory) {
     return (
       <div
@@ -149,6 +179,9 @@ export function MemoryTab() {
   if (!memory) return null;
 
   const pendingConflicts = memory.conflicts.filter((c) => c.status === "pending_review");
+  const householdShared = entriesOf(memory.household.shared);
+  const preferenceEntries = entriesOf(memory.preferences);
+  const notesSorted = sortNotesNewestFirst(memory.notes);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -156,35 +189,53 @@ export function MemoryTab() {
         className="flex items-center justify-between border-b px-4 py-2.5"
         style={{ borderColor: "var(--color-border)" }}
       >
-        <div
-          className="font-mono text-[10px]"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          <span style={{ color: "var(--color-text-dim)" }}>last sync: </span>
-          <span style={{ color: "var(--color-text)" }}>
-            {formatRelative(memory.last_sync)}
-          </span>
-          <span className="mx-2" style={{ color: "var(--color-text-dim)" }}>·</span>
-          {counts(memory)}
+        <div>
+          <div
+            className="font-sans text-[13px]"
+            style={{ color: "var(--color-text)" }}
+          >
+            Mylo's memory of your home
+          </div>
+          <div
+            className="mt-0.5 font-mono text-[10px]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            updated {formatRelative(memory.last_sync)}
+          </div>
           {memory.last_sync_error ? (
-            <div className="mt-1" style={{ color: "var(--color-error)" }}>
+            <div className="mt-1 font-mono text-[10px]" style={{ color: "var(--color-error)" }}>
               last attempt failed: {memory.last_sync_error}
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => void handleSync()}
-          disabled={syncing}
-          className="rounded px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-label disabled:opacity-40"
-          style={{
-            backgroundColor: "var(--color-accent-soft)",
-            border: "1px solid rgba(16, 185, 129, 0.55)",
-            color: "var(--color-accent)",
-          }}
-        >
-          {syncing ? "Syncing…" : "Sync now"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <GhostButton
+            aria-pressed={advanced}
+            onClick={toggleAdvanced}
+            style={
+              advanced
+                ? { borderColor: "var(--color-accent)", color: "var(--color-accent)" }
+                : undefined
+            }
+          >
+            Advanced
+          </GhostButton>
+          {advanced ? (
+            <button
+              type="button"
+              onClick={() => void handleSync()}
+              disabled={syncing}
+              className="rounded px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-label disabled:opacity-40"
+              style={{
+                backgroundColor: "var(--color-accent-soft)",
+                border: "1px solid rgba(16, 185, 129, 0.55)",
+                color: "var(--color-accent)",
+              }}
+            >
+              {syncing ? "Syncing…" : "Sync now"}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {error ? (
@@ -201,66 +252,82 @@ export function MemoryTab() {
       ) : null}
 
       <main className="flex-1 overflow-y-auto p-4 space-y-6">
-        {lastSync ? <SyncResultCard result={lastSync} onApplyPrune={handleApplyPrune} /> : null}
-
-        {scratchpad.length > 0 ? (
-          <Section title={`Pending — not yet synced (${scratchpad.length})`} accent="indigo">
-            <div className="py-2 text-xs text-mute">
-              These notes were captured in chat and are already used in conversations.
-              Hit "Sync now" to fold them into the sections below.
-            </div>
-            {scratchpad.map((e, i) => (
-              <ScratchpadRow key={i} entry={e} />
-            ))}
+        {pendingConflicts.length > 0 || memory.last_sync_error ? (
+          <Section title="Needs your attention" accent="amber">
+            {pendingConflicts.length > 0 ? (
+              <div
+                className="py-2 font-sans text-[13px]"
+                style={{ color: "var(--color-text)" }}
+              >
+                Mylo found {pendingConflicts.length} facts that disagree. Review them under
+                Advanced.
+              </div>
+            ) : null}
+            {memory.last_sync_error ? (
+              <div
+                className="py-2 font-mono text-[11px]"
+                style={{ color: "var(--color-error)" }}
+              >
+                last attempt failed: {memory.last_sync_error}
+              </div>
+            ) : null}
           </Section>
         ) : null}
 
-        {pendingConflicts.length > 0 ? (
-          <div className="space-y-2">
-            <div
-              className="font-mono text-[10px] font-bold uppercase tracking-label"
-              style={{ color: "var(--color-warning)" }}
-            >
-              Conflicts ({pendingConflicts.length} pending)
-            </div>
-            {pendingConflicts.map((c) => (
-              <ConflictCard
-                key={c.id}
-                conflict={c}
-                busy={busyItem === `conflict/${c.id}`}
-                onResolve={handleResolve}
-              />
-            ))}
-          </div>
-        ) : null}
-
-        <Section title={`Household (${memory.household.members.length})`}>
-          {memory.household.members.length === 0 ? (
+        <Section title="Your household">
+          {memory.household.members.length === 0 && householdShared.length === 0 ? (
             <Empty text="No household members recorded yet." />
           ) : (
-            memory.household.members.map((m) => (
-              <div key={m.name} className="py-2">
-                <div className="text-sm">
-                  <span className="font-medium">{m.name}</span>
-                  <span className="ml-2 text-xs text-mute">{m.role}</span>
+            <>
+              {memory.household.members.map((m) => (
+                <div key={m.name} className="py-2">
+                  <div className="text-sm">
+                    <span className="font-medium">{m.name}</span>
+                    <span className="ml-2 text-xs text-mute">{m.role}</span>
+                  </div>
+                  {m.notes.length > 0 ? (
+                    <ul className="mt-1 ml-4 list-disc text-xs text-gray-300">
+                      {m.notes.map((note, i) => (
+                        <li key={i}>{note}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
-                {m.notes.length > 0 ? (
-                  <ul className="mt-1 ml-4 list-disc text-xs text-gray-300">
-                    {m.notes.map((note, i) => (
-                      <li key={i}>{note}</li>
-                    ))}
-                  </ul>
-                ) : null}
+              ))}
+              {householdShared.map((e) => (
+                <div
+                  key={e.key}
+                  className="py-2 font-sans text-[13px]"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  <span style={{ color: "var(--color-text-muted)" }}>{e.label}:</span> {e.value}
+                </div>
+              ))}
+            </>
+          )}
+        </Section>
+
+        <Section title="Preferences">
+          {preferenceEntries.length === 0 ? (
+            <Empty text="No preferences recorded yet." />
+          ) : (
+            preferenceEntries.map((e) => (
+              <div
+                key={e.key}
+                className="py-2 font-sans text-[13px]"
+                style={{ color: "var(--color-text)" }}
+              >
+                <span style={{ color: "var(--color-text-muted)" }}>{e.label}:</span> {e.value}
               </div>
             ))
           )}
         </Section>
 
-        <Section title={`Notes (${memory.notes.length})`}>
-          {memory.notes.length === 0 ? (
+        <Section title="What Mylo remembers">
+          {notesSorted.length === 0 ? (
             <Empty text="No notes yet. Ask Mylo to remember something." />
-          ) : (
-            memory.notes.map((n) => (
+          ) : advanced ? (
+            notesSorted.map((n) => (
               <NoteRow
                 key={n.id}
                 note={n}
@@ -268,13 +335,34 @@ export function MemoryTab() {
                 onDelete={() => handleDelete("notes", n.id)}
               />
             ))
+          ) : (
+            notesSorted.map((n) => (
+              <div
+                key={n.id}
+                className="flex items-start justify-between gap-3 py-2"
+              >
+                <div
+                  className="font-sans text-[13px]"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {n.content}
+                </div>
+                <GhostButton
+                  className="shrink-0"
+                  disabled={busyItem === `notes/${n.id}`}
+                  onClick={() => handleForgetClick(n.id)}
+                >
+                  {forgetArmed === n.id ? "Forget this?" : "Forget"}
+                </GhostButton>
+              </div>
+            ))
           )}
         </Section>
 
-        <Section title={`Known issues (${memory.known_issues.length})`}>
+        <Section title="Known issues">
           {memory.known_issues.length === 0 ? (
             <Empty text="No issues tracked." />
-          ) : (
+          ) : advanced ? (
             memory.known_issues.map((issue) => (
               <IssueRow
                 key={issue.id}
@@ -283,23 +371,131 @@ export function MemoryTab() {
                 onDelete={() => handleDelete("known_issues", issue.id)}
               />
             ))
-          )}
-        </Section>
-
-        <Section title={`Rejected suggestions (${memory.rejected.length})`}>
-          {memory.rejected.length === 0 ? (
-            <Empty text="No rejected suggestions." />
           ) : (
-            memory.rejected.map((r) => (
-              <RejectionRow
-                key={r.id}
-                rejection={r}
-                busy={busyItem === `rejected/${r.id}`}
-                onDelete={() => handleDelete("rejected", r.id)}
-              />
+            memory.known_issues.map((issue) => (
+              <div key={issue.id} className="py-2">
+                <div
+                  className="font-sans text-[13px]"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {issue.description}
+                </div>
+                <div
+                  className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[10px]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  {issue.suggested_fix ? <span>Suggested: {issue.suggested_fix}</span> : null}
+                  <span
+                    style={{
+                      color:
+                        issue.status === "active"
+                          ? "var(--color-warning)"
+                          : "var(--color-text-muted)",
+                    }}
+                  >
+                    {issue.status}
+                  </span>
+                </div>
+              </div>
             ))
           )}
         </Section>
+
+        <Section title="Monitored">
+          {memory.monitored_entities.length === 0 ? (
+            <Empty text="Nothing monitored yet. Ask Mylo to set up monitoring." />
+          ) : (
+            <div className="py-2">
+              <div
+                className="font-sans text-[13px]"
+                style={{ color: "var(--color-text)" }}
+              >
+                Mylo is watching {memory.monitored_entities.length} entities.
+              </div>
+              <div
+                className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 font-mono text-[10px]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                {memory.monitored_entities.map((id) => (
+                  <code key={id} style={{ color: "var(--color-text-dim)" }}>
+                    {id}
+                  </code>
+                ))}
+              </div>
+              <div
+                className="mt-2 font-mono text-[10px]"
+                style={{ color: "var(--color-text-dim)" }}
+              >
+                Alerts start after about two weeks of learning what normal looks like.
+              </div>
+            </div>
+          )}
+        </Section>
+
+        {advanced ? (
+          <>
+            <div className="flex items-center gap-2 pt-2">
+              <span
+                className="font-mono text-[10px] font-bold uppercase tracking-label"
+                style={{ color: "var(--color-text-dim)" }}
+              >
+                Advanced
+              </span>
+              <span className="font-mono text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+                {counts(memory)}
+              </span>
+              <div className="h-px flex-1" style={{ backgroundColor: "var(--color-border)" }} />
+            </div>
+
+            {lastSync ? <SyncResultCard result={lastSync} onApplyPrune={handleApplyPrune} /> : null}
+
+            {scratchpad.length > 0 ? (
+              <Section title={`Pending — not yet synced (${scratchpad.length})`} accent="indigo">
+                <div className="py-2 text-xs text-mute">
+                  These notes were captured in chat and are already used in conversations.
+                  Hit "Sync now" to fold them into the sections below.
+                </div>
+                {scratchpad.map((e, i) => (
+                  <ScratchpadRow key={i} entry={e} />
+                ))}
+              </Section>
+            ) : null}
+
+            {pendingConflicts.length > 0 ? (
+              <div className="space-y-2">
+                <div
+                  className="font-mono text-[10px] font-bold uppercase tracking-label"
+                  style={{ color: "var(--color-warning)" }}
+                >
+                  Conflicts ({pendingConflicts.length} pending)
+                </div>
+                {pendingConflicts.map((c) => (
+                  <ConflictCard
+                    key={c.id}
+                    conflict={c}
+                    busy={busyItem === `conflict/${c.id}`}
+                    onResolve={handleResolve}
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            <Section title={`Rejected suggestions (${memory.rejected.length})`}>
+              {memory.rejected.length === 0 ? (
+                <Empty text="No rejected suggestions." />
+              ) : (
+                memory.rejected.map((r) => (
+                  <RejectionRow
+                    key={r.id}
+                    rejection={r}
+                    busy={busyItem === `rejected/${r.id}`}
+                    onDelete={() => handleDelete("rejected", r.id)}
+                  />
+                ))
+              )}
+            </Section>
+          </>
+        ) : null}
       </main>
     </div>
   );
