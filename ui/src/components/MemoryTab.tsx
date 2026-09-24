@@ -202,11 +202,6 @@ export function MemoryTab() {
           >
             updated {formatRelative(memory.last_sync)}
           </div>
-          {memory.last_sync_error ? (
-            <div className="mt-1 font-mono text-[10px]" style={{ color: "var(--color-error)" }}>
-              last attempt failed: {memory.last_sync_error}
-            </div>
-          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <GhostButton
@@ -342,7 +337,7 @@ export function MemoryTab() {
                 className="flex items-start justify-between gap-3 py-2"
               >
                 <div
-                  className="font-sans text-[13px]"
+                  className="min-w-0 flex-1 break-words font-sans text-[13px]"
                   style={{ color: "var(--color-text)" }}
                 >
                   {n.content}
@@ -413,11 +408,11 @@ export function MemoryTab() {
                 Mylo is watching {memory.monitored_entities.length} entities.
               </div>
               <div
-                className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 font-mono text-[10px]"
+                className="mt-1.5 flex min-w-0 flex-wrap gap-x-2 gap-y-1 font-mono text-[10px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {memory.monitored_entities.map((id) => (
-                  <code key={id} style={{ color: "var(--color-text-dim)" }}>
+                  <code key={id} className="break-all" style={{ color: "var(--color-text-dim)" }}>
                     {id}
                   </code>
                 ))}

@@ -59,7 +59,6 @@ export function ToolCallBlock({ call }: Props) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-label={`${label} details`}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
       >
         <StatusDot tone={tone} pulse={call.state === "pending"} />

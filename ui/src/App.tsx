@@ -38,6 +38,7 @@ import { Header, type Tab } from "./components/Header";
 import { MemoryTab } from "./components/MemoryTab";
 import { Message } from "./components/Message";
 import { QuestionCard } from "./components/QuestionCard";
+import { IconButton } from "./components/ui/Button";
 import { VerificationCard } from "./components/VerificationCard";
 import { hydrateFromMessages, isTurnComplete } from "./hydrate";
 import { describeError } from "./lib/errors";
@@ -146,8 +147,7 @@ export default function App() {
                 kind: "text",
                 text:
                   "**Slash commands**\n\n" +
-                  "- `/clear` — wipe the conversation\n" +
-                  "- `/new` — archive it and start fresh\n" +
+                  "- `/clear` or `/new` — archive this conversation and start fresh\n" +
                   "- `/help` — show this help\n\n" +
                   "**How Mylo works**\n\n" +
                   "- Mylo can read everything in your Home Assistant, and asks before it changes anything.\n" +
@@ -487,15 +487,9 @@ export default function App() {
             >
               <div className="flex items-start justify-between gap-2">
                 <span>{error.human ?? describeError(error.type, error.message)}</span>
-                <button
-                  type="button"
-                  aria-label="Dismiss error"
-                  onClick={() => setError(null)}
-                  className="font-mono text-[10px] px-1"
-                  style={{ color: "var(--color-text-dim)" }}
-                >
+                <IconButton aria-label="Dismiss error" onClick={() => setError(null)}>
                   ✕
-                </button>
+                </IconButton>
               </div>
               <details className="mt-1">
                 <summary
@@ -653,7 +647,7 @@ function extractSummary(data: unknown): string | undefined {
 
 function EmptyState({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="flex h-full items-center justify-center px-6">
+    <div className="flex min-h-full items-center justify-center px-6">
       <div className="max-w-md space-y-5">
         <div className="text-center">
           <div
