@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 
 from mylo.ha.registries import AreaEntry, DeviceEntry, EntityEntry, Registries
+from mylo.tools import executor as tool_executor
 from mylo.tools import registry as tool_registry
 from mylo.tools.context import ToolContext
 from mylo.tools.executor import execute
@@ -104,10 +105,37 @@ def _ctx() -> ToolContext:
     return make_ctx(ws_client=client, registries=reg, tmp_path=__import__("pathlib").Path("/tmp"))
 
 
+def _ctx_with_entities(count: int) -> ToolContext:
+    """Build a ctx with ``count`` synthetic light entities, all with a
+    matching (off) state — for exercising the row-count downgrade
+    thresholds in the detail parameter."""
+    reg = Registries()
+    reg.entities = {
+        f"light.n{i}": EntityEntry.from_raw(
+            {
+                "entity_id": f"light.n{i}",
+                "original_name": f"Light {i}",
+                "platform": "hue",
+                "area_id": None,
+                "labels": [],
+            }
+        )
+        for i in range(count)
+    }
+    states = [{"entity_id": f"light.n{i}", "state": "off"} for i in range(count)]
+    client = _FakeClient(states)
+    return make_ctx(ws_client=client, registries=reg, tmp_path=__import__("pathlib").Path("/tmp"))
+
+
 @pytest.fixture(autouse=True)
 def _load_tool() -> Any:
     tool_registry._reset_for_tests()
     tool_registry.load_all()
+    # The executor's read-result cache is keyed on (tool_name, raw_params)
+    # only, module-global across tests — two tests calling query_entities
+    # with identical params against different registries would otherwise
+    # collide on a stale cached result.
+    tool_executor.invalidate("query_entities")
     yield
     tool_registry._reset_for_tests()
 
@@ -279,3 +307,26 @@ async def test_detail_downgrades_to_minimal_above_100_returned() -> None:
         assert "key_attributes" in small.data["entities"][0]
     finally:
         tool_registry._reset_for_tests()
+
+
+async def test_ids_detail_returns_only_id_and_name() -> None:
+    ctx = _ctx_with_entities(count=3)
+    result = await execute("query_entities", {"detail": "ids", "limit": 10}, ctx)
+    rows = result.data["entities"]
+    assert len(rows) == 3
+    assert set(rows[0].keys()) == {"entity_id", "friendly_name"}
+
+
+async def test_large_gather_downgrades_to_ids() -> None:
+    ctx = _ctx_with_entities(count=501)
+    result = await execute("query_entities", {"detail": "full", "limit": 2000}, ctx)
+    rows = result.data["entities"]
+    assert len(rows) == 501
+    assert set(rows[0].keys()) == {"entity_id", "friendly_name"}
+
+
+async def test_medium_gather_downgrades_to_minimal() -> None:
+    ctx = _ctx_with_entities(count=101)
+    result = await execute("query_entities", {"detail": "full", "limit": 2000}, ctx)
+    assert "state" in result.data["entities"][0]
+    assert "attributes" not in result.data["entities"][0]

@@ -33,7 +33,7 @@ check.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -46,6 +46,8 @@ from mylo.tools.registry import register
 log = get_logger(__name__)
 
 Action = Literal["add", "remove", "replace", "list"]
+
+MONITORING_NOTE = "Alerts start after about two weeks of learning what normal looks like."
 
 
 class ManageMonitoredParams(BaseModel):
@@ -110,13 +112,14 @@ async def handler(params: ManageMonitoredParams, ctx: ToolContext) -> ToolResult
     memory.monitored_entities = sorted(current)
     await store.save(memory, note=change_note)
 
-    return ToolResult.ok(
-        {
-            "action": params.action,
-            "monitored_entities": memory.monitored_entities,
-            "count": len(memory.monitored_entities),
-        }
-    )
+    result: dict[str, Any] = {
+        "action": params.action,
+        "monitored_entities": memory.monitored_entities,
+        "count": len(memory.monitored_entities),
+    }
+    if params.action in ("add", "replace"):
+        result["note"] = MONITORING_NOTE
+    return ToolResult.ok(result)
 
 
 TOOL = ToolDefinition(

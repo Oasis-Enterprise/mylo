@@ -125,6 +125,17 @@ def shape_entity_minimal(
     }
 
 
+def shape_entity_ids(entry: EntityEntry, state: dict[str, Any] | None) -> dict[str, Any]:
+    """~12 tokens per entity: just enough to reference it in a plan."""
+    name = None
+    if state is not None:
+        name = (state.get("attributes") or {}).get("friendly_name")
+    return {
+        "entity_id": entry.entity_id,
+        "friendly_name": name or entry.name or entry.original_name,
+    }
+
+
 def shape_entity(
     entry: EntityEntry,
     state: dict[str, Any] | None,

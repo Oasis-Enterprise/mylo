@@ -487,13 +487,13 @@ async def test_verify_change_automation_loaded(_ctx: ToolContext) -> None:
     assert result.data["all_ok"] is True
 
 
-async def test_verify_change_unimplemented(_ctx: ToolContext) -> None:
+async def test_verify_change_rejects_removed_check_types(_ctx: ToolContext) -> None:
     result = await execute(
         "verify_change",
         {"check_type": "full_health", "wait_seconds": 0},
         _ctx,
     )
-    assert result.error_code == "not_implemented"
+    assert result.error_code == "invalid_params"
 
 
 # ─── memory_note ───────────────────────────────────────────────────────────

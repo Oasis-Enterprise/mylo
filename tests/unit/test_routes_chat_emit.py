@@ -125,8 +125,10 @@ async def test_status_payload_carries_trust_fields(tmp_path) -> None:
     vlog.complete(v.id, status="verified", message="ok")
 
     config = SimpleNamespace(model="claude-sonnet-4-6", llm_provider="anthropic")
-    # AppKeys.REGISTRIES, MEMORY, CONVERSATION and LAST_TURN are deliberately
-    # absent — the handler must fall back gracefully via .get(), not KeyError.
+    # AppKeys.REGISTRIES, MEMORY, CONVERSATION, LAST_TURN and TOOLS_JSON are
+    # deliberately absent — the handler must fall back gracefully via
+    # .get(), not KeyError, and must read the tool registry directly rather
+    # than the per-request TOOLS_JSON app key.
     request = SimpleNamespace(
         app={
             AppKeys.CONFIG: config,
@@ -142,6 +144,39 @@ async def test_status_payload_carries_trust_fields(tmp_path) -> None:
     assert payload["verifications"] == [v.to_dict()]
     assert payload["memory"]["last_sync_error"] is None
     assert payload["turn_active"] is False
+
+
+async def test_status_payload_carries_tool_labels(tmp_path) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from mylo.files.verifications import VerificationLog
+    from mylo.server.app import AppKeys
+    from mylo.server.routes_chat import _handle_status
+    from mylo.tools import registry as tool_registry
+
+    vlog = VerificationLog(tmp_path / "v.json")
+
+    config = SimpleNamespace(model="claude-sonnet-4-6", llm_provider="anthropic")
+    request = SimpleNamespace(
+        app={
+            AppKeys.CONFIG: config,
+            AppKeys.VERIFICATIONS: vlog,
+        }
+    )
+
+    tool_registry._reset_for_tests()
+    tool_registry.load_all()
+    try:
+        resp = await _handle_status(request)  # type: ignore[arg-type]
+    finally:
+        tool_registry._reset_for_tests()
+    payload = json.loads(resp.body)
+
+    tools = payload["tools"]
+    assert tools["query_entities"] == {"label": "Looking at your devices", "tier": 1}
+    assert tools["modify_automation"]["tier"] == 2
+    assert tools["call_service"]["tier"] == 3
 
 
 async def test_ack_verification_endpoint(tmp_path) -> None:

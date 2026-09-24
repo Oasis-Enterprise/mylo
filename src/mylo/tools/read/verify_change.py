@@ -14,14 +14,12 @@
 
 """``verify_change`` — post-change sanity checks.
 
-Implemented: ``entity_exists``, ``automation_loaded``, and
+Three check types: ``entity_exists``, ``automation_loaded``, and
 ``dashboard_loaded`` (does a saved view actually exist in the fetched
 dashboard config, with sane sections shape). ``dashboard_loaded``
 accepts a section without a ``cards`` key (empty section) and does not
 wait — Lovelace saves apply synchronously, so ``wait_seconds`` is
-ignored for it. The remaining checks (``no_new_errors``,
-``service_available``, ``full_health``) land with the full rollback
-loop where they have real consumers.
+ignored for it.
 """
 
 from __future__ import annotations
@@ -37,14 +35,7 @@ from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
 from mylo.tools.registry import register
 
-CheckType = Literal[
-    "entity_exists",
-    "automation_loaded",
-    "dashboard_loaded",
-    "no_new_errors",
-    "service_available",
-    "full_health",
-]
+CheckType = Literal["entity_exists", "automation_loaded", "dashboard_loaded"]
 
 
 class VerifyChangeParams(BaseModel):
@@ -164,26 +155,19 @@ async def handler(params: VerifyChangeParams, ctx: ToolContext) -> ToolResult:
 
     if params.check_type == "entity_exists":
         return ToolResult.ok(await _check_entity_exists(ctx, params.targets))
-    if params.check_type == "automation_loaded":
+    elif params.check_type == "automation_loaded":
         return ToolResult.ok(await _check_automation_loaded(ctx, params.targets))
-    if params.check_type == "dashboard_loaded":
+    else:
         return ToolResult.ok(await _check_dashboard_loaded(ctx, params.targets))
-
-    return ToolResult.error(
-        "not_implemented",
-        f"check_type {params.check_type!r} lands with the write tools in M7",
-    )
 
 
 TOOL = ToolDefinition(
     name="verify_change",
     description=(
-        "After a config change and reload, verify the change took effect. "
-        "Implements 'entity_exists', 'automation_loaded', and "
-        "'dashboard_loaded' (targets: '<dashboard_id>:<view_path>' or bare "
-        "'<view_path>' for the default dashboard — checks the view exists; "
-        "applies immediately, no wait). Richer verifications land in a "
-        "later milestone."
+        "Check that a change took effect after reload. check_type: entity_exists "
+        "(targets are entity ids), automation_loaded (automation ids), "
+        "dashboard_loaded (targets '<dashboard_id>:<view_path>' or a bare "
+        "'<view_path>' for the default dashboard; applies immediately, no wait)."
     ),
     params_model=VerifyChangeParams,
     tier=Tier.READ,

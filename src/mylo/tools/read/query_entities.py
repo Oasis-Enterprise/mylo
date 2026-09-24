@@ -30,12 +30,17 @@ from mylo.ha.registries import EntityEntry
 from mylo.logging_setup import get_logger
 from mylo.tools.base import Tier, ToolDefinition, ToolResult
 from mylo.tools.context import ToolContext
-from mylo.tools.formatters import shape_entity, shape_entity_minimal, summarize_entities
+from mylo.tools.formatters import (
+    shape_entity,
+    shape_entity_ids,
+    shape_entity_minimal,
+    summarize_entities,
+)
 from mylo.tools.registry import register
 
 log = get_logger(__name__)
 
-Detail = Literal["minimal", "standard", "full"]
+Detail = Literal["ids", "minimal", "standard", "full"]
 
 
 class Filter(BaseModel):
@@ -75,11 +80,11 @@ class QueryEntitiesParams(BaseModel):
     detail: Detail = Field(
         default="minimal",
         description=(
-            "Response depth. 'minimal': entity_id, friendly_name, state, area "
-            "(~30 tokens each — use for broad queries like 'what lights are on'). "
-            "'standard': + key attributes (brightness, temperature, etc). "
-            "'full': + all attributes, device info, integration (~150 tokens each — "
-            "only for targeted queries on a few entities)."
+            "'ids': entity_id + friendly_name only (~12 tokens each — whole-home "
+            "gathers). 'minimal': + state, area (~30 tokens). 'standard': + key "
+            "attributes. 'full': + all attributes, device, integration (~150 tokens "
+            "— a few entities only). Large results are downgraded automatically "
+            "(>100 rows → minimal, >500 → ids)."
         ),
     )
     include_disabled: bool = Field(
@@ -198,12 +203,15 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
     truncated = len(matched) > params.limit
     entries = matched[: params.limit]
 
-    # Hard cap: returning standard/full detail for >100 entities would be
-    # 10K-15K tokens. Downgrade to minimal based on how many rows we'd
-    # actually emit (not the limit param) so detail=full still works on a
-    # narrow filter even when the default limit is high.
+    # Hard cap: returning standard/full detail for a large row count would
+    # be a token bomb. Downgrade based on how many rows we'd actually emit
+    # (not the limit param) so detail=full still works on a narrow filter
+    # even when the default limit is high.
     detail = params.detail
-    if detail != "minimal" and len(entries) > 100:
+    if len(entries) > 500 and detail != "ids":
+        detail = "ids"
+        log.info("query_entities.detail_downgraded", reason=">500 entities", returned=len(entries))
+    elif len(entries) > 100 and detail in ("standard", "full"):
         detail = "minimal"
         log.info(
             "query_entities.detail_downgraded",
@@ -211,7 +219,9 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
             returned=len(entries),
         )
 
-    if detail == "minimal":
+    if detail == "ids":
+        shaped = [shape_entity_ids(e, states.get(e.entity_id)) for e in entries]
+    elif detail == "minimal":
         shaped = [shape_entity_minimal(e, states.get(e.entity_id), ctx.registries) for e in entries]
     else:
         shaped = [
@@ -236,17 +246,10 @@ async def handler(params: QueryEntitiesParams, ctx: ToolContext) -> ToolResult:
 TOOL = ToolDefinition(
     name="query_entities",
     description=(
-        "Search entities. Match the filter to the JOB: for a narrow question "
-        "('what lights are on') use the narrowest filter (domain=light + "
-        "state=on). But for a BULK gather (building a dashboard, auditing a "
-        "whole area/home) do ONE broad query, not many small ones — omit "
-        "domain to get every entity in an area, or omit all filters with "
-        "limit=2000 to get the whole home. detail=minimal (the default) "
-        "already returns the exact entity_id for every result, so a single "
-        "broad minimal query gives you all the ids you need; don't re-query "
-        "per-domain. Use detail=standard/full only for attributes on a few "
-        "entities. Check the topology summary first — it may already answer "
-        "the question without a tool call."
+        "Search entities by area, domain, device_class, integration, name pattern, "
+        "or state. detail controls fields per row (ids/minimal/standard/full); "
+        "limit caps rows (default 200, max 2000). Returns matching entities plus "
+        "a count summary."
     ),
     params_model=QueryEntitiesParams,
     tier=Tier.READ,

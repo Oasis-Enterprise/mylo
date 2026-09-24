@@ -368,6 +368,12 @@ async def _handle_status(request: web.Request) -> web.Response:
         }
 
     from mylo import __version__
+    from mylo.llm.status_labels import label_for
+    from mylo.tools import registry as tool_registry
+
+    tools = {
+        t.name: {"label": label_for(t.name), "tier": int(t.tier)} for t in tool_registry.all_tools()
+    }
 
     conv = request.app.get(AppKeys.CONVERSATION)
     return web.json_response(
@@ -377,6 +383,7 @@ async def _handle_status(request: web.Request) -> web.Response:
             "entities": entity_count,
             "automations": automation_count,
             "memory": memory_payload,
+            "tools": tools,
             "has_provider": AppKeys.PROVIDER in request.app,
             # Recovery signals for a panel whose stream dropped mid-turn:
             # keep polling while the turn is still running, then replay
