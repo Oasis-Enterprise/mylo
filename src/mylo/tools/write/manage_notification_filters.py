@@ -150,11 +150,9 @@ async def handler(params: ManageNotificationFiltersParams, ctx: ToolContext) -> 
 TOOL = ToolDefinition(
     name="manage_notification_filters",
     description=(
-        "Add, remove, or list notification suppression rules. When a user "
-        "says 'stop notifying me about stale automations', add a filter "
-        "with type='stale_automation'. Types: stale_automation, unavailable, "
-        "anomaly, sync_conflict, or * for all. Optionally scope to a "
-        "specific entity_id. 'list' is free; add/remove require approval."
+        "Add, remove, or list finding suppression rules by type "
+        "(stale_automation, unavailable, anomaly, sync_conflict, or * for "
+        "all), optionally scoped to one entity_id."
     ),
     params_model=ManageNotificationFiltersParams,
     tier=Tier.MODIFY,

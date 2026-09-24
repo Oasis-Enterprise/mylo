@@ -211,12 +211,9 @@ def _parse_timestamp(state_entry: dict[str, Any]) -> str:
 TOOL = ToolDefinition(
     name="query_history",
     description=(
-        "Query an entity's state history over time. Returns state changes "
-        "within a time window (default 24h, max 1 week). Use summary=true "
-        "(default) for a compact overview (first/last/min/max/avg/count), "
-        "or summary=false for raw state changes (capped at 100). Good for: "
-        "'show me the temperature trend', 'when was the door last unlocked', "
-        "'how often did the motion sensor trigger today'."
+        "State history for one entity within a window (default 24h, max 1 "
+        "week). summary=true returns first/last/min/max/avg/count; "
+        "summary=false returns raw state changes (max 100)."
     ),
     params_model=QueryHistoryParams,
     tier=Tier.READ,

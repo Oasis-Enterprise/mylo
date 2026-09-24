@@ -294,13 +294,9 @@ def _remove_by_id(items: list[dict[str, Any]], target_id: str) -> tuple[list[dic
 TOOL = ToolDefinition(
     name="modify_zones",
     description=(
-        "Create, update, or delete a Mylo-managed HA zone. "
-        "Zones define geographic areas used for presence detection and "
-        "automations (home, work, school, etc.). They are stored in "
-        "/config/packages/agent.yaml under a 'zone:' list. "
-        "The built-in 'home' zone cannot be edited — it is managed by HA core. "
-        "ALWAYS call with dry_run=true first; present the diff preview to the "
-        "user before calling dry_run=false."
+        "Create, update, or delete a Mylo-managed zone in "
+        "/config/packages/agent.yaml. The built-in home zone is managed by "
+        "HA core and cannot be edited. dry_run=true returns the diff."
     ),
     params_model=ModifyZonesParams,
     tier=Tier.MODIFY,

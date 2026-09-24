@@ -117,15 +117,11 @@ async def handler(params: PlanDashboardParams, ctx: ToolContext) -> ToolResult:
 TOOL = ToolDefinition(
     name="plan_dashboard",
     description=(
-        "Stage a dashboard change for the user's approval. Pass every operation "
-        "for the change in one call: create_view (sections with headings), "
+        "Stage a dashboard change for approval. Operations: create_view, "
         "add_section, add_cards, replace_card, remove_card, move_card, "
         "update_view_meta, remove_section, delete_view. Sections are addressed "
-        "by heading text or index; 'position' is 'start', 'end', or an index. "
-        "Validates entity ids, card options, custom cards, and theme; returns "
-        "plan_invalid with a fix list, or a plan_id the user must approve by "
-        "clicking Apply. Nothing is written here. List every unasked choice in "
-        "'assumptions'."
+        "by heading or index; position is start/end/index. Validates and "
+        "returns plan_id or plan_invalid."
     ),
     params_model=PlanDashboardParams,
     tier=Tier.READ,

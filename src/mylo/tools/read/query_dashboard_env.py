@@ -66,15 +66,9 @@ async def handler(params: QueryDashboardEnvParams, ctx: ToolContext) -> ToolResu
 TOOL = ToolDefinition(
     name="query_dashboard_env",
     description=(
-        "Discover the dashboard environment before building: installed "
-        "frontend themes (use one of these for the view 'theme' — never "
-        "guess) and which custom:* card types are actually installed via "
-        "lovelace resources. Only use custom cards from "
-        "custom_cards_detected; when a card isn't listed or the list is "
-        "null, use native HA cards (tile, heading, entities) instead. "
-        "Call this once at the start of any dashboard build. mylo_cards "
-        "lists custom cards Mylo has already authored; update one by "
-        "staging new source with stage_custom_card."
+        "List installed frontend themes, custom card types available via "
+        "lovelace resources (custom_cards_detected, null when unknown), and "
+        "the cards Mylo has authored (mylo_cards)."
     ),
     params_model=QueryDashboardEnvParams,
     tier=Tier.READ,

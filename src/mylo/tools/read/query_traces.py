@@ -247,11 +247,11 @@ async def handler(params: QueryTracesParams, ctx: ToolContext) -> ToolResult:
 TOOL = ToolDefinition(
     name="query_traces",
     description=(
-        "Inspect recent run traces for an automation or script to answer "
-        "'why did/didn't this run.' Returns a list of recent runs "
-        "(run_id, state, timestamps, error) and a compact summary of the "
-        "latest run: what triggered it, which steps executed, where it "
-        "stopped, and any error. Supply run_id to inspect a specific run."
+        "Inspect recent run traces for an automation or script. Returns a "
+        "list of recent runs (run_id, state, timestamps, error) and a "
+        "compact summary of the latest run: what triggered it, which steps "
+        "executed, where it stopped, and any error. Supply run_id to "
+        "inspect a specific run."
     ),
     params_model=QueryTracesParams,
     tier=Tier.READ,

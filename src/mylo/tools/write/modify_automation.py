@@ -326,11 +326,9 @@ TOOL = ToolDefinition(
     name="modify_automation",
     description=(
         "Create, update, delete, enable, or disable a Mylo-managed "
-        "automation. M7a scope: YAML mode only — automations live in "
-        "/config/packages/agent.yaml. Requires the user to have 'packages' "
-        "loaded in configuration.yaml. ALWAYS call dry_run=true first, "
-        "present the preview to the user, and only retry with dry_run=false "
-        "after explicit user approval."
+        "automation in /config/packages/agent.yaml (YAML mode; requires "
+        "packages in configuration.yaml). dry_run=true returns the diff and "
+        "validation; dry_run=false writes and reloads."
     ),
     params_model=ModifyAutomationParams,
     tier=Tier.MODIFY,

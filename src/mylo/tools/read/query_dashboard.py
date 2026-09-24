@@ -197,13 +197,10 @@ async def handler(params: QueryDashboardParams, ctx: ToolContext) -> ToolResult:
 TOOL = ToolDefinition(
     name="query_dashboard",
     description=(
-        "Retrieve Lovelace dashboard configurations. With no parameters, "
-        "lists all dashboards. With ``dashboard_id``, returns per-view "
-        "summaries (section headings and card counts). With ``view_id`` "
-        "too, returns the full view plus indexed sections/cards "
-        "({index, type, entity}) for addressing plan operations. "
-        "Storage-mode dashboards only in this version; YAML-mode "
-        "dashboards are read via ``read_config_file``."
+        "Read Lovelace dashboards. No params: list dashboards. dashboard_id: "
+        "per-view summaries (section headings, card counts). dashboard_id + "
+        "view_id: the full view with indexed sections/cards for addressing "
+        "plan operations. Storage-mode dashboards only."
     ),
     params_model=QueryDashboardParams,
     tier=Tier.READ,

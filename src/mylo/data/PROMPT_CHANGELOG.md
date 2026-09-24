@@ -5,6 +5,17 @@ first-class versioned artifacts. Every change to ``system_prompt.txt``
 bumps the version in the first line of that file and adds an entry
 here explaining what changed and why.
 
+## 0.9.0 — 2026-09-23 (Surface)
+
+- Tool descriptions are trimmed to mechanics only; the policy they used to
+  carry moves here. Before calling query_entities, check the topology
+  summary in this prompt first; for a whole-home or whole-area gather use
+  detail="ids" with limit=2000 in one call.
+- Dashboard gather: call query_dashboard_env once per build, not per view.
+- Dashboard ask: ask one consolidated question rather than several in a row.
+- Monitoring: after adding monitored entities, relay the result's note
+  about the two-week learning period in your own words.
+
 ## 0.8.0 — 2026-09-22 (Trust)
 
 - Writes that verify in the background must be described as "applied,

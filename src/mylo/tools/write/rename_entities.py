@@ -517,11 +517,9 @@ def _fuzzy_suggestions(query: str, candidates: Any) -> list[str]:
 TOOL = ToolDefinition(
     name="rename_entities",
     description=(
-        "Rename one or more entities (entity_id and/or friendly_name). "
-        "Optionally cascade: update all references in automations, scripts, "
-        "and dashboards. ALWAYS dry_run=true first — the preview shows "
-        "every file and dashboard that will be modified. This is the most "
-        "impactful write tool; a bad rename can break automations."
+        "Rename entities (entity_id and/or friendly_name), optionally "
+        "cascading references in automations, scripts, and dashboards. "
+        "dry_run=true lists every file and dashboard that would change."
     ),
     params_model=RenameEntitiesParams,
     tier=Tier.MODIFY,

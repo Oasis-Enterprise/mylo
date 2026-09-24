@@ -88,15 +88,10 @@ async def handler(params: AskUserParams, ctx: ToolContext) -> ToolResult:
 TOOL = ToolDefinition(
     name="ask_user",
     description=(
-        "Ask the user ONE structured question and pause until they answer. "
-        "Use when a build decision is genuinely the user's call — theme, "
-        "layout style, which areas to include — and the answer isn't already "
-        "in their stated preferences. Provide 2-6 concrete options (the UI "
-        "renders them as buttons); the user may also type a free-form "
-        "answer. Consolidate: ask one question covering the open decisions "
-        "rather than several in a row. Set preference_key when the answer "
-        "should be remembered, then record it with "
-        "memory_note(type='preference') after they reply."
+        "Ask the user one structured question and pause the turn until they "
+        "answer. Provide 2-6 concrete options (rendered as buttons); "
+        "free-text answers are also accepted. Set preference_key when the "
+        "answer should be remembered."
     ),
     params_model=AskUserParams,
     tier=Tier.READ,

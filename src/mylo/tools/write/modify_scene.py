@@ -293,13 +293,10 @@ def _remove_by_id(items: list[dict[str, Any]], target_id: str) -> tuple[list[dic
 TOOL = ToolDefinition(
     name="modify_scene",
     description=(
-        "Create, update, delete, or activate a Mylo-managed HA scene. "
-        "Scenes are stored in /config/packages/agent.yaml under a 'scene:' "
-        "list. Use 'capture_entities' on create/update to snapshot the "
-        "current state of listed entities directly from HA. "
-        "'activate' fires scene.turn_on (no YAML change). "
-        "ALWAYS call with dry_run=true first for create/update/delete; "
-        "present the diff preview to the user before calling dry_run=false."
+        "Create, update, delete, or activate a Mylo-managed scene in "
+        "/config/packages/agent.yaml. capture_entities snapshots current "
+        "states on create/update. activate fires scene.turn_on without a "
+        "YAML change. dry_run=true returns the diff."
     ),
     params_model=ModifySceneParams,
     tier=Tier.MODIFY,

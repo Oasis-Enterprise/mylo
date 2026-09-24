@@ -195,11 +195,10 @@ def _load_package(path: Path) -> dict[str, Any]:
 TOOL = ToolDefinition(
     name="modify_script",
     description=(
-        "Create, update, or delete Home Assistant scripts. Scripts are "
-        "reusable action sequences (no triggers) — callable from "
-        "automations, dashboards, or via call_service. ALWAYS dry_run=true "
-        "first. Scripts are stored in packages/agent.yaml alongside "
-        "automations."
+        "Create, update, or delete Home Assistant scripts in "
+        "packages/agent.yaml. Scripts are reusable action sequences (no "
+        "triggers) callable from automations, dashboards, or call_service. "
+        "dry_run=true returns the diff; dry_run=false writes and reloads."
     ),
     params_model=ModifyScriptParams,
     tier=Tier.MODIFY,

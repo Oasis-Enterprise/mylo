@@ -122,12 +122,11 @@ async def handler(params: StageCustomCardParams, ctx: ToolContext) -> ToolResult
 TOOL = ToolDefinition(
     name="stage_custom_card",
     description=(
-        "Stage a custom Lovelace card you wrote for the user's approval. Only when "
-        "native and installed custom cards cannot do the job. The source must follow "
-        "the card contract (plain HTMLElement in <ha-card>, setConfig + set hass, "
-        "guarded customElements.define of a mylo-* element, window.customCards entry, "
-        "no imports/fetch/eval). Returns card_id; reference custom:<element> in "
-        "plan_dashboard in the same turn. Nothing is written here."
+        "Stage a custom Lovelace card's JavaScript for approval. The source "
+        "must follow the card contract (HTMLElement in <ha-card>, setConfig "
+        "+ set hass, guarded define of a mylo-* element, window.customCards "
+        "entry, no imports/fetch/eval). Returns card_id and config_example. "
+        "Nothing is written."
     ),
     params_model=StageCustomCardParams,
     tier=Tier.READ,

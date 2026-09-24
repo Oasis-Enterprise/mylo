@@ -354,13 +354,10 @@ def _build_payload(params: ManageHelpersParams) -> dict[str, Any]:
 TOOL = ToolDefinition(
     name="manage_helpers",
     description=(
-        "Create, update, delete, or list Home Assistant helper entities: "
-        "input_boolean (toggles), input_number (sliders), input_select "
-        "(dropdowns), input_text, input_datetime, timer, counter, "
-        "input_button (momentary buttons), and schedule (weekly time blocks). "
-        "Use 'list' to see existing helpers of a type. Create/update/delete "
-        "require approval. All operations are immediate via websocket — "
-        "no file writes or reload needed."
+        "Create, update, delete, or list Home Assistant helpers: "
+        "input_boolean, input_number, input_select, input_text, "
+        "input_datetime, timer, counter, input_button, schedule. Changes "
+        "apply immediately over the websocket; no file writes or reload."
     ),
     params_model=ManageHelpersParams,
     tier=Tier.MODIFY,

@@ -198,9 +198,8 @@ TOOL = ToolDefinition(
     description=(
         "Create or replace a YAML configuration file under /config/. "
         "Validates YAML, automation schemas where applicable, and all "
-        "entity references before touching disk. ALWAYS call first with "
-        "dry_run=true to show the user a preview; only retry with "
-        "dry_run=false after explicit user approval."
+        "entity references before touching disk. dry_run=true returns the "
+        "validation preview; dry_run=false writes it."
     ),
     params_model=WriteConfigFileParams,
     tier=Tier.MODIFY,

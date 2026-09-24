@@ -125,11 +125,8 @@ async def handler(params: ManageMonitoredParams, ctx: ToolContext) -> ToolResult
 TOOL = ToolDefinition(
     name="manage_monitored",
     description=(
-        "Add, remove, or list entities in Mylo's monitoring list. "
-        "Monitored entities get nightly baseline statistics and hourly "
-        "anomaly detection. Use query_entities to discover good candidates "
-        "(sensors with state_class=measurement, energy, climate, battery). "
-        "'list' is free; add/remove/replace require approval."
+        "Add, remove, replace, or list entities in Mylo's monitoring list. "
+        "Monitored entities get nightly baselines and hourly anomaly checks."
     ),
     params_model=ManageMonitoredParams,
     tier=Tier.MODIFY,
