@@ -8,32 +8,17 @@ A living document. Priorities shift based on user feedback and what surfaces fro
 
 Features actively being worked on for upcoming releases.
 
-### Helper Entity Creation
-Create and manage HA helper entities through conversation — input_booleans, input_numbers, input_selects, timers, counters, input_datetimes. Currently users have to go to Settings → Helpers manually for each one.
-
-- "Create a toggle helper called guest mode"
-- "Add an input_number for target temperature with a range of 60-80"
-- "Create a timer called laundry with a 45 minute duration"
-
-### Scene Management
-Create, edit, activate, and delete scenes through conversation. Capture the current state of a room as a scene without manually listing every entity and attribute.
-
-- "Save the current living room lighting as 'movie night'"
-- "Create a scene called 'morning' with kitchen lights at 80% and the coffee maker on"
-- "Activate the bedtime scene"
+### Hardening after the 1.7–1.9 UX releases
+- Wire the prompt-injection sanitizer into the entity-name surfaces of the system prompt.
+- Make the monthly budget a hard stop, not just a warning.
+- An integration test that runs a full chat turn against a fake Home Assistant, and image builds pinned to the lockfile.
+- Small follow-ups from review: cap the monitored-entity list in the Memory tab, past-tense labels on finished tool rows, and prompt wording for the compact entity shape.
 
 ---
 
 ## Soon
 
 Next in line after the current batch ships.
-
-### Script Management
-Create, edit, and trigger scripts through conversation. Similar to the automation tools but for HA scripts — reusable action sequences without triggers.
-
-- "Build a script that flashes the porch light 3 times"
-- "Create a script that announces on all speakers that dinner is ready"
-- "Run the welcome home script"
 
 ### Template Tester
 Test Jinja templates without leaving the chat or going to Developer Tools. Useful for debugging automations and understanding template syntax.
@@ -48,14 +33,6 @@ Browse and search archived conversations. Right now "New conversation" archives 
 - "What did we talk about with the garage door automation?"
 - Scroll through past sessions by date
 - Search across all conversations for entity names or topics
-
-### Entity History
-Query historical state data and trends, not just current state. Pull from HA's history and long-term statistics APIs and present summarized trends.
-
-- "Show me the basement temperature over the last 48 hours"
-- "When was the last time the front door was unlocked?"
-- "How much energy did the dryer use this week?"
-- "What's the average humidity in the bathroom over the last month?"
 
 ---
 
@@ -99,6 +76,13 @@ Different household members get their own conversations, permissions, and memory
 ## Shipped
 
 For reference — features that were on the roadmap and have shipped.
+
+- Plain-language labels, homeowner Memory tab, first-run primer, shared buttons, accessibility and phone-width layout, mechanics-only tool descriptions (v1.9.0)
+- Verification outcomes in the chat, sync-failure visibility, scoped per-item approval, backups stated after writes (v1.8.0)
+- Streamed replies, Stop button, live status labels (v1.7.0)
+- Custom card authoring behind Apply (v1.6.0)
+- Dashboard plan/apply flow with heading-addressed sections (v1.5.0)
+- Helper entity creation, scene management, script management, entity history, automation trace debugging, zones (v1.1–v1.4)
 
 - Persistent memory system with nightly reconciler (v1.0.0)
 - Background monitoring — hourly sweeps, baselines, anomaly detection (v1.0.0)

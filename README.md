@@ -4,14 +4,14 @@ A persistent, memory-aware AI agent that lives inside your Home Assistant as a s
 
 Mylo connects deeply to your HA instance over websocket — it knows your entities, devices, areas, automations, dashboards, integrations, and learned preferences. It can read, create, and modify your HA configuration, control devices, detect anomalies, and proactively surface issues. It remembers across sessions.
 
-> **Status:** v1.4.0. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
+> **Status:** v1.9.0. Tested daily against a 2200-entity production HA instance. Pre-built images for amd64 and aarch64.
 
 ## Install
 
 1. **Settings → Add-ons → Add-on Store → ⋮ → Repositories**
 2. Add: `https://github.com/Oasis-Enterprise/mylo`
 3. Install **Mylo**, set your API key in the Configuration tab
-4. Start — it appears as a sidebar panel
+4. Start — it appears as a sidebar panel. The first screen explains how approval works and offers clickable starting points.
 
 Pre-built images available for **amd64** (x86 mini PCs, NUCs, Proxmox) and **aarch64** (Raspberry Pi 4/5). If no pre-built image exists for your architecture, the add-on builds from source on install.
 
@@ -72,19 +72,21 @@ Describe what you want in plain English. Mylo writes the YAML, validates it, and
 
 **Tools used:** `modify_automation`, `write_config_file`, `patch_config_file`, `verify_change`, `reload_config`
 
-Every automation write goes through: **dry-run preview → user approval → atomic write → HA reload → verification**. If the reload fails, Mylo rolls back automatically and tells you what went wrong.
+Every automation write goes through: **dry-run preview → user approval → backup → atomic write → HA reload → verification**. On large homes the reload takes a while, so Mylo says the change is *applied, verifying*, then verifies in the background. The outcome (verified, failed, or rolled back) appears as a card in the chat and Mylo knows it on your next message. If the panel is closed when a verification fails, you also get a Home Assistant persistent notification.
 
 ### Build dashboards
 
-Create and modify Lovelace views through conversation. Supports mushroom cards, mini-graph, conditional cards, and more.
+Create and modify Lovelace views through conversation, using native cards plus whatever custom cards you actually have installed.
 
 - "Add a mobile-friendly view to my overview dashboard with room tiles and quick actions"
 - "Create a card that shows my energy usage for the last 24 hours"
 - "Add a conditional card that only shows when the garage door is open"
 
-**Tools used:** `plan_dashboard`, `apply_dashboard_plan`, `query_dashboard`
+**Tools used:** `plan_dashboard`, `apply_dashboard_plan`, `query_dashboard`, `query_dashboard_env`
 
-Dashboard changes are planned, shown as a wireframe for approval, then applied and verified. Dashboard operations are surgical — Mylo can replace a single view by path, swap one card by index, or remove a card without touching the rest of your dashboard. For new views, it builds incrementally: creates the view with an initial batch of cards, then adds more in follow-up calls.
+Dashboard changes are staged as one plan that holds every operation — create a view, add or remove a section, add, replace, move, or remove cards, or update a view's title and theme. Sections are addressed by their heading, so "put the thermostat at the top of Climate" lands exactly there. The plan card lists each operation, any assumptions Mylo made, and a Show YAML toggle; you click Apply, Modify, or Reject. Apply takes a backup, saves once, and reads the dashboard back to verify.
+
+**Custom cards:** when no native or installed card can do what you asked, Mylo writes a small JavaScript card of its own, checks it against a safety contract (no imports, no network, no eval), saves it under `/config/www/mylo-cards/`, registers it as a dashboard resource, and uses it in the plan — all behind the same Apply. Updating a card shows a line diff. Tools: `stage_custom_card`, `apply_custom_card`, `read_custom_card`.
 
 **Entity validation:** Every entity reference in card configs (including inside Jinja templates like `states('sensor.temp')`) is validated against the live registry before preview. If Mylo hallucinates an entity ID, it gets caught and corrected with fuzzy-match suggestions before you ever see a broken card.
 
@@ -187,7 +189,7 @@ Mylo has persistent memory that survives across sessions. Tell it things and it 
 
 Notes are stored immediately in a scratchpad and available for the next turn. A **nightly reconciler** (powered by Haiku to keep costs low) merges scratchpad notes into the structured context file, detects contradictions, and merges duplicates.
 
-**Memory tab:** You can browse, edit, and delete everything Mylo knows — household members, preferences, notes, known issues, conflicts. Full transparency, nothing hidden. A "Sync now" button triggers the reconciler on demand.
+**Memory tab:** browse everything Mylo knows in plain language — your household, preferences, what it remembers, known issues, and what it monitors — and tell it to forget anything. Sync, conflicts, and the raw scratchpad sit behind an Advanced toggle. Nothing is hidden.
 
 ### Monitor your home
 
@@ -211,7 +213,7 @@ Set up sensor monitoring through conversation — Mylo discovers your sensors an
 
 ### Control findings
 
-Monitor findings surface only inside the Mylo panel (findings badge + catch-up banner) — Mylo never sends push or HA notifications. Suppress specific finding types through conversation.
+Monitor findings surface inside the Mylo panel (findings badge + catch-up banner), never as push notifications. The one Home Assistant notification Mylo sends is a fallback: if a background verification of a change fails while the panel is closed. Suppress specific finding types through conversation.
 
 - "Stop flagging stale automations"
 - "Don't alert me when the sprinkler system goes unavailable"
@@ -241,21 +243,23 @@ Suppressions can be **global** (all of a type) or **entity-scoped** (just `senso
 ## The three-tab panel
 
 ### Chat
-Conversational interface with SSE streaming. User messages appear as right-aligned bubbles; Mylo's responses flow as prose. Tool calls show inline with status dots (green = success, red = error, amber = awaiting approval), tool name, duration, and an expandable params view.
+Conversational interface. Replies stream in as Mylo writes them, and while it works the indicator says what it is doing ("Reading your automations", "Updating the dashboard"). The send button becomes **Stop** during a turn; stopping never interrupts a change mid-write. User messages appear as right-aligned bubbles; Mylo's responses flow as prose. Tool calls show inline with status dots (green = success, red = error, amber = awaiting approval), a plain-language name, duration, and an expandable details view with the raw call.
 
-When Mylo proposes a change, an **approval card** appears inline with the diff preview. Click **Apply** to commit or **Reject** to cancel.
+When Mylo proposes a change, an **approval card** appears inline with the diff preview. Apply authorises only the exact changes you saw; when several are previewed you can tick which to apply, and deletions get a red Apply with a "Deletes:" line. Click **Apply** to commit or **Reject** to cancel.
+
+When a change is verified in the background, a **verification card** reports the outcome. Errors read as a sentence with the technical detail one click away.
 
 A **catch-up banner** appears when you return after a gap (>2 hours), summarizing what happened while you were away — memory syncs, background actions, failures. Built from existing data, no LLM call, zero token cost.
 
 **"+ New" button** in the header archives the current conversation and starts fresh. Old conversations stay in the database — nothing is deleted.
 
 ### Memory
-Browse everything Mylo knows: household members, preferences, notes, known issues, rejected suggestions, and pending conflicts. Each item has a delete button. Conflicts show the two claims side by side with Keep A / Keep B / Dismiss controls.
+Opens on what Mylo knows about your home: your household, preferences, what it remembers, known issues, and what it monitors, all in plain language. **Forget** asks once before deleting. If the nightly memory sync failed, the header and this tab say so with the reason.
 
-A **"Pending — not yet synced"** section at the top shows scratchpad notes that are already being used in conversations but haven't been folded into the main memory yet. Hit **Sync now** to trigger the reconciler.
+An **Advanced** toggle reveals the tooling: **Sync now**, the sync result with prune candidates, the **Pending — not yet synced** scratchpad notes, conflicts with Keep A / Keep B / Dismiss controls, rejected suggestions, and item ids.
 
 ### Activity
-Audit timeline of every tool call Mylo has made, grouped by day. Each entry shows the tool name, result (success/failure/rolled back/denied), dry-run status, tier level, timestamp, and expandable params + details. Filterable by All / Success / Failures.
+Audit timeline of every tool call Mylo has made, grouped by day. Each entry shows the plain-language tool name (raw name on hover), result (success/failure/rolled back/denied), dry-run status, tier level, timestamp, and expandable params + details. Filterable by All / Success / Failures.
 
 ---
 
@@ -266,7 +270,7 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 | Optimization | What it does | Savings |
 |-------------|-------------|---------|
 | **Result summarization** | After the model processes a tool result, the full payload is replaced with a compact summary in conversation history | ~7,800 tokens saved per subsequent turn for a typical entity query |
-| **Minimal detail queries** | Entity queries default to `detail=minimal` (~30 tokens/entity) instead of full attributes (~150 tokens/entity) | 5x reduction on broad queries |
+| **Detail levels** | Entity queries default to `detail=minimal` (~30 tokens/entity) instead of full attributes (~150 tokens/entity); whole-home gathers use `detail=ids` (~12 tokens/entity) | 5–12x reduction on broad queries |
 | **One broad gather** | For a big task Mylo makes a single broad query (default limit 200) instead of dozens of narrow ones, and keeps the entity IDs it fetched so it never re-queries the same scope | Turns a hundreds-of-lookups task into a handful |
 | **Conversation history caching** | Within a turn the prior history is reused from Anthropic's prompt cache across each step instead of being re-sent at full price | ~90% off the repeated context — the biggest lever on long tasks |
 | **Repeat-read dedup** | Identical read calls within a turn are served from a per-turn cache (with a nudge to move on); read results are also cached for 120s across turns | Eliminates redundant HA queries and re-query loops |
@@ -275,9 +279,10 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 | **Cost & cache telemetry** | Every turn reports an estimated USD cost and cache-hit ratio (logs + chat response) | Makes spend measurable, not a mystery |
 | **Rate limit retry** | Anthropic 429 / 5xx (incl. 529 overloaded) retry with exponential backoff instead of crashing | Prevents panic-retry amplification |
 | **History safety ceiling** | A turn only compacts if it grows toward the context-window limit (~150K tokens); otherwise history stays append-only and cache-friendly | Backstop without breaking the cache |
-| **Budget warnings** | When session cost hits 80% of the configured cap, Mylo mentions it naturally (disabled for Ollama) | Prevents surprise bills |
+| **Budget warnings** | When session cost hits 80% of the configured cap, Mylo mentions it naturally (disabled for Ollama). Budgets warn; they do not yet stop a turn | Makes overspend visible |
+| **Streaming** | Replies stream as they are written, and you can stop a turn you no longer want | Cuts wasted output on wrong turns |
 
-**Session budget:** Configurable per-session cap (default $0.50). The UI footer shows running cost and token budget.
+**Session budget:** Configurable per-session cap (default $0.50). The UI footer shows running cost and token budget, priced against the model you configured.
 
 **Monthly budget:** Configurable monthly cap (default $15.00).
 
@@ -300,7 +305,7 @@ All providers use the same `api_key` field in the Configuration tab — just put
 
 For Ollama: set `ollama_url` in the Configuration tab to your Ollama server's address (e.g. `http://192.168.1.50:11434/v1`). Default is `http://host.docker.internal:11434/v1` which works if Ollama runs on the same machine as HA. Leave `api_key` empty — Ollama doesn't use one. Budget warnings are automatically disabled since cost is $0.
 
-**Ollama model sizing guide:** Mylo has 21 tools with complex schemas. Smaller models struggle to produce valid tool calls reliably.
+**Ollama model sizing guide:** Mylo has 32 tools with complex schemas. Smaller models struggle to produce valid tool calls reliably.
 
 | Size | Examples | Experience |
 |------|----------|-----------|
@@ -329,6 +334,12 @@ Set in the add-on **Configuration** tab:
 | `proactive_notifications` | `true` | Enable the hourly background monitoring sweep (findings shown in the panel) |
 | `session_budget_usd` | `0.50` | Per-conversation cost cap in USD |
 | `monthly_budget_usd` | `15.00` | Monthly cost cap in USD |
+| `context_budget_factor` | `0.6` | Share of the model's context window the system prompt may use |
+| `context_output_reserve_tokens` | `8000` | Tokens held back for the model's reply |
+| `working_set_max_entities` | `40` | Entities placed in the prompt's relevance-ranked working set |
+| `log_level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
+
+The options `max_daily_notifications`, `quiet_hours_start`, `quiet_hours_end`, and `notification_method` are ignored since 1.5 and will be removed in a future release.
 
 ---
 
@@ -339,7 +350,7 @@ Mylo uses a three-tier permission system:
 | Tier | Actions | Approval required | Examples |
 |------|---------|-------------------|----------|
 | **Tier 1 — Read** | Query entities, devices, automations, logs, system info, read config files, record memory notes, list labels/areas/monitored entities/notification filters, stage a dashboard plan | No | `query_entities`, `memory_note`, `manage_labels list`, `plan_dashboard` |
-| **Tier 2 — Modify** | Write config files, modify automations, rename entities, apply a staged dashboard plan, modify areas, manage monitored entities, manage notification filters | Yes (dry-run first, or Apply for dashboard plans) | `modify_automation`, `rename_entities`, `apply_dashboard_plan` |
+| **Tier 2 — Modify** | Write config files, modify automations, scripts, scenes, zones, and areas, rename entities, manage helpers, labels, monitored entities, and notification filters, apply a staged dashboard plan or custom card | Yes (preview first, then Apply) | `modify_automation`, `rename_entities`, `apply_dashboard_plan` |
 | **Tier 3 — Action** | Call HA services (lights, locks, covers, scripts, scenes), reload configuration | Yes (explicit confirmation) | `call_service`, `reload_config` |
 
 **Hard-blocked services** (can never be called, even with approval):
@@ -349,9 +360,13 @@ Mylo uses a three-tier permission system:
 **Restricted services** (extra warning before confirmation):
 - Unlocking locks, disarming alarm panels, opening covers
 
+**Scoped approval:** every previewed change carries an id. Clicking Apply authorises exactly those ids and nothing else — a change Mylo did not preview cannot slip through on an approved turn, and you can deselect individual changes before applying.
+
+**Custom cards** are written only to `/config/www/mylo-cards/`, only with `mylo-` element names, and only after passing a contract check (plain `HTMLElement`, no imports, no network calls, no `eval`, no token access).
+
 **Audit logging:** Every tool call is logged to an append-only JSON Lines audit file with timestamp, tool name, tier, parameters, dry-run status, approval status, and result. Browse the full history in the Activity tab.
 
-**Rollback:** Tier-2 file writes use atomic write → reload → verify → rollback-on-failure. If a config change causes a reload error, the original file is restored automatically.
+**Backups and verification:** every write takes a backup first and Mylo tells you where it is. File writes are atomic, then reloaded and verified. On large homes verification runs in the background and the outcome (verified, failed, or rolled back) appears as a card in the chat; a failure also raises a Home Assistant notification if the panel is closed.
 
 ---
 
@@ -383,7 +398,7 @@ Open the panel after a gap and the catch-up banner shows what changed — memory
 - `/help` — show available commands
 
 **Check the cost of your session:**
-The footer shows `budget: Nk/200k tokens · cost: $X.XX this session` in real time.
+The footer shows `budget: Nk/<window> tokens · cost: $X.XX this session` in real time, sized to your model's context window and priced at your model's rates.
 
 ---
 
@@ -407,13 +422,14 @@ cp .env.example .env
 .venv/bin/python -m mylo              # run server
 .venv/bin/python -m mylo.scripts.chat # CLI chat (debugging)
 .venv/bin/pytest tests/unit/          # tests
+cd ui && npm test                     # UI unit tests (Vitest)
 .venv/bin/mypy src/                   # type check
 .venv/bin/ruff check src/             # lint
 ```
 
 ## Architecture
 
-See [`MYLO_SPEC.md`](MYLO_SPEC.md) for the full specification and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the build plan with current status.
+See [`MYLO_SPEC.md`](MYLO_SPEC.md) for the full specification, [`CHANGELOG.md`](CHANGELOG.md) for what shipped in each release, [`ROADMAP.md`](ROADMAP.md) for what is next, and the design specs under [`docs/superpowers/specs/`](docs/superpowers/specs/) for how each recent feature was designed. [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) is the original build plan through v1.0.
 
 ## License
 
