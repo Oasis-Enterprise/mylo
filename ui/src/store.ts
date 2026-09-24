@@ -100,6 +100,10 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   setToolLabels(table) {
+    // Called on every status poll with a freshly-parsed object; skip the
+    // set (and the re-render it would trigger in every subscriber) when
+    // the table is unchanged.
+    if (JSON.stringify(table) === JSON.stringify(get().toolLabels)) return;
     set({ toolLabels: table });
   },
 }));

@@ -19,6 +19,9 @@ describe("describeError", () => {
   it("maps network failures", () => {
     expect(describeError("TypeError", "Failed to fetch")).toBe("Lost the connection to Mylo. It will reconnect on its own.");
   });
+  it("maps Safari's network failure type even when the message doesn't say so", () => {
+    expect(describeError("TypeError", "Load failed")).toBe("Lost the connection to Mylo. It will reconnect on its own.");
+  });
   it("maps a busy server", () => {
     expect(describeError("Error", "chat endpoint returned 409: turn_in_progress")).toBe(
       "Mylo is still finishing the previous request — this message wasn't sent. Try again in a moment.",

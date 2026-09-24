@@ -58,7 +58,9 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<{ type: string; message: string } | null>(null);
+  const [error, setError] = useState<{ type: string; message: string; human?: string } | null>(
+    null,
+  );
   // Set while the stream has dropped mid-turn and we're polling the
   // server for the finished turn. Rendered as a calm status line, not
   // an error — the server is still working.
@@ -184,12 +186,18 @@ export default function App() {
         }
       } catch (exc) {
         const detail = exc instanceof Error ? exc.message : String(exc);
+        const errType = exc instanceof Error ? exc.name : "Error";
         if (detail.includes("turn_in_progress")) {
           // The server refused a concurrent turn — the previous one is
           // still running (SSE drop doesn't cancel it). This message was
           // NOT processed; the poll below renders the running turn's
           // result once it lands.
-          setError({ type: "Error", message: detail });
+          setError({
+            type: errType,
+            message: detail,
+            human:
+              "Mylo is still finishing the previous request — this message wasn't sent. Try again in a moment.",
+          });
         } else {
           setReconnecting(true);
         }
@@ -198,7 +206,11 @@ export default function App() {
         if (recovered) {
           if (!detail.includes("turn_in_progress")) setError(null);
         } else if (!detail.includes("turn_in_progress")) {
-          setError({ type: "Error", message: detail });
+          setError({
+            type: errType,
+            message: detail,
+            human: "Lost the connection and couldn't catch up — reload the panel to see Mylo's reply.",
+          });
         }
       } finally {
         setItems((prev) =>
@@ -469,7 +481,7 @@ export default function App() {
               }}
             >
               <div className="flex items-start justify-between gap-2">
-                <span>{describeError(error.type, error.message)}</span>
+                <span>{error.human ?? describeError(error.type, error.message)}</span>
                 <button
                   type="button"
                   aria-label="Dismiss error"
@@ -488,7 +500,7 @@ export default function App() {
                   Details
                 </summary>
                 <pre
-                  className="mt-1 whitespace-pre-wrap font-mono text-[10px]"
+                  className="mt-1 whitespace-pre-wrap break-words font-mono text-[10px]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   {`${error.type}: ${error.message}`}
