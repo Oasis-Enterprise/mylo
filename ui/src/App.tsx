@@ -147,7 +147,12 @@ export default function App() {
                 text:
                   "**Slash commands**\n\n" +
                   "- `/clear` — wipe the conversation\n" +
-                  "- `/help` — show this help",
+                  "- `/new` — archive it and start fresh\n" +
+                  "- `/help` — show this help\n\n" +
+                  "**How Mylo works**\n\n" +
+                  "- Mylo can read everything in your Home Assistant, and asks before it changes anything.\n" +
+                  "- Every change is previewed. Nothing is written until you click Apply, and a backup is taken first.\n" +
+                  "- Turning devices on or off also needs your Apply.",
               },
             ],
             pending: false,
@@ -400,7 +405,7 @@ export default function App() {
               />
             ) : null}
             {items.length === 0 ? (
-              <EmptyState />
+              <EmptyState onPick={(t) => void handleSubmit(t)} />
             ) : (
               items.map((item) => <Message key={item.id} item={item} />)
             )}
@@ -646,7 +651,7 @@ function extractSummary(data: unknown): string | undefined {
   return undefined;
 }
 
-function EmptyState() {
+function EmptyState({ onPick }: { onPick: (text: string) => void }) {
   return (
     <div className="flex h-full items-center justify-center px-6">
       <div className="max-w-md space-y-5">
@@ -665,6 +670,26 @@ function EmptyState() {
           </div>
         </div>
         <div
+          className="rounded border p-4 space-y-2"
+          style={{ borderColor: "var(--color-border-accent)", backgroundColor: "var(--color-surface)" }}
+        >
+          <div
+            className="font-mono text-[10px] uppercase tracking-label"
+            style={{ color: "var(--color-accent)" }}
+          >
+            How Mylo works
+          </div>
+          <p className="font-sans text-[12.5px]" style={{ color: "var(--color-text)" }}>
+            Mylo can read everything in your Home Assistant, and asks before it changes anything.
+          </p>
+          <p className="font-sans text-[12.5px]" style={{ color: "var(--color-text)" }}>
+            Every change is previewed. Nothing is written until you click Apply, and a backup is taken first.
+          </p>
+          <p className="font-sans text-[12.5px]" style={{ color: "var(--color-text)" }}>
+            Turning devices on or off also needs your Apply.
+          </p>
+        </div>
+        <div
           className="rounded border p-4 space-y-3"
           style={{
             borderColor: "var(--color-border)",
@@ -680,18 +705,22 @@ function EmptyState() {
           <QuickStart
             label="Explore"
             text="What lights are on right now?"
+            onPick={onPick}
           />
           <QuickStart
             label="Organize"
             text="Help me rename and organize my kitchen entities"
+            onPick={onPick}
           />
           <QuickStart
             label="Automate"
             text="Create an automation that turns off lights at bedtime"
+            onPick={onPick}
           />
           <QuickStart
             label="Monitor"
             text="Set up sensor monitoring for my home"
+            onPick={onPick}
           />
         </div>
       </div>
@@ -699,9 +728,22 @@ function EmptyState() {
   );
 }
 
-function QuickStart({ label, text }: { label: string; text: string }) {
+function QuickStart({
+  label,
+  text,
+  onPick,
+}: {
+  label: string;
+  text: string;
+  onPick: (text: string) => void;
+}) {
   return (
-    <div className="flex items-start gap-2.5">
+    <button
+      type="button"
+      onClick={() => onPick(text)}
+      aria-label={`Ask: ${text}`}
+      className="tap flex w-full items-start gap-2.5 rounded text-left hover:bg-surface-raised px-1 py-0.5"
+    >
       <span
         className="mt-0.5 shrink-0 rounded-tag border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-label"
         style={{
@@ -718,7 +760,7 @@ function QuickStart({ label, text }: { label: string; text: string }) {
       >
         {text}
       </span>
-    </div>
+    </button>
   );
 }
 
