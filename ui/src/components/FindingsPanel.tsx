@@ -18,6 +18,7 @@ import {
   dismissPendingAction,
   type PendingActionData,
 } from "../api";
+import { IconButton } from "./ui/Button";
 
 interface Props {
   findings: PendingActionData[];
@@ -91,15 +92,14 @@ export function FindingsPanel({ findings, onChanged, onClose }: Props) {
                 style={{ backgroundColor: "var(--color-accent)" }}
               />
               <span className="flex-1">{pa.message}</span>
-              <button
-                type="button"
+              <IconButton
                 onClick={() => handleDismissItem(pa.id)}
                 title="Dismiss — won't resurface for a week"
-                className="font-mono text-[10px] shrink-0 px-1"
-                style={{ color: "var(--color-text-dim)" }}
+                aria-label="Dismiss"
+                className="shrink-0"
               >
                 ✕
-              </button>
+              </IconButton>
             </div>
           ))}
         </div>

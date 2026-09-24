@@ -25,6 +25,8 @@ import type {
 } from "../types";
 import { StatusDot } from "./StatusDot";
 import { Tag } from "./Tag";
+import { ActionBar } from "./ui/ActionBar";
+import { GhostButton } from "./ui/Button";
 
 export interface DashboardPlanCardProps {
   plans: DashboardPlanData[];
@@ -157,63 +159,24 @@ export function DashboardPlanCard({
         </pre>
       ) : null}
 
-      <div
-        className="flex items-center justify-end gap-2 px-3 py-2 border-t"
-        style={{ borderColor: "var(--color-border)" }}
-      >
-        <button type="button" onClick={onReject} className={ghostBtn} style={ghostStyle}>
-          Reject
-        </button>
-        <button type="button" onClick={onModify} className={ghostBtn} style={ghostStyle}>
-          Modify
-        </button>
-        {plans.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setShowYaml((v) => !v)}
-            className={ghostBtn}
-            style={ghostStyle}
-          >
-            {showYaml ? "Hide YAML" : "Show YAML"}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onApprove}
-          disabled={applying}
-          className={
-            destructive
-              ? "rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
-              : "btn-glow rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
-          }
-          style={
-            destructive
-              ? {
-                  backgroundColor: "var(--color-error-soft)",
-                  border: "1px solid var(--color-error)",
-                  color: "var(--color-error)",
-                }
-              : {
-                  backgroundColor: "var(--color-accent-soft)",
-                  border: "1px solid var(--color-accent)",
-                  color: "var(--color-accent)",
-                }
-          }
-        >
-          {applying ? "Applying…" : "Apply"}
-        </button>
-      </div>
+      <ActionBar
+        secondary={[
+          { label: "Reject", onClick: onReject },
+          { label: "Modify", onClick: onModify },
+          ...(plans.length > 0
+            ? [{ label: showYaml ? "Hide YAML" : "Show YAML", onClick: () => setShowYaml((v) => !v) }]
+            : []),
+        ]}
+        primary={{
+          label: applying ? "Applying…" : "Apply",
+          onClick: onApprove,
+          disabled: applying,
+          tone: destructive ? "error" : "accent",
+        }}
+      />
     </div>
   );
 }
-
-const ghostBtn =
-  "rounded border px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:opacity-80";
-const ghostStyle = {
-  borderColor: "var(--color-border)",
-  color: "var(--color-text-muted)",
-  background: "transparent",
-} as const;
 
 // ─── Custom cards ────────────────────────────────────────────────────────────
 
@@ -252,9 +215,9 @@ function StagedCardBlock({ card }: { card: StagedCardData }) {
           {w.code}: {w.message}
         </div>
       ))}
-      <button type="button" onClick={() => setShowSource((v) => !v)} className={ghostBtn} style={ghostStyle}>
+      <GhostButton onClick={() => setShowSource((v) => !v)}>
         {showSource ? "Hide source" : "Show source"}
-      </button>
+      </GhostButton>
       {showSource ? (
         <pre className="font-mono text-[10px] overflow-x-auto rounded border px-2 py-1.5"
              style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}>

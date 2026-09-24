@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { contextWindowFor } from "../lib/cost";
 import { formatDollars, formatTokens } from "../lib/format";
 import { useSession } from "../store";
+import { PrimaryButton } from "./ui/Button";
 
 interface Props {
   disabled?: boolean;
@@ -115,33 +116,20 @@ export function Composer({ disabled, onSubmit, draft, onStop, stopping }: Props)
           />
         </div>
         {disabled ? (
-          <button
-            type="button"
+          <PrimaryButton
+            tone="error"
+            glow={false}
+            aria-label="Stop"
             onClick={onStop}
             disabled={stopping || !onStop}
-            title="Stop"
-            className="rounded px-4 font-mono text-[11px] font-bold uppercase tracking-label disabled:opacity-40"
-            style={{
-              backgroundColor: "var(--color-error-soft)",
-              border: "1px solid var(--color-error)",
-              color: "var(--color-error)",
-            }}
+            className="px-4"
           >
             {stopping ? "Stopping…" : "■"}
-          </button>
+          </PrimaryButton>
         ) : (
-          <button
-            type="submit"
-            disabled={!text.trim()}
-            className="rounded px-4 font-mono text-[11px] font-bold uppercase tracking-label disabled:opacity-40"
-            style={{
-              backgroundColor: "var(--color-accent-soft)",
-              border: "1px solid rgba(16, 185, 129, 0.55)",
-              color: "var(--color-accent)",
-            }}
-          >
+          <PrimaryButton type="submit" aria-label="Send" disabled={!text.trim()} className="px-4">
             →
-          </button>
+          </PrimaryButton>
         )}
       </div>
     </form>

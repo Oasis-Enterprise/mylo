@@ -109,6 +109,18 @@ body,
   box-shadow: 0 0 12px var(--color-accent-glow);
 }
 
+/* Keyboard focus is visible everywhere; mouse focus stays quiet. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+/* Touch targets: 36px minimum on coarse pointers. */
+@media (pointer: coarse) {
+  .tap {
+    min-height: 36px;
+  }
+}
+
 /* Markdown/prose tweaks — slight adjustments so react-markdown output
    feels native in the Signal theme. */
 .prose-signal {

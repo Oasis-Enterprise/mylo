@@ -59,7 +59,7 @@ export function QuestionCard({ question, onSelect, disabled = false }: Props) {
                 type="button"
                 disabled={disabled}
                 onClick={() => onSelect(opt.label)}
-                className="rounded border px-3 py-2 text-left hover:brightness-110 disabled:opacity-60"
+                className="tap rounded border px-3 py-2 text-left hover:brightness-110 disabled:opacity-60"
                 style={{
                   borderColor: "var(--color-border)",
                   backgroundColor: "var(--color-surface)",

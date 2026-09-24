@@ -14,6 +14,7 @@
 
 import type { VerificationData } from "../api";
 import { formatRelative } from "../lib/format";
+import { IconButton } from "./ui/Button";
 
 interface Props {
   item: VerificationData;
@@ -44,15 +45,9 @@ export function VerificationCard({ item, onDismiss }: Props) {
         >
           {tone.label} · {item.target}
         </span>
-        <button
-          type="button"
-          onClick={() => onDismiss(item.id)}
-          title="Dismiss"
-          className="font-mono text-[10px] px-1"
-          style={{ color: "var(--color-text-dim)" }}
-        >
+        <IconButton onClick={() => onDismiss(item.id)} title="Dismiss" aria-label="Dismiss">
           ✕
-        </button>
+        </IconButton>
       </div>
       {item.message ? (
         <div className="mt-1 font-sans text-[12.5px]" style={{ color: "var(--color-text)" }}>

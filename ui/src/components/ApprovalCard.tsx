@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { tierLabel } from "../lib/labels";
 import { StatusDot } from "./StatusDot";
 import { Tag } from "./Tag";
+import { ActionBar } from "./ui/ActionBar";
 
 // One previewed change awaiting approval.
 export interface ApprovalItem {
@@ -143,61 +144,26 @@ export function ApprovalCard({ items, onApprove, onReject, applying = false }: P
         );
       })}
 
-      {destructive ? (
-        <div
-          className="px-3 pb-1 font-mono text-[10px]"
-          style={{ color: "var(--color-error)" }}
-        >
-          Deletes: {chosen.filter((i) => items[i].destructive).map((i) => items[i].target ?? items[i].description).join(", ")}
-        </div>
-      ) : null}
-      <div className="flex items-center justify-end gap-2 px-3 py-2 border-t"
-        style={{ borderColor: "var(--color-border)" }}
-      >
-        <button
-          type="button"
-          onClick={onReject}
-          className="rounded border px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:opacity-80"
-          style={{
-            borderColor: "var(--color-border)",
-            color: "var(--color-text-muted)",
-            background: "transparent",
-          }}
-        >
-          Reject
-        </button>
-        <button
-          type="button"
-          onClick={() => onApprove(chosen)}
-          disabled={applying || chosen.length === 0}
-          className={
-            destructive
-              ? "rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
-              : "btn-glow rounded px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-label hover:brightness-110 disabled:opacity-60"
-          }
-          style={
-            destructive
-              ? {
-                  backgroundColor: "var(--color-error-soft)",
-                  border: "1px solid var(--color-error)",
-                  color: "var(--color-error)",
-                }
-              : {
-                  backgroundColor: "var(--color-accent-soft)",
-                  border: "1px solid var(--color-accent)",
-                  color: "var(--color-accent)",
-                }
-          }
-        >
-          {applying
+      <ActionBar
+        note={
+          destructive ? (
+            <>Deletes: {chosen.filter((i) => items[i].destructive).map((i) => items[i].target ?? items[i].description).join(", ")}</>
+          ) : undefined
+        }
+        secondary={[{ label: "Reject", onClick: onReject }]}
+        primary={{
+          label: applying
             ? "Applying…"
             : !multiple
               ? "Apply"
               : chosen.length === items.length
                 ? `Apply all ${items.length}`
-                : `Apply ${chosen.length} of ${items.length}`}
-        </button>
-      </div>
+                : `Apply ${chosen.length} of ${items.length}`,
+          onClick: () => onApprove(chosen),
+          disabled: applying || chosen.length === 0,
+          tone: destructive ? "error" : "accent",
+        }}
+      />
     </div>
   );
 }
