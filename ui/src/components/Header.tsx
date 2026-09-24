@@ -97,16 +97,18 @@ export function Header({
           </span>
           <Tag tone="muted">V{status?.version ?? "..."}</Tag>
         </div>
-        <nav className="flex items-center gap-1">
-          <TabButton active={tab === "chat"} onClick={() => onChange("chat")}>
-            Chat
-          </TabButton>
-          <TabButton active={tab === "memory"} onClick={() => onChange("memory")}>
-            Memory
-          </TabButton>
-          <TabButton active={tab === "activity"} onClick={() => onChange("activity")}>
-            Activity
-          </TabButton>
+        <div className="flex items-center gap-1">
+          <nav role="tablist" aria-label="Sections" className="flex items-center gap-1">
+            <TabButton active={tab === "chat"} onClick={() => onChange("chat")}>
+              Chat
+            </TabButton>
+            <TabButton active={tab === "memory"} onClick={() => onChange("memory")}>
+              Memory
+            </TabButton>
+            <TabButton active={tab === "activity"} onClick={() => onChange("activity")}>
+              Activity
+            </TabButton>
+          </nav>
           {onNewConversation ? (
             <>
               <span
@@ -116,6 +118,7 @@ export function Header({
               <button
                 type="button"
                 onClick={onNewConversation}
+                aria-label="Start a new conversation"
                 className="font-mono text-[10px] tracking-label px-2 py-1"
                 style={{ color: "var(--color-text-dim)" }}
                 title="Archive this conversation and start fresh"
@@ -124,11 +127,11 @@ export function Header({
               </button>
             </>
           ) : null}
-        </nav>
+        </div>
       </div>
       <div className="px-4 pb-2">
         <div
-          className="font-mono text-[9px] leading-none flex items-center gap-2 flex-wrap"
+          className="font-mono text-[10px] sm:text-[9px] leading-none flex items-center gap-2 flex-wrap"
           style={{ color: "var(--color-text-muted)" }}
         >
           <StatusField label="entities" value={status ? String(status.entities) : "—"} />
@@ -217,6 +220,8 @@ function TabButton({
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={`${base} ${active ? activeStyles : inactiveStyles}`}
       style={

@@ -32,7 +32,7 @@ function MessageImpl({ item }: Props) {
   const isUser = item.role === "user";
   if (isUser) {
     return (
-      <div className="flex justify-end" style={{ paddingLeft: 60 }}>
+      <div className="flex justify-end sm:pl-16">
         <div
           className="max-w-[85%] rounded border px-3 py-[7px] font-sans text-[13px] leading-[1.5]"
           style={{
@@ -59,7 +59,7 @@ function MessageImpl({ item }: Props) {
   }
 
   return (
-    <div style={{ paddingRight: 40 }}>
+    <div className="sm:pr-10">
       {item.fragments.map((fragment, i) => {
         if (fragment.kind === "text" || fragment.kind === "draft") {
           return (

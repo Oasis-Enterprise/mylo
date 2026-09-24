@@ -21,7 +21,7 @@ interface Props {
 // actually happening rather than cycling decorative phrases.
 export function ThinkingIndicator({ label }: Props) {
   return (
-    <div className="flex items-center gap-2 py-1">
+    <div role="status" aria-live="polite" className="flex items-center gap-2 py-1">
       <PulsingDots />
       <span className="font-mono text-[10px]" style={{ color: "var(--color-text-muted)" }}>
         {label}

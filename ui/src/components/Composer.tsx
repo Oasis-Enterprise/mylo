@@ -71,7 +71,7 @@ export function Composer({ disabled, onSubmit, draft, onStop, stopping }: Props)
       style={{ borderColor: "var(--color-border)" }}
     >
       <div
-        className="mb-1.5 flex items-center gap-3 font-mono text-[9px] leading-none"
+        className="mb-1.5 flex items-center gap-3 font-mono text-[10px] sm:text-[9px] leading-none"
         style={{ color: "var(--color-text-muted)" }}
       >
         <span>
@@ -111,7 +111,8 @@ export function Composer({ disabled, onSubmit, draft, onStop, stopping }: Props)
             }
             disabled={disabled}
             rows={1}
-            className="w-full resize-none bg-transparent border-0 outline-none font-sans text-[12.5px] px-3 py-2.5 disabled:opacity-60"
+            aria-label="Message Mylo"
+            className="w-full resize-none bg-transparent border-0 font-sans text-[12.5px] px-3 py-2.5 disabled:opacity-60"
             style={{ color: "var(--color-text)" }}
           />
         </div>
@@ -120,6 +121,7 @@ export function Composer({ disabled, onSubmit, draft, onStop, stopping }: Props)
             tone="error"
             glow={false}
             aria-label="Stop"
+            title="Stop"
             onClick={onStop}
             disabled={stopping || !onStop}
             className="px-4"
@@ -127,7 +129,13 @@ export function Composer({ disabled, onSubmit, draft, onStop, stopping }: Props)
             {stopping ? "Stopping…" : "■"}
           </PrimaryButton>
         ) : (
-          <PrimaryButton type="submit" aria-label="Send" disabled={!text.trim()} className="px-4">
+          <PrimaryButton
+            type="submit"
+            aria-label="Send"
+            title="Send"
+            disabled={!text.trim()}
+            className="px-4"
+          >
             →
           </PrimaryButton>
         )}

@@ -406,7 +406,7 @@ export default function App() {
             )}
             {!sending
               ? verifications.map((v) => (
-                  <div key={v.id} style={{ paddingRight: 40 }}>
+                  <div key={v.id} className="sm:pr-10">
                     <VerificationCard
                       item={v}
                       onDismiss={(id) => void handleDismissVerification(id)}
@@ -421,7 +421,7 @@ export default function App() {
               />
             ) : null}
             {pendingQuestion && !sending ? (
-              <div style={{ paddingRight: 40 }}>
+              <div className="sm:pr-10">
                 <QuestionCard
                   question={pendingQuestion}
                   onSelect={(label) => void handleSubmit(label)}
@@ -430,7 +430,7 @@ export default function App() {
               </div>
             ) : null}
             {pendingApproval && approvalCount > 0 ? (
-              <div style={{ paddingRight: 40 }}>
+              <div className="sm:pr-10">
                 {planContexts.length > 0 || cardContexts.length > 0 ? (
                   <DashboardPlanCard
                     plans={planContexts.map((c) => c.plan!)}
