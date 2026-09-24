@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import { useEffect, useState } from "react";
+import { tierLabel } from "../lib/labels";
 import { StatusDot } from "./StatusDot";
 import { Tag } from "./Tag";
 
@@ -113,7 +114,7 @@ export function ApprovalCard({ items, onApprove, onReject, applying = false }: P
                   {i + 1}.
                 </span>
               ) : null}
-              <Tag tone="muted">{item.tierLabel ?? "TIER-2"}</Tag>
+              <Tag tone="muted">{tierLabel(item.tierLabel ?? "TIER-2")}</Tag>
             </div>
             {hasBody ? (
               <>

@@ -14,6 +14,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchActivity } from "../api";
+import { toolLabel } from "../lib/labels";
+import { useSession } from "../store";
 import type { AuditEntry } from "../types";
 import { StatusDot, type DotTone } from "./StatusDot";
 import { Tag, type TagTone } from "./Tag";
@@ -152,6 +154,7 @@ function DayGroup({ day, entries }: { day: string; entries: AuditEntry[] }) {
 
 function ActivityRow({ entry }: { entry: AuditEntry }) {
   const [open, setOpen] = useState(false);
+  const table = useSession((s) => s.toolLabels);
   const tone = resultTone(entry.result);
   const dotTone = resultDotTone(entry.result);
 
@@ -172,8 +175,9 @@ function ActivityRow({ entry }: { entry: AuditEntry }) {
         <span
           className="font-mono text-[11px] font-bold"
           style={{ color: "var(--color-accent)" }}
+          title={entry.tool_name}
         >
-          {entry.tool_name}
+          {toolLabel(entry.tool_name, table)}
         </span>
         <Tag tone={tone}>{entry.result}</Tag>
         {entry.dry_run ? (

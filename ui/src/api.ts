@@ -230,6 +230,10 @@ export interface ServerStatus {
   provider: string;
   // Unacknowledged background-verification outcomes.
   verifications?: VerificationData[];
+  // Plain-language label + tier for each tool the server knows about,
+  // keyed by raw tool name. Optional — older servers won't send it, and
+  // toolLabel() humanizes the raw name when a tool is missing from it.
+  tools?: Record<string, { label: string; tier: number }>;
 }
 
 export async function fetchStatus(): Promise<ServerStatus> {

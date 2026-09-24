@@ -14,6 +14,8 @@
 
 import { useState } from "react";
 import { formatDuration } from "../lib/format";
+import { toolLabel } from "../lib/labels";
+import { useSession } from "../store";
 import type { ToolCallRecord } from "../types";
 import { StatusDot, type DotTone } from "./StatusDot";
 
@@ -27,6 +29,8 @@ interface Props {
 // in the Signal screenshot.
 export function ToolCallBlock({ call }: Props) {
   const [open, setOpen] = useState(false);
+  const table = useSession((s) => s.toolLabels);
+  const label = toolLabel(call.name, table);
 
   const isAwaitingApproval =
     call.state === "error" && call.errorCode === "confirmation_required";
@@ -54,6 +58,8 @@ export function ToolCallBlock({ call }: Props) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label={`${label} details`}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
       >
         <StatusDot tone={tone} pulse={call.state === "pending"} />
@@ -61,7 +67,7 @@ export function ToolCallBlock({ call }: Props) {
           className="font-mono font-bold text-[11px]"
           style={{ color: tone === "error" ? "var(--color-error)" : "var(--color-accent)" }}
         >
-          {call.name}
+          {label}
         </span>
         {summary ? (
           <span
@@ -84,16 +90,23 @@ export function ToolCallBlock({ call }: Props) {
         </span>
       </button>
       {open ? (
-        <pre
-          className="overflow-auto border-t px-3 py-2 font-mono text-[10px] leading-[1.55]"
-          style={{
-            borderColor: "var(--color-border)",
-            color: "var(--color-text-muted)",
-            backgroundColor: "var(--color-surface)",
-          }}
+        <div
+          className="border-t"
+          style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}
         >
-          {JSON.stringify(call.input, null, 2)}
-        </pre>
+          <div
+            className="px-3 pt-2 font-mono text-[10px]"
+            style={{ color: "var(--color-text-dim)" }}
+          >
+            {call.name}
+          </div>
+          <pre
+            className="overflow-auto px-3 py-2 font-mono text-[10px] leading-[1.55]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            {JSON.stringify(call.input, null, 2)}
+          </pre>
+        </div>
       ) : null}
     </div>
   );

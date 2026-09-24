@@ -15,6 +15,7 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { lineDiff } from "../lib/lineDiff";
+import { tierLabel } from "../lib/labels";
 import type {
   DashboardPlanData,
   PlanFingerprint,
@@ -100,7 +101,7 @@ export function DashboardPlanCard({
           className="px-3 py-2 font-sans text-[12px] border-t"
           style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
         >
-          <Tag tone="muted">TIER-2</Tag> <span className="ml-2">{text}</span>
+          <Tag tone="muted">{tierLabel("TIER-2")}</Tag> <span className="ml-2">{text}</span>
         </div>
       ))}
 

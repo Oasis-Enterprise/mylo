@@ -20,6 +20,7 @@ import type {
   StagedCardData,
   ToolCallRecord,
 } from "../types";
+import { toolLabel } from "./labels";
 
 const DESTRUCTIVE_ACTIONS = new Set(["delete", "remove"]);
 const DESTRUCTIVE_OPS = new Set(["remove_card", "remove_section", "delete_view"]);
@@ -195,8 +196,11 @@ function describeCall(call: ToolCallRecord): Omit<ApprovalContext, "destructive"
     return { description: plan.summary, plan, tierLabel: "TIER-2" };
   }
 
+  // No table available in this pure helper (it has no store access) —
+  // this humanizes the raw name; App-level rendering of turn state
+  // shows that humanized form too, which is acceptable.
   return {
-    description: `${call.name} · dry run`,
+    description: `${toolLabel(call.name)} (preview)`,
     tierLabel: "TIER-2",
   };
 }

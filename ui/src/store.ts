@@ -20,6 +20,7 @@
 
 import { create } from "zustand";
 import { estimateCost, type UsageDelta } from "./lib/cost";
+import type { ToolLabelTable } from "./lib/labels";
 
 interface SessionState {
   turns: number;
@@ -35,10 +36,16 @@ interface SessionState {
   // prices against whatever the server is actually configured to run.
   model: string;
   provider: string;
+  // Plain-language tool label + tier lookup, synced from `/api/status`
+  // (handleStatus). Empty until the first poll lands (or forever, on a
+  // server that doesn't send it) — toolLabel() humanizes the raw name
+  // in that case.
+  toolLabels: ToolLabelTable;
 
   recordTurn(usage: UsageDelta): void;
   reset(): void;
   setModel(model: string, provider?: string): void;
+  setToolLabels(table: ToolLabelTable): void;
 }
 
 export const useSession = create<SessionState>((set, get) => ({
@@ -52,6 +59,7 @@ export const useSession = create<SessionState>((set, get) => ({
   lastContextTokens: 0,
   model: "claude-sonnet-4-6",
   provider: "anthropic",
+  toolLabels: {},
 
   recordTurn(usage) {
     const delta = estimateCost(usage, get().model, get().provider);
@@ -89,5 +97,9 @@ export const useSession = create<SessionState>((set, get) => ({
 
   setModel(model, provider) {
     set(provider ? { model, provider } : { model });
+  },
+
+  setToolLabels(table) {
+    set({ toolLabels: table });
   },
 }));

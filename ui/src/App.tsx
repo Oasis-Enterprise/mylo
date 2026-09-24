@@ -40,6 +40,7 @@ import { Message } from "./components/Message";
 import { QuestionCard } from "./components/QuestionCard";
 import { VerificationCard } from "./components/VerificationCard";
 import { hydrateFromMessages, isTurnComplete } from "./hydrate";
+import { describeError } from "./lib/errors";
 import { deriveTurnState } from "./lib/turnState";
 import { useSession } from "./store";
 import type { ChatFragment, ChatItem, ToolCallRecord } from "./types";
@@ -57,7 +58,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ type: string; message: string } | null>(null);
   // Set while the stream has dropped mid-turn and we're polling the
   // server for the finished turn. Rendered as a calm status line, not
   // an error — the server is still working.
@@ -93,15 +94,17 @@ export default function App() {
   const resetSession = useSession((s) => s.reset);
   const sessionCost = useSession((s) => s.costUsd);
   const setModel = useSession((s) => s.setModel);
+  const setToolLabels = useSession((s) => s.setToolLabels);
 
   const handleStatus = useCallback(
     (s: ServerStatus) => {
       if (s.model) setModel(s.model, s.provider);
+      if (s.tools) setToolLabels(s.tools);
       setVerifications(
         (s.verifications ?? []).filter((v) => !dismissedVerifications.current.has(v.id)),
       );
     },
-    [setModel],
+    [setModel, setToolLabels],
   );
 
   const handleDismissVerification = useCallback(async (id: string) => {
@@ -186,9 +189,7 @@ export default function App() {
           // still running (SSE drop doesn't cancel it). This message was
           // NOT processed; the poll below renders the running turn's
           // result once it lands.
-          setError(
-            "Mylo is still finishing the previous request — this message wasn't sent. Try again in a moment.",
-          );
+          setError({ type: "Error", message: detail });
         } else {
           setReconnecting(true);
         }
@@ -197,9 +198,7 @@ export default function App() {
         if (recovered) {
           if (!detail.includes("turn_in_progress")) setError(null);
         } else if (!detail.includes("turn_in_progress")) {
-          setError(
-            "Lost the connection and couldn't catch up — reload the panel to see Mylo's reply.",
-          );
+          setError({ type: "Error", message: detail });
         }
       } finally {
         setItems((prev) =>
@@ -446,7 +445,9 @@ export default function App() {
 
           {reconnecting ? (
             <div
-              className="border-t px-4 py-2 font-mono text-[10px]"
+              role="status"
+              aria-live="polite"
+              className="border-t px-4 py-2 font-sans text-[13px]"
               style={{
                 borderColor: "var(--color-border)",
                 backgroundColor: "var(--color-surface)",
@@ -459,14 +460,40 @@ export default function App() {
           ) : null}
           {error ? (
             <div
-              className="border-t px-4 py-2 font-mono text-[10px]"
+              role="alert"
+              className="border-t px-4 py-2 font-sans text-[13px]"
               style={{
                 borderColor: "var(--color-border)",
                 backgroundColor: "var(--color-error-soft)",
-                color: "var(--color-error)",
+                color: "var(--color-text)",
               }}
             >
-              {error}
+              <div className="flex items-start justify-between gap-2">
+                <span>{describeError(error.type, error.message)}</span>
+                <button
+                  type="button"
+                  aria-label="Dismiss error"
+                  onClick={() => setError(null)}
+                  className="font-mono text-[10px] px-1"
+                  style={{ color: "var(--color-text-dim)" }}
+                >
+                  ✕
+                </button>
+              </div>
+              <details className="mt-1">
+                <summary
+                  className="cursor-pointer font-mono text-[10px]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  Details
+                </summary>
+                <pre
+                  className="mt-1 whitespace-pre-wrap font-mono text-[10px]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  {`${error.type}: ${error.message}`}
+                </pre>
+              </details>
             </div>
           ) : null}
 
@@ -493,7 +520,7 @@ function applyEvent(
   toolCallsById: Map<string, ToolCallRecord>,
   setItems: React.Dispatch<React.SetStateAction<ChatItem[]>>,
   recordTurn: (u: Record<string, number>) => void,
-  setError: (s: string) => void,
+  setError: (e: { type: string; message: string }) => void,
 ) {
   switch (event.type) {
     case "text": {
@@ -592,7 +619,7 @@ function applyEvent(
       );
       break;
     case "error":
-      setError(`${event.errorType}: ${event.message}`);
+      setError({ type: event.errorType, message: event.message });
       break;
   }
 }
