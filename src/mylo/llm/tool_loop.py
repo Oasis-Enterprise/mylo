@@ -39,6 +39,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
+from mylo.context.tokens import estimate_tokens
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.summarize import compress_old_tool_results
 from mylo.llm.cost import cache_hit_ratio, estimate_usd
@@ -294,7 +295,9 @@ async def run_turn(
     seen_reads: dict[str, dict[str, Any]] = {}
     repeat_counts: dict[str, int] = {}
 
-    for _iteration in range(max_iterations):
+    system_tokens = estimate_tokens(system)
+
+    for iteration in range(max_iterations):
         messages: list[ProviderMessage] = conversation.as_provider_messages()
 
         # Safety ceiling: history is append-only within a turn (cheap via
@@ -383,6 +386,21 @@ async def run_turn(
 
         for key, value in response.usage.items():
             usage_total[key] = usage_total.get(key, 0) + value
+
+        # Per-call telemetry: the turn total hides which call paid for a
+        # cache write and how large the re-sent history had grown.
+        log.info(
+            "llm.call_usage",
+            model=model,
+            iteration=iteration,
+            input_tokens=response.usage.get("input_tokens", 0),
+            output_tokens=response.usage.get("output_tokens", 0),
+            cache_read_tokens=response.usage.get("cache_read_input_tokens", 0),
+            cache_write_tokens=response.usage.get("cache_creation_input_tokens", 0),
+            system_tokens=system_tokens,
+            history_tokens=estimated_tokens,
+            estimated_usd=round(estimate_usd(response.usage, model), 4),
+        )
         stop_reason = response.stop_reason
 
         # Persist the assistant turn exactly as the provider returned it —
@@ -435,14 +453,14 @@ async def run_turn(
             )
 
         # Feed the tool results back as a user turn with tool_result blocks.
-        result_blocks: list[dict[str, Any]] = [
-            {
-                "type": "tool_result",
-                "tool_use_id": call.id,
-                "content": json.dumps(envelope, default=str),
-            }
-            for call, envelope in zip(response.tool_calls, tool_results, strict=True)
-        ]
+        result_blocks: list[dict[str, Any]] = []
+        for call, envelope in zip(response.tool_calls, tool_results, strict=True):
+            content = json.dumps(envelope, default=str)
+            # Every later call in the turn re-reads this, so size is cost.
+            log.info("llm.tool_result_size", tool=call.name, result_chars=len(content))
+            result_blocks.append(
+                {"type": "tool_result", "tool_use_id": call.id, "content": content}
+            )
         if nudge_repeat:
             result_blocks.append(
                 {

@@ -506,6 +506,36 @@ async def test_usage_is_summed_across_iterations(
     assert done.usage["output_tokens"] == 15
 
 
+async def test_each_model_call_and_tool_result_is_logged(
+    tmp_path: Path, _conv: ConversationManager
+) -> None:
+    from structlog.testing import capture_logs
+
+    provider = _FakeProvider([_tool_turn("t1", "echo", {"value": 1}), _text_turn("done")])
+    ctx = make_ctx(ws_client=None, registries=Registries(), tmp_path=tmp_path)
+
+    with capture_logs() as logs:
+        async for _ in run_turn(
+            user_message="q",
+            conversation=_conv,
+            provider=provider,
+            ctx=ctx,
+            system="x" * 35,
+            tools=[],
+            model="fake",
+        ):
+            pass
+
+    calls = [e for e in logs if e["event"] == "llm.call_usage"]
+    assert [c["iteration"] for c in calls] == [0, 1]
+    assert [c["input_tokens"] for c in calls] == [20, 10]
+    assert all(c["system_tokens"] == 10 for c in calls)
+    sizes = [e for e in logs if e["event"] == "llm.tool_result_size"]
+    assert len(sizes) == 1
+    assert sizes[0]["tool"] == "echo"
+    assert sizes[0]["result_chars"] > 0
+
+
 async def test_identical_read_calls_deduped_and_nudged(
     tmp_path: Path, _conv: ConversationManager
 ) -> None:
