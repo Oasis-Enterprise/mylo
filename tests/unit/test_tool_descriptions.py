@@ -50,7 +50,7 @@ def test_every_description_is_short_and_mechanical() -> None:
     assert missing == []
 
 
-def test_prompt_version_is_0_9_0() -> None:
+def test_prompt_version_is_0_10_0() -> None:
     from mylo.context.basic_prompt import load_system_prompt
 
-    assert load_system_prompt().version == "0.9.0"
+    assert load_system_prompt().version == "0.10.0"

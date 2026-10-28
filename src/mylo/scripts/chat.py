@@ -40,7 +40,7 @@ import os
 import sys
 
 from mylo.config import load_config
-from mylo.context.assembler import assemble_system_prompt
+from mylo.context.assembler import assemble_system_prompt, with_turn_context
 from mylo.conversation.manager import ConversationManager
 from mylo.conversation.storage import ConversationStorage
 from mylo.dashboard.cards import CardStore
@@ -224,7 +224,7 @@ async def _run() -> int:
                 )
                 saw_delta = False
                 async for event in run_turn(
-                    user_message=user_line,
+                    user_message=with_turn_context(assembled.turn_context, user_line),
                     conversation=conv,
                     provider=provider,
                     ctx=ctx,

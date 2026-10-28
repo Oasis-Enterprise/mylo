@@ -50,7 +50,7 @@ from typing import Any
 from aiohttp import web
 from aiohttp.client_exceptions import ClientConnectionResetError
 
-from mylo.context.assembler import assemble_system_prompt
+from mylo.context.assembler import assemble_system_prompt, with_turn_context
 from mylo.context.memory_injection import render_current_time
 from mylo.llm.cost import cache_hit_ratio, estimate_usd
 from mylo.llm.tool_loop import (
@@ -551,12 +551,13 @@ async def _handle_chat(request: web.Request) -> web.StreamResponse:
     )
     system_text = assembled.system
 
-    # Prefix the user message with a compact timestamp so the model
-    # knows the current time without it being in the system prompt.
-    # This keeps the system block stable across turns, enabling
-    # Anthropic's prompt cache (~5,500 tokens saved per cache hit).
+    # Prefix the user message with a compact timestamp and the per-turn
+    # context block so the model gets both without them being in the
+    # system prompt. That keeps the system block stable across turns, so
+    # Anthropic's prompt cache can serve the system prompt and all prior
+    # history from cache instead of re-writing them every turn.
     time_prefix = render_current_time(request.app.get(AppKeys.HA_TIMEZONE))
-    message = f"[{time_prefix}] {message}"
+    message = with_turn_context(assembled.turn_context, f"[{time_prefix}] {message}")
 
     response = web.StreamResponse(
         status=200,

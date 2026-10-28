@@ -27,6 +27,18 @@ The assembler is intentionally stateless — it reads live registries,
 memory, and the user turn each call. Caching lives in the caller
 (the tool loop) via Anthropic's prompt-cache ephemeral marker on the
 system block.
+
+Output is split in two so that cache can actually hit across turns:
+
+* ``system`` — surfaces that don't depend on the user's message. It stays
+  byte-identical turn to turn until memory or the registries change.
+* ``turn_context`` — surfaces chosen by the message (working set, task
+  references, keyword-triggered memory) or that move every turn (cost
+  notes, verifications). The route prefixes it onto the user message, so
+  it is persisted with that message and history stays byte-stable too.
+
+Anthropic caches tools → system → messages as one prefix; a system block
+that changed every turn forced a re-write of the whole history each turn.
 """
 
 from __future__ import annotations
@@ -35,10 +47,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mylo.context.basic_prompt import LoadedPrompt, load_system_prompt
-from mylo.context.budget import ContextBudget, Surface, TextSurface
+from mylo.context.budget import ContextBudget, Surface, TextSurface, join_parts
 from mylo.context.memory_injection import build_memory_section
 from mylo.context.references import load_task_context
-from mylo.context.selector import select_sections
+from mylo.context.selector import ALWAYS_ON, select_sections
 from mylo.context.surfaces import TopologySurface
 from mylo.context.task_detector import detect_task_type
 from mylo.context.working_set import WorkingSetSurface
@@ -49,18 +61,31 @@ from mylo.memory.schema import MemoryFile, Suggestion
 
 log = get_logger(__name__)
 
+# Surfaces rendered into the per-turn context block instead of the system
+# prompt — everything whose text depends on the user's message or changes
+# from turn to turn on its own.
+_TURN_SURFACES: frozenset[str] = frozenset(
+    {"verifications", "task_refs", "working_set", "turn_memory", "cost_note", "monthly_cost_note"}
+)
+
+TURN_CONTEXT_OPEN = "<turn_context>"
+TURN_CONTEXT_CLOSE = "</turn_context>"
+
 
 @dataclass(slots=True, frozen=True)
 class AssembledPrompt:
     """Output of :func:`assemble_system_prompt`.
 
-    ``system`` is the text the provider receives. ``prompt_version``
-    stamps the conversation row for changelog correlation. ``task_type``
+    ``system`` is the text the provider receives as its system prompt;
+    ``turn_context`` (possibly empty) is prefixed onto the user message.
+    ``prompt_version`` stamps the conversation row for changelog
+    correlation. ``task_type``
     and ``sections`` are surfaced for logging/debug — we want to see
     in traces which layer choices the assembler made on each turn.
     """
 
     system: str
+    turn_context: str
     prompt_version: str
     task_type: str | None
     sections: frozenset[str]
@@ -149,13 +174,22 @@ def assemble_system_prompt(
             )
         )
 
-    # Layer 3 — remaining memory sections (conflicts rendered above).
-    rest_sections = sections - {"conflicts"}
+    # Layer 3 — remaining memory sections (conflicts rendered above). The
+    # always-on sections are stable and stay in the system prompt; the
+    # keyword-triggered ones depend on the message and go per-turn.
+    stable_sections = sections & (ALWAYS_ON | {"notes"})
     memory_text = build_memory_section(
-        memory, mylo_data_dir=mylo_data_dir, timezone=timezone, sections=rest_sections
+        memory, mylo_data_dir=mylo_data_dir, timezone=timezone, sections=stable_sections
     )
     if memory_text:
         surfaces.append(TextSurface("memory", memory_text))
+    triggered_sections = sections - stable_sections - {"conflicts"}
+    if triggered_sections:
+        triggered_text = build_memory_section(
+            memory, mylo_data_dir=mylo_data_dir, timezone=timezone, sections=triggered_sections
+        )
+        if triggered_text:
+            surfaces.append(TextSurface("turn_memory", triggered_text))
 
     # Low-priority atomic blocks — first to drop under budget pressure.
     for name, text in _low_priority_blocks(
@@ -170,7 +204,11 @@ def assemble_system_prompt(
 
     budget = ContextBudget.for_model(model, factor=budget_factor, output_reserve=output_reserve)
     assembled = budget.render(surfaces)
-    system = assembled.text
+    system = join_parts(text for name, text in assembled.parts if name not in _TURN_SURFACES)
+    turn_parts = [text for name, text in assembled.parts if name in _TURN_SURFACES]
+    turn_context = (
+        f"{TURN_CONTEXT_OPEN}\n{join_parts(turn_parts)}\n{TURN_CONTEXT_CLOSE}" if turn_parts else ""
+    )
 
     log.info(
         "context.budget",
@@ -184,10 +222,16 @@ def assemble_system_prompt(
 
     return AssembledPrompt(
         system=system,
+        turn_context=turn_context,
         prompt_version=layer1.version,
         task_type=task_type,
         sections=frozenset(sections),
     )
+
+
+def with_turn_context(turn_context: str, message: str) -> str:
+    """Prefix the per-turn context block onto the user's message."""
+    return f"{turn_context}\n\n{message}" if turn_context else message
 
 
 def _low_priority_blocks(

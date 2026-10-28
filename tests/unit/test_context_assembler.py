@@ -303,7 +303,8 @@ def test_assembler_includes_all_four_layers(tmp_path: Path) -> None:
     assert "# Layer 1 identity block." in result.system
     assert "HOME TOPOLOGY:" in result.system
     assert "Alice" in result.system  # memory layer (household)
-    assert "REFERENCE EXAMPLES" in result.system  # task layer
+    assert "REFERENCE EXAMPLES" in result.turn_context  # task layer (per-turn)
+    assert "REFERENCE EXAMPLES" not in result.system
     assert result.task_type == "automation"
     assert result.prompt_version == "test-1.0"
     assert "household" in result.sections
@@ -368,25 +369,25 @@ def _assemble_with_monthly(tmp_path: Path, *, spent: float, budget: float, local
 
 def test_monthly_warning_fires_at_80_percent(tmp_path: Path) -> None:
     result = _assemble_with_monthly(tmp_path, spent=12.0, budget=15.0)
-    assert "MONTHLY COST NOTE" in result.system
-    assert "$12.00" in result.system
-    assert "80%" in result.system
+    assert "MONTHLY COST NOTE" in result.turn_context
+    assert "$12.00" in result.turn_context
+    assert "80%" in result.turn_context
 
 
 def test_monthly_warning_silent_below_threshold(tmp_path: Path) -> None:
     result = _assemble_with_monthly(tmp_path, spent=5.0, budget=15.0)
-    assert "MONTHLY COST NOTE" not in result.system
+    assert "MONTHLY COST NOTE" not in result.turn_context
 
 
 def test_monthly_warning_skipped_for_local_provider(tmp_path: Path) -> None:
     # Local models are free; a monthly $ warning is meaningless.
     result = _assemble_with_monthly(tmp_path, spent=99.0, budget=15.0, local=True)
-    assert "MONTHLY COST NOTE" not in result.system
+    assert "MONTHLY COST NOTE" not in result.turn_context
 
 
 def test_monthly_warning_off_when_budget_zero(tmp_path: Path) -> None:
     result = _assemble_with_monthly(tmp_path, spent=99.0, budget=0.0)
-    assert "MONTHLY COST NOTE" not in result.system
+    assert "MONTHLY COST NOTE" not in result.turn_context
 
 
 def test_verifications_surface_present_when_given(tmp_path: Path) -> None:
@@ -417,6 +418,49 @@ def test_verifications_surface_present_when_given(tmp_path: Path) -> None:
         mylo_data_dir=tmp_path,
         base_prompt=LoadedPrompt(version="t", text="ID"),
     )
-    assert "VERIFICATION OUTCOMES" in with_v.system
-    assert "modify_automation automation porch — FAILED: never reconnected" in with_v.system
-    assert "VERIFICATION OUTCOMES" not in without.system
+    assert "VERIFICATION OUTCOMES" in with_v.turn_context
+    assert "modify_automation automation porch — FAILED: never reconnected" in with_v.turn_context
+    assert "VERIFICATION OUTCOMES" not in without.turn_context
+    assert with_v.system == without.system
+
+
+def test_system_prompt_is_identical_across_different_messages(tmp_path: Path) -> None:
+    """The cache contract: only the per-turn block may vary with the message."""
+    r = _fake_registries()
+    mem = empty_memory()
+    mem.household.members.append(HouseholdMember(name="Alice", role="primary_user"))
+    base = LoadedPrompt(text="identity", version="v")
+
+    def assemble(text: str, cost: float = 0.0):
+        return assemble_system_prompt(
+            registries=r,
+            memory=mem,
+            conversation_text=text,
+            mylo_data_dir=tmp_path,
+            base_prompt=base,
+            session_cost_usd=cost,
+            session_budget_usd=0.50,
+        )
+
+    a = assemble("build an automation for the kitchen lights")
+    b = assemble("the energy usage looks broken, fix it", cost=0.45)
+    c = assemble("hi")
+
+    assert a.system == b.system == c.system
+    assert "HOME TOPOLOGY:" in a.system
+    assert "Alice" in a.system
+    assert a.turn_context != b.turn_context
+    assert b.turn_context.startswith("<turn_context>\n")
+    assert b.turn_context.endswith("\n</turn_context>")
+    assert "COST NOTE" in b.turn_context
+
+
+def test_turn_context_empty_when_nothing_per_turn(tmp_path: Path) -> None:
+    result = assemble_system_prompt(
+        registries=None,
+        memory=empty_memory(),
+        conversation_text="hi",
+        mylo_data_dir=tmp_path,
+        base_prompt=LoadedPrompt(text="identity", version="v"),
+    )
+    assert result.turn_context == ""

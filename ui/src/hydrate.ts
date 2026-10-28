@@ -19,6 +19,7 @@
 
 import type { RawContentBlock, RawMessage } from "./api";
 import type { ChatFragment, ChatItem, ToolCallRecord } from "./types";
+import { displayUserText } from "./lib/userText";
 
 function randomId(): string {
   return Math.random().toString(36).slice(2);
@@ -59,7 +60,7 @@ export function hydrateFromMessages(messages: RawMessage[]): ChatItem[] {
         items.push({
           id: randomId(),
           role: "user",
-          fragments: [{ kind: "text", text: msg.content }],
+          fragments: [{ kind: "text", text: displayUserText(msg.content) }],
           pending: false,
         });
       }

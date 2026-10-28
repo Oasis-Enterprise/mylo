@@ -5,6 +5,19 @@ first-class versioned artifacts. Every change to ``system_prompt.txt``
 bumps the version in the first line of that file and adds an entry
 here explaining what changed and why.
 
+## 0.10.0 — 2026-10-27 (Cost)
+
+- Per-turn context moves out of the system prompt into a `<turn_context>`
+  block at the start of the user message: the working set, task reference
+  examples, keyword-triggered memory sections, verification outcomes, and
+  cost notes. The system prompt keeps identity, topology, always-on memory,
+  conflicts, hints, pending observations and proposals, and is now
+  byte-identical across turns, so Anthropic's prompt cache serves it and
+  all prior history instead of re-writing them every turn.
+- New behavior rule: the `<turn_context>` block and `[CURRENT TIME]` stamp
+  come from Mylo, not the user.
+- The verification-outcome rule now points at the turn context.
+
 ## 0.9.0 — 2026-09-23 (Surface)
 
 - Tool descriptions are trimmed to mechanics only; the policy they used to

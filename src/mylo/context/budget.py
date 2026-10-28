@@ -22,6 +22,7 @@ total — so prompt size is a function of the budget, not of home size.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -57,6 +58,9 @@ class AssembledContext:
     tokens_used: int
     allocations: list[tuple[str, int]]
     trimmed: bool
+    # (surface name, text) for each surface that rendered, in order — lets
+    # a caller route surfaces to different places after one budget pass.
+    parts: list[tuple[str, str]]
 
 
 class TextSurface:
@@ -91,7 +95,7 @@ class ContextBudget:
 
     def render(self, surfaces: list[Surface]) -> AssembledContext:
         remaining = self.total_tokens
-        parts: list[str] = []
+        parts: list[tuple[str, str]] = []
         allocations: list[tuple[str, int]] = []
         trimmed = False
         for surface in surfaces:
@@ -105,13 +109,19 @@ class ContextBudget:
                 actual = 0
             allocations.append((surface.name, actual))
             if rendered.text:
-                parts.append(rendered.text)
+                parts.append((surface.name, rendered.text))
                 remaining -= actual
             else:
                 trimmed = True
         return AssembledContext(
-            text=_JOINER.join(parts),
+            text=join_parts(text for _, text in parts),
             tokens_used=self.total_tokens - remaining,
             allocations=allocations,
             trimmed=trimmed,
+            parts=parts,
         )
+
+
+def join_parts(texts: Iterable[str]) -> str:
+    """Join rendered surface texts with the standard separator."""
+    return _JOINER.join(texts)
