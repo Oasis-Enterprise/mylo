@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from mylo.conversation.summarize import compress_old_tool_results
+from mylo.conversation.summarize import compact_history, compress_old_tool_results
 
 
 def _tool_result_msg(tool_use_id: str, envelope: dict[str, Any]) -> dict[str, Any]:
@@ -218,3 +218,53 @@ def test_query_entities_compression_preserves_entity_ids() -> None:
     assert "light.room_0" in ids and "light.room_39" in ids
     # And it's genuinely smaller than the raw result.
     assert len(json.dumps(payload)) < len(json.dumps(envelope))
+
+
+def _log_heavy_history(n_entries: int) -> list[dict[str, Any]]:
+    """One old query_logs turn (compressible) followed by two recent turns."""
+    entries = [{"message": f"line {i} " + "x" * 80} for i in range(n_entries)]
+    return [
+        {"role": "user", "content": "<turn_context>\nWORKING SET\n</turn_context>\n\n[t] logs?"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "t1", "name": "query_logs", "input": {}}],
+        },
+        _tool_result_msg("t1", {"status": "ok", "data": {"entries": entries}}),
+        _assistant_text("done"),
+        {"role": "user", "content": "<turn_context>\nRECENT\n</turn_context>\n\n[t] next"},
+        _assistant_text("ok"),
+    ]
+
+
+def test_compact_history_skips_when_savings_are_small() -> None:
+    history = _log_heavy_history(10)
+    # Same object back: the bytes the cache has seen are left alone.
+    assert compact_history(history) is history
+
+
+def test_compact_history_compacts_when_savings_pay_for_the_rewrite() -> None:
+    history = _log_heavy_history(500)
+    out = compact_history(history)
+    assert out is not history
+    assert json.loads(out[2]["content"][0]["content"])["compressed"] is True
+    # Old turn context dropped; the recent turn keeps its own.
+    assert out[0]["content"] == "[t] logs?"
+    assert out[4]["content"].startswith("<turn_context>")
+
+
+def test_compress_strips_turn_context_from_old_user_messages() -> None:
+    out = compress_old_tool_results(_log_heavy_history(1))
+    assert out[0]["content"] == "[t] logs?"
+    assert "<turn_context>" in out[4]["content"]
+
+
+def test_compress_returns_same_list_when_nothing_changes() -> None:
+    history = [
+        {"role": "user", "content": "hi"},
+        _assistant_text("a"),
+        {"role": "user", "content": "again"},
+        _assistant_text("b"),
+        {"role": "user", "content": "more"},
+        _assistant_text("c"),
+    ]
+    assert compress_old_tool_results(history) is history

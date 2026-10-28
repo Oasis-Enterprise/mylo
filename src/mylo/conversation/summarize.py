@@ -27,14 +27,24 @@ The summarizer runs after each complete turn (both halves: the
 user-message-with-tool-results and the assistant-text-response
 have landed in history). It walks backward through the history and
 compresses tool_result content blocks that are older than the
-current turn.
+current turn, and drops the per-turn ``<turn_context>`` block from
+older user messages.
+
+Every compression rewrites bytes in the middle of the history, which
+breaks Anthropic's prompt cache from that point on and costs a re-write
+at 1.25x input price. :func:`compact_history` therefore only applies it
+once enough has piled up to be worth that re-write; on the other turns
+the history stays byte-stable and is read from cache.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
+from mylo.context.assembler import TURN_CONTEXT_CLOSE, TURN_CONTEXT_OPEN
+from mylo.context.tokens import estimate_tokens
 from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -46,6 +56,34 @@ _MIN_COMPRESS_CHARS = 500
 # Tools whose results should never be compressed (they're consumed
 # by the next turn's approval flow).
 _NEVER_COMPRESS = frozenset({"call_service", "reload_config"})
+
+# Compact only when it saves at least this many tokens. Below that, the
+# cache re-write the compaction forces costs more than re-reading the
+# uncompressed results from cache for the next few turns.
+_MIN_COMPACTION_SAVINGS_TOKENS = 10_000
+
+_TURN_CONTEXT_RE = re.compile(
+    rf"^{re.escape(TURN_CONTEXT_OPEN)}.*?{re.escape(TURN_CONTEXT_CLOSE)}\s*", re.DOTALL
+)
+
+
+def compact_history(
+    history: list[dict[str, Any]],
+    *,
+    keep_last_n_turns: int = 2,
+    min_savings_tokens: int = _MIN_COMPACTION_SAVINGS_TOKENS,
+) -> list[dict[str, Any]]:
+    """Compress old history, but only when the savings pay for the cache
+    re-write it causes. Returns ``history`` itself when it isn't worth it."""
+    candidate = compress_old_tool_results(history, keep_last_n_turns=keep_last_n_turns)
+    if candidate is history:
+        return history
+    before = estimate_tokens(json.dumps(history, default=str))
+    after = estimate_tokens(json.dumps(candidate, default=str))
+    if before - after < min_savings_tokens:
+        return history
+    log.info("conversation.compacted", tokens_before=before, tokens_after=after)
+    return candidate
 
 
 def compress_old_tool_results(
@@ -75,9 +113,19 @@ def compress_old_tool_results(
     cutoff_index = assistant_indices[-keep_last_n_turns]
 
     compressed = []
+    changed_any = False
     for i, msg in enumerate(history):
         if i >= cutoff_index:
             compressed.append(msg)
+            continue
+
+        if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+            stripped = _TURN_CONTEXT_RE.sub("", msg["content"], count=1)
+            if stripped != msg["content"]:
+                compressed.append({"role": "user", "content": stripped})
+                changed_any = True
+            else:
+                compressed.append(msg)
             continue
 
         if msg.get("role") != "user" or not isinstance(msg.get("content"), list):
@@ -113,10 +161,12 @@ def compress_old_tool_results(
 
         if changed:
             compressed.append({"role": "user", "content": new_blocks})
+            changed_any = True
         else:
             compressed.append(msg)
 
-    return compressed
+    # Hand back the same list when nothing changed so callers can tell.
+    return compressed if changed_any else history
 
 
 def _summarize_tool_result(raw_content: str) -> str | None:

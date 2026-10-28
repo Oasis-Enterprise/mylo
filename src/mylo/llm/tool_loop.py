@@ -41,7 +41,7 @@ from typing import Any
 
 from mylo.context.tokens import estimate_tokens
 from mylo.conversation.manager import ConversationManager
-from mylo.conversation.summarize import compress_old_tool_results
+from mylo.conversation.summarize import compact_history, compress_old_tool_results
 from mylo.llm.cost import cache_hit_ratio, estimate_usd
 from mylo.llm.provider import Provider, ProviderMessage, ProviderResponse, StreamDelta
 from mylo.llm.status_labels import CANCELLED_LABEL, THINKING_LABEL, label_for
@@ -512,8 +512,10 @@ async def run_turn(
             )
         )
 
-    # Final compression with the standard window for between-turn savings.
-    conversation.history = compress_old_tool_results(conversation.history)
+    # Between-turn compression, batched: it only runs once it saves enough
+    # to pay for the cache re-write, so most turns keep a byte-stable
+    # history that the next turn reads from cache.
+    conversation.history = compact_history(conversation.history)
 
     # Per-turn telemetry — measures the caching/dedup win across iterations.
     log.info(
