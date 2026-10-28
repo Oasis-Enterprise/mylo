@@ -89,3 +89,12 @@ def test_cache_hit_ratio() -> None:
 
 def test_cache_hit_ratio_zero_when_no_input() -> None:
     assert cache_hit_ratio({"output_tokens": 500}) == 0.0
+
+
+def test_1h_cache_writes_bill_at_twice_input() -> None:
+    usage = {
+        "cache_creation_input_tokens": 2_000_000,
+        "cache_creation_1h_input_tokens": 1_000_000,
+    }
+    # 1M at the 5m rate (3.75) + 1M at 2x input (6.00).
+    assert estimate_usd(usage, "claude-sonnet-4-6") == pytest.approx(9.75)

@@ -370,3 +370,36 @@ async def test_stream_close_error_before_completion_propagates() -> None:
         await _collect(provider)
 
     assert fake.closed
+
+
+# ─── Cache TTLs ─────────────────────────────────────────────────────────────
+
+
+def test_prefix_gets_1h_ttl_and_history_keeps_default() -> None:
+    provider = AnthropicProvider(api_key="test")
+    system, tools, messages = provider._build_request(
+        "sys",
+        [{"role": "user", "content": "hi"}],
+        [{"name": "a"}, {"name": "b"}],
+    )
+    one_hour = {"type": "ephemeral", "ttl": "1h"}
+    assert system[0]["cache_control"] == one_hour
+    assert tools[-1]["cache_control"] == one_hour
+    assert "cache_control" not in tools[0]
+    assert messages[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_usage_reports_the_1h_share_of_cache_writes() -> None:
+    usage = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=5,
+        cache_creation_input_tokens=300,
+        cache_read_input_tokens=0,
+        cache_creation=SimpleNamespace(
+            ephemeral_1h_input_tokens=200, ephemeral_5m_input_tokens=100
+        ),
+    )
+    response = SimpleNamespace(content=[], stop_reason="end_turn", usage=usage)
+    out = AnthropicProvider._to_response(response).usage
+    assert out["cache_creation_input_tokens"] == 300
+    assert out["cache_creation_1h_input_tokens"] == 200

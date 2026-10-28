@@ -21,14 +21,15 @@ Uses the async SDK's ``messages.create`` for :meth:`message` and
 Applies Anthropic's prompt caching on the system prompt and the tool
 block:
 
-* System prompt goes in as a single block with
-  ``cache_control: {"type": "ephemeral"}`` → Anthropic caches it for 5
-  minutes after first use.
-* The last tool definition carries ``cache_control`` → everything up to
-  and including that tool is cached.
+* The last tool definition and the system prompt carry
+  ``cache_control: {"type": "ephemeral", "ttl": "1h"}`` → the tools +
+  system prefix stays cached for an hour, so stepping away to check
+  something in HA doesn't cost a re-write when the user comes back.
+* A moving breakpoint on the last history block uses the default 5-minute
+  TTL; 1h breakpoints must precede 5m ones, which this order satisfies.
 
-First call in a 5-minute window pays the full input price (plus a small
-cache-write surcharge). Every follow-up call that matches the cache reads
+The first call pays a cache-write surcharge (2x input for the 1h prefix,
+1.25x for the 5m history tail). Every follow-up call that matches the cache reads
 the cached prefix at ~10% of normal cost and doesn't count against the
 per-minute token budget. This is the single biggest dev-ergonomics win:
 repeated questions in the same session stop burning tokens on the same
@@ -49,6 +50,10 @@ from mylo.llm.provider import ProviderMessage, ProviderResponse, StreamDelta, To
 from mylo.logging_setup import get_logger
 
 log = get_logger(__name__)
+
+# The tools + system prefix only changes when the home or memory does, so
+# it gets the 1h TTL; history moves every call and keeps the 5m default.
+_PREFIX_CACHE_CONTROL: dict[str, str] = {"type": "ephemeral", "ttl": "1h"}
 
 _BACKOFF_DELAYS: tuple[float, ...] = (2.0, 5.0, 15.0)
 
@@ -115,7 +120,7 @@ class AnthropicProvider:
             {
                 "type": "text",
                 "text": system,
-                "cache_control": {"type": "ephemeral"},
+                "cache_control": dict(_PREFIX_CACHE_CONTROL),
             }
         ]
 
@@ -125,7 +130,7 @@ class AnthropicProvider:
         for i, tool in enumerate(tools):
             entry = dict(tool)
             if i == len(tools) - 1:
-                entry["cache_control"] = {"type": "ephemeral"}
+                entry["cache_control"] = dict(_PREFIX_CACHE_CONTROL)
             cached_tools.append(entry)
 
         # Cache the conversation history too: a moving breakpoint on the
@@ -200,6 +205,12 @@ class AnthropicProvider:
                 )
             if getattr(response.usage, "cache_read_input_tokens", None) is not None:
                 usage["cache_read_input_tokens"] = response.usage.cache_read_input_tokens or 0
+            # The part of cache_creation_input_tokens written with the 1h
+            # TTL, which bills at a higher rate than the 5m writes.
+            creation = getattr(response.usage, "cache_creation", None)
+            one_hour = getattr(creation, "ephemeral_1h_input_tokens", None)
+            if one_hour:
+                usage["cache_creation_1h_input_tokens"] = one_hour
 
         return ProviderResponse(
             content_blocks=content_blocks,

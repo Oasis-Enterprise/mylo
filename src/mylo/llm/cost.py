@@ -19,8 +19,10 @@ for Anthropic — cache-creation/write and cache-read); this turns them
 into a dollar estimate and a cache-hit ratio so we can measure cost and
 the caching win.
 
-Rates are $ per 1M tokens. For Anthropic, cache writes (5-min TTL) bill
-at ~1.25x input and cache reads at ~0.1x input. The non-Anthropic
+Rates are $ per 1M tokens. For Anthropic, cache writes bill at 1.25x
+input (5-min TTL) or 2x input (1-hour TTL) and cache reads at ~0.1x
+input. ``cache_creation_1h_input_tokens`` is the 1h share of
+``cache_creation_input_tokens``. The non-Anthropic
 providers Mylo supports don't report cache counters through our usage
 dict, so their cache_* rates are inert (set to sensible values for
 forward-compat). Local models (Ollama) are free — pass ``is_local=True``.
@@ -68,6 +70,9 @@ _PRICES: dict[str, dict[str, float]] = {
     "gpt-5.4-mini": {"input": 0.75, "output": 4.50, "cache_write": 0.75, "cache_read": 0.075},
     "gpt-5.4-nano": {"input": 0.20, "output": 1.25, "cache_write": 0.20, "cache_read": 0.02},
 }
+# Anthropic bills 1-hour cache writes at 2x the base input rate.
+_CACHE_WRITE_1H_MULTIPLIER = 2.0
+
 # Fallback when the model id isn't in the table — Sonnet rates (the chat default).
 _DEFAULT_RATES = _PRICES["claude-sonnet-4-6"]
 
@@ -93,10 +98,13 @@ def estimate_usd(usage: dict[str, Any], model: str, *, is_local: bool = False) -
     if is_local:
         return 0.0
     rates = _rates_for(model)
+    writes = float(usage.get("cache_creation_input_tokens", 0))
+    writes_1h = min(float(usage.get("cache_creation_1h_input_tokens", 0)), writes)
     cost = (
         float(usage.get("input_tokens", 0)) * rates["input"]
         + float(usage.get("output_tokens", 0)) * rates["output"]
-        + float(usage.get("cache_creation_input_tokens", 0)) * rates["cache_write"]
+        + (writes - writes_1h) * rates["cache_write"]
+        + writes_1h * rates["input"] * _CACHE_WRITE_1H_MULTIPLIER
         + float(usage.get("cache_read_input_tokens", 0)) * rates["cache_read"]
     )
     return cost / 1_000_000

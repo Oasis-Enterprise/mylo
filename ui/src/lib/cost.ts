@@ -52,15 +52,20 @@ export interface UsageDelta {
   output_tokens?: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
+  // The 1-hour-TTL share of cache_creation_input_tokens (billed at 2x input).
+  cache_creation_1h_input_tokens?: number;
 }
 
 export function estimateCost(usage: UsageDelta, model?: string, provider?: string): number {
   const rates = (model && RATES[model]) || (provider === "ollama" ? ZERO : FALLBACK);
+  const writes = usage.cache_creation_input_tokens ?? 0;
+  const writes1h = Math.min(usage.cache_creation_1h_input_tokens ?? 0, writes);
   const cost =
     ((usage.input_tokens ?? 0) * rates.input) / 1_000_000 +
     ((usage.output_tokens ?? 0) * rates.output) / 1_000_000 +
     ((usage.cache_read_input_tokens ?? 0) * rates.cacheRead) / 1_000_000 +
-    ((usage.cache_creation_input_tokens ?? 0) * rates.cacheWrite) / 1_000_000;
+    ((writes - writes1h) * rates.cacheWrite) / 1_000_000 +
+    (writes1h * rates.input * 2) / 1_000_000;
   return cost;
 }
 

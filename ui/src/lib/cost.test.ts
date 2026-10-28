@@ -25,6 +25,14 @@ describe("cost", () => {
   it("falls back to sonnet for unknown cloud models", () => {
     expect(estimateCost({ input_tokens: 1_000_000 }, "mystery", "anthropic")).toBeCloseTo(3);
   });
+  it("prices 1h cache writes at 2x input and the rest at the 5m rate", () => {
+    const usage = {
+      cache_creation_input_tokens: 2_000_000,
+      cache_creation_1h_input_tokens: 1_000_000,
+    };
+    // 1M at 3.75 (5m) + 1M at 6 (1h).
+    expect(estimateCost(usage, "claude-sonnet-4-6")).toBeCloseTo(9.75);
+  });
   it("knows context windows", () => {
     expect(contextWindowFor("claude-sonnet-4-6")).toBe(200_000);
     expect(contextWindowFor("gpt-4o")).toBe(128_000);
