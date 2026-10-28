@@ -5,6 +5,22 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] — 2026-10-27
+
+### Changed
+- **Long sessions cost much less.** Mylo now actually reuses Anthropic's prompt cache from one message to the next. Before, part of its instructions changed with every message, so it re-sent its instructions and the whole conversation so far at full price on each one. What Mylo knows and how it answers are unchanged.
+- The tool definitions and Mylo's instructions stay cached for an hour instead of five minutes, so stepping away to check something in Home Assistant no longer means paying to send them again.
+- Older tool results are compressed in batches, only when that saves enough to be worth breaking the cache, instead of after every message.
+- Session and monthly cost estimates price the one-hour cache correctly.
+
+### Fixed
+- A reloaded chat no longer shows the "[CURRENT TIME: …]" stamp at the start of your messages.
+
+### Developer
+- The assembler returns `turn_context` (working set, task references, keyword-triggered memory, verification outcomes, cost notes), which is prefixed onto the user message and stored with it. The system prompt is byte-identical across turns. Prompt 0.10.0.
+- `compact_history` compresses only when it saves at least 10k tokens; compression also drops `<turn_context>` from older user messages.
+- New log events: `llm.call_usage` for every model call and `llm.tool_result_size` for every tool result. Usage carries `cache_creation_1h_input_tokens`.
+
 ## [1.9.0] — 2026-09-23
 
 ### Added
