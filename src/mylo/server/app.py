@@ -178,7 +178,10 @@ def _create_provider(config: AppConfig) -> Any:
         from mylo.llm.ollama_provider import OllamaProvider
 
         url = config.ollama_url or os.environ.get("OLLAMA_URL") or None
-        return OllamaProvider(base_url=url, model=model)
+        # Why: not `api_key` above — that reads ANTHROPIC_API_KEY first, and
+        # an Anthropic key must never be sent to an Ollama URL.
+        ollama_key = os.environ.get("OLLAMA_API_KEY") or config.api_key or None
+        return OllamaProvider(base_url=url, model=model, api_key=ollama_key)
 
     log.warning("server.unknown_llm_provider", provider=config.llm_provider)
     return None

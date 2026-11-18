@@ -24,6 +24,11 @@ Default Ollama URL inside a Home Assistant add-on is
 or ``http://<ollama-addon>:11434`` if Ollama is another HA add-on.
 Configurable via ``OLLAMA_URL`` env var.
 
+API key: plain Ollama ignores the ``Authorization`` header, so the key
+is optional. When Ollama sits behind an authenticating gateway or proxy
+(LiteLLM, Open-WebUI, an nginx bearer check), the configured key is
+sent as ``Authorization: Bearer <key>``.
+
 Cost: $0. Ollama runs locally. The trade-off is model quality —
 smaller local models produce more hallucinations and weaker tool
 calling than Claude or GPT-4. The dashboard entity-ref validator
@@ -47,8 +52,7 @@ class OllamaProvider(OpenAIProvider):
     """Ollama via the OpenAI-compatible endpoint.
 
     Inherits all message/tool conversion from OpenAIProvider. The
-    only difference is the base_url and that we use a dummy API key
-    (Ollama doesn't require one).
+    only differences are the base_url and that the API key is optional.
     """
 
     def __init__(
@@ -56,11 +60,19 @@ class OllamaProvider(OpenAIProvider):
         *,
         base_url: str | None = None,
         model: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         url = base_url or os.environ.get("OLLAMA_URL", DEFAULT_OLLAMA_URL)
         super().__init__(
-            api_key="ollama",  # Ollama ignores the key
+            # Why: the OpenAI SDK refuses to build a client without a key,
+            # so a blank key becomes a placeholder that plain Ollama ignores.
+            api_key=api_key or "ollama",
             base_url=url,
             default_model=model or DEFAULT_OLLAMA_MODEL,
         )
-        log.info("ollama.initialized", base_url=url, model=model or DEFAULT_OLLAMA_MODEL)
+        log.info(
+            "ollama.initialized",
+            base_url=url,
+            model=model or DEFAULT_OLLAMA_MODEL,
+            api_key_set=bool(api_key),
+        )
