@@ -4,7 +4,8 @@ configuration:
     description: >-
       API key for your chosen provider (Anthropic, OpenAI, or Gemini). BYOK —
       Mylo uses your key directly, nothing is proxied through Oasis Enterprise
-      servers. Leave blank when using Ollama (local).
+      servers. Leave blank for plain Ollama; set it if your Ollama sits behind
+      a gateway or proxy that requires a key.
   llm_provider:
     name: LLM Provider
     description: >-

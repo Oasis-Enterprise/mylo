@@ -299,11 +299,11 @@ Running on an LLM API costs real money. A free add-on that burns $5/day isn't fr
 | **Anthropic** | `anthropic` | Anthropic key | `claude-sonnet-4-6` | ~$3–15/Mtok | Default. Best tool calling quality. |
 | **OpenAI** | `openai` | OpenAI key | `gpt-4o` | ~$2.50–10/Mtok | GPT-4o, GPT-4-turbo, etc. |
 | **Gemini** | `gemini` | Google AI Studio key | `gemini-2.5-flash` | ~$0.15–10/Mtok | Via Google's OpenAI-compatible endpoint. |
-| **Ollama** | `ollama` | none | `llama3.1` | $0 | Local models. Needs Ollama running on host. |
+| **Ollama** | `ollama` | none (or your gateway's key) | `llama3.1` | $0 | Local models. Needs Ollama running on host. |
 
 All providers use the same `api_key` field in the Configuration tab — just put the right key for your chosen provider. If you switch providers but forget to update the `model` field, Mylo auto-detects the mismatch and falls back to the provider's default model.
 
-For Ollama: set `ollama_url` in the Configuration tab to your Ollama server's address (e.g. `http://192.168.1.50:11434/v1`). Default is `http://host.docker.internal:11434/v1` which works if Ollama runs on the same machine as HA. Leave `api_key` empty — Ollama doesn't use one. Budget warnings are automatically disabled since cost is $0.
+For Ollama: set `ollama_url` in the Configuration tab to your Ollama server's address (e.g. `http://192.168.1.50:11434/v1`). Default is `http://host.docker.internal:11434/v1` which works if Ollama runs on the same machine as HA. Leave `api_key` empty for plain Ollama. If Ollama sits behind a gateway or proxy that requires a key (LiteLLM, Open-WebUI, a bearer-token reverse proxy), put that key in `api_key` and Mylo sends it as `Authorization: Bearer <key>`. Budget warnings are automatically disabled since cost is $0.
 
 **Ollama model sizing guide:** Mylo has 32 tools with complex schemas. Smaller models struggle to produce valid tool calls reliably.
 

@@ -64,7 +64,9 @@ config file. The schema:
 
 **`api_key`** — required for `anthropic`, `openai`, and `gemini` providers.
 This field must be non-empty; an empty string is treated as unset and the
-provider will not initialise. For `ollama`, leave blank.
+provider will not initialise. For `ollama`, leave blank unless Ollama sits
+behind a gateway or proxy that requires a key; if set, it is sent as
+`Authorization: Bearer <key>`.
 
 **`ollama_url`** — only used when `llm_provider` is `ollama`. Set to the base
 URL of your Ollama instance (e.g. `http://ollama:11434`). When using
