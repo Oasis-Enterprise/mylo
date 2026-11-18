@@ -5,6 +5,17 @@ All notable changes to Mylo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.2] — 2026-11-18
+
+### Fixed
+- **Ollama behind a gateway now works.** If you run Ollama behind a gateway or proxy that requires an API key (LiteLLM, Open-WebUI, a bearer-token reverse proxy), Mylo now sends the key from the **LLM API Key** field. Before, it always sent a placeholder and the gateway rejected every request. Plain Ollama is unaffected: leave the field blank. ([#14](https://github.com/Oasis-Enterprise/mylo/issues/14))
+
+### Note
+- If you use Ollama and still have an old Anthropic, OpenAI or Gemini key in the **LLM API Key** field from before you switched, clear it. Mylo now sends that field to your Ollama URL.
+
+### Developer
+- `OllamaProvider(api_key=...)` is optional and falls back to `"ollama"`. The provider factory reads `OLLAMA_API_KEY`, then `api_key`; it never uses `ANTHROPIC_API_KEY` for Ollama.
+
 ## [1.9.1] — 2026-10-27
 
 ### Changed
